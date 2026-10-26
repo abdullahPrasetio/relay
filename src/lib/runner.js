@@ -93,6 +93,7 @@ export async function runCollection({
   keepVariableValues = true, // persist variable mutations after the run
   shouldStop = null, // callback checked before every request
   onRequestId = null, // callback fired with the id right before each send
+  runScript = null, // injected script executor (CLI); absent = renderer bridge
   onProgress,
 }) {
   // Ancestor chain for auth/script inheritance. The old `collectionNode`
@@ -190,7 +191,7 @@ export async function runCollection({
         combinedPreRequest(request, chain),
         context,
         request,
-        { trusted }
+        { trusted, runScript }
       );
 
       // Apply any pm.request.* mutations the pre-request script made.
@@ -237,6 +238,7 @@ export async function runCollection({
         ? { ran: false, results: [] }
         : await runTests(combinedTests(request, chain), response, context, resolved, {
             trusted,
+            runScript,
           });
 
       // `pm.execution.skipRequest()` in a test script still marks the step as

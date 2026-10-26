@@ -1,7 +1,12 @@
 name: Build
 
-# Produces a downloadable macOS build for every push (Actions artifact) and a
-# GitHub Release with the .dmg attached when a v* tag is pushed.
+# Cross-platform build: every push produces macOS, Windows, and Linux artifacts.
+# A v* tag additionally publishes them in a GitHub Release.
+#
+# Code signing / notarization is NOT enabled: it requires repository secrets
+# (Apple Developer ID + notarization credentials, a Windows code-signing
+# certificate). Builds are unsigned; CSC_IDENTITY_AUTO_DISCOVERY=false keeps
+# electron-builder from probing for a local identity in CI.
 on:
   push:
     branches: ['**']
@@ -13,11 +18,38 @@ permissions:
 
 concurrency:
   group: build-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel an in-flight release build; branch builds can supersede.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
-  macos-arm64:
-    runs-on: macos-latest
+  build:
+    name: build (${{ matrix.artifact }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: relay-macos-arm64
+            command: npm run dist
+            files: |
+              release/*.dmg
+              release/*.zip
+              release/*.blockmap
+          - os: windows-latest
+            artifact: relay-windows-x64
+            command: npm run dist:win
+            files: |
+              release/*.exe
+              release/*.zip
+              release/*.blockmap
+          - os: ubuntu-latest
+            artifact: relay-linux-x64
+            command: npm run dist:linux
+            files: |
+              release/*.AppImage
+              release/*.tar.gz
+              release/*.blockmap
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,35 +59,41 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
-      # Unsigned local build: no signing identity is configured in CI.
-      - run: npm run dist -- --publish never
+      - name: Build
+        run: ${{ matrix.command }} -- --publish never
         env:
+          # Unsigned build: no signing identity exists in CI.
           CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:
-          name: relay-macos-arm64
-          path: |
-            release/*.dmg
-            release/*.blockmap
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
           if-no-files-found: error
           retention-days: 14
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: macos-arm64
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: relay-macos-arm64
+          pattern: relay-*
           path: release
+          merge-multiple: true
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" release/*.dmg \
+          shopt -s nullglob
+          files=(release/*.dmg release/*.zip release/*.exe release/*.AppImage)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No installers found in release/" >&2
+            exit 1
+          fi
+          gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
             --title "Relay ${GITHUB_REF_NAME}" \
             --generate-notes

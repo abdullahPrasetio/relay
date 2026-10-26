@@ -24,16 +24,26 @@ function applyContextBack(context, returned) {
   }
 }
 
+// Pick the executor: an injected one (CLI/Node) wins over the renderer bridge.
+// `options.runScript` receives the same payload the `script:run` IPC channel
+// takes, so callers can reuse electron/script-runner.js directly.
+function resolveExecutor(options) {
+  if (typeof options?.runScript === 'function') return options.runScript;
+  if (hasBridge) return (payload) => window.api.runScript(payload);
+  return null;
+}
+
 // Run a test script after a response. `request` gives scripts pm.request.
 export async function runTests(script, response, context, request, options = {}) {
   if (!script || !script.trim()) return { ran: false, results: [] };
-  if (!hasBridge) {
+  const execute = resolveExecutor(options);
+  if (!execute) {
     return {
       ran: true,
       results: [{ name: 'Script error', passed: false, error: 'Script engine unavailable (no bridge).' }],
     };
   }
-  const out = await window.api.runScript({
+  const out = await execute({
     phase: 'test',
     script,
     response,
@@ -56,10 +66,11 @@ export async function runTests(script, response, context, request, options = {})
 // Run a pre-request script before sending. `request` gives scripts pm.request.
 export async function runPreRequest(script, context, request, options = {}) {
   if (!script || !script.trim()) return { ran: false };
-  if (!hasBridge) {
+  const execute = resolveExecutor(options);
+  if (!execute) {
     return { ran: true, error: 'Script engine unavailable (no bridge).' };
   }
-  const out = await window.api.runScript({
+  const out = await execute({
     phase: 'pre',
     script,
     context,

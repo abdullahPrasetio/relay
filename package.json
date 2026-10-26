@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "description": "Relay — a modern local API client (Postman-style) built with Electron + React + Vite",
   "main": "dist-electron/main.js",
+  "bin": {
+    "relay": "cli/relay.mjs"
+  },
   "type": "module",
   "author": "Relay",
   "license": "MIT",
@@ -19,7 +22,10 @@
     "check": "npm run lint && npm test && npm run build:vite",
     "dist": "vite build && electron-builder --mac --arm64",
     "dist:universal": "vite build && electron-builder --mac --universal",
-    "dist:dir": "vite build && electron-builder --mac --arm64 --dir"
+    "dist:dir": "vite build && electron-builder --mac --arm64 --dir",
+    "dist:win": "vite build && electron-builder --win nsis --x64",
+    "dist:linux": "vite build && electron-builder --linux AppImage --x64",
+    "cli": "node cli/relay.mjs"
   },
   "build": {
     "appId": "com.relay.apiclient",
@@ -46,6 +52,33 @@
     },
     "dmg": {
       "title": "Relay ${version}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "category": "Development",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
     }
   },
   "dependencies": {
@@ -70,6 +103,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "aedes": "^1.2.0",
     "electron": "^33.2.0",
     "electron-builder": "^24.13.3",
     "eslint": "^9.15.0",
