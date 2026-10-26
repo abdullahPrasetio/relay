@@ -13,6 +13,7 @@ import {
   moveNodeBefore,
 } from '../lib/collectionTree.js';
 import { toPostmanCollection } from '../lib/postmanFormat.js';
+import { collectionToHtml, suggestDocsName } from '../lib/apiDocs.js';
 import { importAny } from '../lib/import/index.js';
 import { toPostmanEnvironment, fromPostmanEnvironment } from '../lib/environmentFormat.js';
 import TreeNode from './TreeNode.jsx';
@@ -110,6 +111,32 @@ export default function Sidebar({
     const a = document.createElement('a');
     a.href = url;
     a.download = `${collection.name.replace(/[^\w.-]+/g, '_')}.postman_collection.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Static HTML API docs. Uses the native save dialog when the Electron
+  // bridge is available and a Blob download in the browser.
+  async function exportDocs(collection) {
+    const html = collectionToHtml(collection);
+    const suggestedName = suggestDocsName(collection);
+    const bridge = typeof window !== 'undefined' ? window.api : null;
+    if (bridge?.saveResponse) {
+      try {
+        const result = await bridge.saveResponse({ suggestedName, text: html });
+        if (result?.saved === false && result.error) {
+          dialogs.alert(result.error, { title: 'Export Docs' });
+        }
+      } catch (err) {
+        dialogs.alert(err.message, { title: 'Export Docs' });
+      }
+      return;
+    }
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = suggestedName;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -275,6 +302,7 @@ export default function Sidebar({
                     collection={c}
                     actions={actions}
                     onExport={() => exportCollection(c)}
+                    onExportDocs={() => exportDocs(c)}
                     onDelete={() => deleteCollection(c.id, c.name)}
                     onRename={async () => {
                       const name = await dialogs.prompt('Collection name', c.name, {
@@ -626,7 +654,7 @@ function EnvironmentsPanel({ environments, activeEnvId, onSelectEnv, onChangeEnv
   );
 }
 
-function CollectionKebab({ collection, actions, onExport, onDelete, onRename, onEditCollection, onRun }) {
+function CollectionKebab({ collection, actions, onExport, onExportDocs, onDelete, onRename, onEditCollection, onRun }) {
   const [open, setOpen] = useState(false);
   const items = [
     { label: 'Run Collection', onClick: onRun },
@@ -635,6 +663,7 @@ function CollectionKebab({ collection, actions, onExport, onDelete, onRename, on
     { label: 'Add Folder', onClick: () => actions.addFolder(collection.id, null) },
     { label: 'Rename', onClick: onRename },
     { label: 'Export (Postman v2.1)', onClick: onExport },
+    { label: 'Export docs (HTML)', onClick: onExportDocs },
     { label: 'Delete', danger: true, onClick: onDelete },
   ];
   return (
