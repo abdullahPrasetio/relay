@@ -28,6 +28,7 @@ mengimpor `electron/*`; semua efek samping lewat IPC.
 | `cookies:get` / `cookies:clear` | — | daftar cookie / `[]` |
 | `file:pick` | — | `{ filePath, fileName, size }` atau `null` |
 | `response:save` | `{ suggestedName, base64? \| text? }` | `{ saved, path?, error? }` |
+| `secrets:encrypt` / `secrets:decrypt` / `secrets:decryptMany` | string / ciphertext / list | ciphertext / plaintext / list (safeStorage) |
 | `network:get` / `network:set` | settings tersanitasi / edit | settings tersanitasi (rahasia diganti flag) |
 | `store:get` / `store:set` | data workspace | data workspace |
 
@@ -113,13 +114,26 @@ Engine memanggil auth **setelah** URL dan body terbentuk (OAuth1/AWS SigV4 menan
 
 ## Rahasia
 
-`safeStorage` adalah satu-satunya penyimpanan rahasia. Password proxy dan
-passphrase client cert dienkripsi di main, disimpan sebagai ciphertext base64
-(`passwordEnc`, `clientCertPassphraseEnc`), dan tidak pernah dikirim balik ke
-renderer — `sanitizeNetworkSettings` menggantinya dengan
-`hasPassword` / `hasClientCertPassphrase`. Bila `safeStorage` tidak tersedia
-(termasuk backend Linux `basic_text`), penyimpanan rahasia gagal dengan pesan
-jelas; tidak ada fallback plaintext.
+`safeStorage` adalah satu-satunya penyimpanan rahasia.
+
+- **Network settings**: password proxy dan passphrase client cert dienkripsi
+  di main (`passwordEnc`, `clientCertPassphraseEnc`) dan tidak pernah dikirim
+  balik — `sanitizeNetworkSettings` menggantinya dengan
+  `hasPassword` / `hasClientCertPassphrase`.
+- **Variabel rahasia** (`type: 'secret'`): plaintext hanya hidup di state
+  renderer. Saat debounce persist, `sealWorkspaceSecrets` (di
+  `src/lib/secretVars.js`) mengenkripsi nilai lewat IPC
+  `secrets:encrypt`/`decryptMany` menjadi `secretEnc` dan mengosongkan
+  `value`; saat load, `hydrateWorkspaceSecrets` mengembalikannya ke plaintext
+  agar input, runner, dan `showCode` bekerja normal. Bila seal gagal, tulisan
+  dilewati (tidak pernah plaintext ke disk) dan UI menampilkan
+  `Changes not saved: …`.
+- **Masking**: `maskSecrets` menyamarkan nilai secret di console log, tampilan
+  “Request Sent”, dan seluruh export (Postman, environment, globals,
+  workspace backup menulis `value: ''` + `type: 'secret'`).
+
+Tidak ada fallback plaintext; bila `safeStorage` tidak tersedia (termasuk
+backend Linux `basic_text`) penyimpanan rahasia gagal dengan pesan jelas.
 
 ## Persistensi
 
@@ -139,19 +153,41 @@ Bentuk saat ini (`SCHEMA_VERSION = 2` di `shared/schema.js`):
 - Sebelum migrasi, main menyalin file ke `<file>.v<versiLama>.bak` sekali
   (tidak menimpa backup yang sudah ada, dan tidak membuat apa pun pada
   instalasi baru).
+- Baris variabel: `{ key, value, enabled, type: 'default'|'secret', secretEnc? }`.
+  Saat ditulis ke disk, baris `secret` selalu `value: ''` + `secretEnc`.
 
 ## Runtime script
 
-Script pre-request/test dijalankan di main (`electron/script-runner.js`),
-bukan di renderer: script butuh `require('crypto-js'|'moment'|'uuid')` dan
-tidak boleh menyentuh DOM aplikasi. `runScript` menerima `send` dari main
-sehingga `pm.sendRequest` memakai cookie jar + network policy yang sama. Script dapat me-require `crypto-js`, `moment`, `uuid`; mutasi variabel
-dikembalikan lewat `context`, mutasi request lewat `requestPatch`.
+Script pre-request/test dijalankan di main, di dalam sandbox
+(`electron/sandbox/index.js`): `vm.createContext` dengan
+`codeGeneration: { strings: false, wasm: false }`, tanpa `process`, `require`
+(beyond allow-list `crypto-js`/`moment`/`uuid`), `fs`, `Buffer`, `fetch`, atau
+`setImmediate`. Escape suite di `test/unit/sandbox.test.js` menjaga invariant
+ini. Batas: timeout 5 s per script, budget async untuk `pm.sendRequest`, dan
+cap console 1000 entri / 64 KB. Isolasi penuh (host object masih realm host)
+memerlukan `utilityProcess` — langkah berikutnya, karena itu ada trust gate.
+
+Kontrak `script:run`: payload `{ phase, script, response?, context, request?,
+trusted? }`; `context = { local, environment, collection, globals,
+iterationData }`. Return `{ ran, results, logs, error, requestPatch, context,
+nextRequest, nextRequestSet, skip, visualizer }`.
+
+- `electron/pm/` menyusun `pm`/`postman`: `pm.response` (+ `to.have.*`),
+  mutasi `pm.request` (method/url/headers/query/body/pathVars),
+  `pm.variables` (local) + `replaceIn`, `pm.iterationData.set`, `pm.cookies`,
+  `pm.visualizer`, `pm.execution.setNextRequest/skipRequest`, dan chai-style
+  `expect` lintas realm.
+- `src/lib/runner.js` menghormati `setNextRequest`/`skipRequest` (jump by
+  id/nama, stop pada `null`, loop guard per iterasi).
+- Trust gate: collection hasil impor membawa `scriptsTrusted: false`;
+  `App.send` menanyakan sekali, menyimpan keputusan, dan melewati kedua fase
+  script bila ditolak. Collection Runner meneruskan `trusted` yang sama.
 
 ## Testing dan CI
 
 - Unit (`test/unit`, Vitest, environment Node): modul pure + engine dengan
-  server HTTP/HTTPS lokal, mock IdP, dan fixture TLS di `test/fixtures/tls`.
+  server HTTP/HTTPS lokal, mock IdP, fixture TLS di `test/fixtures/tls`, dan
+  escape suite sandbox (`sandbox.test.js`).
 - E2E (`e2e`, Playwright `_electron`): build produksi (`npm run build:vite`)
   dijalankan dengan `RELAY_TEST_USER_DATA` ke direktori sementara; mencakup
   network/TLS/stop, impor lima format, dan UI auth.

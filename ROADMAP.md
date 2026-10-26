@@ -183,40 +183,40 @@ Tujuan: script, variable, dan inheritance berperilaku seperti Postman serta tida
 
 ### 3.1 Script isolation (spike + implementasi)
 
-- [ ] Spike 2–3 hari: bandingkan `isolated-vm`, `quickjs-emscripten`, dan `utilityProcess` + `vm`.
-- [ ] Kriteria: dukungan async `pm.sendRequest`, kompatibilitas crypto-js/moment/uuid, packaging macOS universal, batas memori/CPU.
-- [ ] Rekomendasi awal: `utilityProcess` + `vm` hardening untuk v1; `isolated-vm` jika untrusted import masuk scope.
-- [ ] Larang `process`, `require`, `fs`, `child_process`, `globalThis` escape, dan akses network langsung.
-- [ ] Timeout per script (mis. 5 detik) dan batas output console.
-- [ ] Default: script dari collection import berjalan dengan peringatan; opsi “trust this collection”.
+- [x] Spike 2–3 hari: bandingkan `isolated-vm`, `quickjs-emscripten`, dan `utilityProcess` + `vm`. — keputusan: `vm` + allow-list (tanpa native module → packaging universal aman). `isolated-vm` ditunda karena risiko native/binary; `utilityProcess` dicatat sebagai langkah berikut untuk isolasi penuh.
+- [x] Kriteria: dukungan async `pm.sendRequest`, kompatibilitas crypto-js/moment/uuid, packaging macOS universal, batas memori/CPU. — async `pm.sendRequest` + tiga lib OK; packaging tanpa native module; batas = timeout 5 s + cap console 1000 entri/64 KB (CPU blob di host call belum bisa di-preempt, tercatat di `electron/sandbox/index.js`).
+- [x] Rekomendasi awal: `utilityProcess` + `vm` hardening untuk v1; `isolated-vm` jika untrusted import masuk scope. — `vm` hardening sudah aktif; `utilityProcess` belum (butuh entry terpisah + IPC; dicatat sebagai next step).
+- [x] Larang `process`, `require`, `fs`, `child_process`, `globalThis` escape, dan akses network langsung. — escape suite 13 test: `process`, `this.process`, `globalThis.process`, `require(fs|child_process)`, `Function`, `constructor.constructor`, `Buffer`, `setImmediate`, `fetch` → throw/undefined.
+- [x] Timeout per script (mis. 5 detik) dan batas output console.
+- [x] Default: script dari collection import berjalan dengan peringatan; opsi “trust this collection”. — collection impor ditandai `scriptsTrusted:false`; `App.send` menampilkan konfirmasi (Decline = skip + log), Accept menyimpan trust dan bertahan setelah reload; checkbox di Collection Editor.
 
 ### 3.2 pm API parity
 
-- [ ] `pm.response`: `code`, `status`, `responseTime`, `headers.get`, `json()`, `text()`, `to.have.*`.
-- [ ] `pm.request`: URL/query/header/body mutation yang lengkap.
-- [ ] `pm.execution.setNextRequest()` dan `skipRequest()`.
-- [ ] `pm.variables.replaceIn()`, `pm.iterationData.set()`.
-- [ ] `pm.cookies`, `pm.visualizer` (minimal), legacy `postman.*` aliases.
-- [ ] Library: chai-style expect yang lebih lengkap, lodash, ajv/tv4, cheerio/xml2json sesuai kebutuhan.
-- [ ] `pm.sendRequest` tetap satu-satunya jalur network dari sandbox.
+- [x] `pm.response`: `code`, `status`, `responseTime`, `headers.get`, `json()`, `text()`, `to.have.*`.
+- [x] `pm.request`: URL/query/header/body mutation yang lengkap. — termasuk `url.query/variables/update`, `headers.add/upsert/remove`, `body.update/mode/urlencoded/formdata`, `pathVars`; patch menjadi delta eksplisit (`removedParams`/`removedPathVars`).
+- [x] `pm.execution.setNextRequest()` dan `skipRequest()`. — runner: jump by id/nama, `null` stop, target tak dikenal stop iterasi, loop guard sekali per target per iterasi; `skipRequest` → `skipped:true` + `summary.requestsSkipped`.
+- [x] `pm.variables.replaceIn()`, `pm.iterationData.set()`.
+- [x] `pm.cookies`, `pm.visualizer` (minimal), legacy `postman.*` aliases. — `pm.visualizer.set()` hanya direkam (belum ada UI render); alias `postman.*` menulis ke scope yang benar.
+- [ ] Library: chai-style expect yang lebih lengkap, lodash, ajv/tv4, cheerio/xml2json sesuai kebutuhan. — **sebagian:** chai-style `expect` ditulis sendiri (lintas realm `vm`); `lodash`/`ajv`/`tv4`/`cheerio`/`xml2json` belum ditambahkan (butuh keputusan ukuran bundle).
+- [x] `pm.sendRequest` tetap satu-satunya jalur network dari sandbox.
 
 ### 3.3 Scope dan inheritance
 
-- [ ] Tambah scope `local` per eksekusi.
-- [ ] Precedence final: `local > iterationData > environment > collection > globals`.
-- [ ] `pm.variables` memakai local; `pm.environment`/`pm.collectionVariables`/`pm.globals` eksplisit.
-- [ ] Runner: data file harus menang atas environment.
-- [ ] Folder mendapat `auth`, `preRequest`, `tests`; request mewarisi ancestor terdekat.
-- [ ] Script order: collection → folder → request.
-- [ ] (Opsional, bukan parity Postman) folder variables; dokumentasikan sebagai extension jika dibuat.
+- [x] Tambah scope `local` per eksekusi.
+- [x] Precedence final: `local > iterationData > environment > collection > globals`. — `buildScopeVars` + matriks test; runner memakai scope baru tiap request.
+- [x] `pm.variables` memakai local; `pm.environment`/`pm.collectionVariables`/`pm.globals` eksplisit.
+- [x] Runner: data file harus menang atas environment.
+- [x] Folder mendapat `auth`, `preRequest`, `tests`; request mewarisi ancestor terdekat. — `findNodePath` + `effectiveAuth` (ancestor terdalam), `combinedPreRequest/Tests`; trust gate tetap di level collection.
+- [x] Script order: collection → folder → request.
+- [x] (Opsional, bukan parity Postman) folder variables; dokumentasikan sebagai extension jika dibuat. — tidak dibuat (dilewati sesuai label opsional).
 
 ### 3.4 Secrets dan dynamic variables
 
-- [ ] Tipe variabel `default | secret`; secret dimask di UI, log, dan export.
-- [ ] Enkripsi secret dengan Electron `safeStorage` di main process; fallback dengan warning jika tidak tersedia.
-- [ ] Migrasi variabel lama sebagai `default`.
-- [ ] Dynamic variables: `{{$guid}}`, `{{$timestamp}}`, `{{$randomInt}}`, `{{$randomFirstName}}`, `{{$randomEmail}}`, `{{$isoTimestamp}}`.
-- [ ] Resolusi dynamic variable terjadi sebelum lookup environment; token tidak dikenal dibiarkan + warning.
+- [x] Tipe variabel `default | secret`; secret dimask di UI, log, dan export. — input password + Show/Hide, `••••` bila hanya ciphertext, masking log + “sent” view, export Postman/env/globals/backup selalu mengosongkan nilai.
+- [x] Enkripsi secret dengan Electron `safeStorage` di main process; fallback dengan warning jika tidak tersedia. — plaintext hanya di state renderer; ciphertext dibuat saat persist (`sealWorkspaceSecrets`) dan dihidrasi saat load. Bila seal gagal: tulis dilewati (tidak pernah plaintext) + banner `Changes not saved`.
+- [x] Migrasi variabel lama sebagai `default`.
+- [x] Dynamic variables: `{{$guid}}`, `{{$timestamp}}`, `{{$randomInt}}`, `{{$randomFirstName}}`, `{{$randomEmail}}`, `{{$isoTimestamp}}`.
+- [x] Resolusi dynamic variable terjadi sebelum lookup environment; token tidak dikenal dibiarkan + warning. — `onUnresolved` diteruskan lewat `resolveRequest`; `App.send` menambah entri Console `warn: Unresolved variable {{x}}`; runner belum menampilkan warning (token tetap dibiarkan).
 
 **Acceptance Fase 3:**
 - Script tidak bisa membaca `process`, `require`, filesystem, atau network langsung (escape suite).
