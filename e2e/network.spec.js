@@ -142,6 +142,23 @@ test('honours the per-request TLS verification override', async () => {
   });
 });
 
+test('renders a 5 MB text response', async () => {
+  const big = 'x'.repeat(5 * 1024 * 1024);
+  const port = await startHttp((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end(big);
+  });
+
+  launched = await launchApp();
+  const { page } = launched;
+
+  await send(page, `http://127.0.0.1:${port}/big.txt`);
+
+  await expect(page.locator('[data-testid="response-status"]')).toContainText('200');
+  await expect(page.locator('[data-testid="response-status"]')).toContainText('Size: 5.00 MB');
+  await expect(page.locator('.response-body')).toBeVisible();
+});
+
 test('previews a binary image response', async () => {
   const port = await startHttp((req, res) => {
     res.writeHead(200, { 'Content-Type': 'image/png' });

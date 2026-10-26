@@ -1,5 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { newCollection, newEnvironment } from '../lib/factory.js';
+import '../styles/history.css';
 import {
   renameNode,
   renameCollection,
@@ -27,6 +28,9 @@ export default function Sidebar({
   onSelectEnv,
   history,
   onClearHistory,
+  historyLimit = 100,
+  onChangeHistoryLimit,
+  onRemoveHistory,
   activeRequestId,
   onOpenRequest,
   onEditCollectionVars,
@@ -46,6 +50,9 @@ export default function Sidebar({
   const dragRef = useRef(null); // { collectionId, nodeId }
   const fileInputRef = useRef(null);
   const dialogs = useDialogs();
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [historyMethod, setHistoryMethod] = useState('all');
+  const [historyStatus, setHistoryStatus] = useState('all');
 
   const dnd = {
     onDragStart(collectionId, nodeId) {
@@ -178,6 +185,14 @@ export default function Sidebar({
     },
   };
 
+  const historyMethods = [...new Set((history || []).map((h) => h.method).filter(Boolean))].sort();
+  const filteredHistory = filterHistory(history || [], {
+    query: historyQuery,
+    method: historyMethod,
+    status: historyStatus,
+  });
+  const historyGroups = groupHistoryByDay(filteredHistory);
+
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -301,30 +316,182 @@ export default function Sidebar({
       )}
 
       {view === 'history' && (
-        <div className="sidebar-content">
-          <div className="sidebar-actions">
-            <button className="mini-btn" onClick={onClearHistory}>
-              Clear
-            </button>
+        <div className="sidebar-content history-view">
+          <div className="history-toolbar">
+            <input
+              className="tree-search"
+              placeholder="Search history…"
+              value={historyQuery}
+              onChange={(e) => setHistoryQuery(e.target.value)}
+            />
+            <div className="history-filters">
+              <select
+                className="history-filter"
+                aria-label="Filter by method"
+                value={historyMethod}
+                onChange={(e) => setHistoryMethod(e.target.value)}
+              >
+                <option value="all">All methods</option>
+                {historyMethods.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="history-filter"
+                aria-label="Filter by status"
+                value={historyStatus}
+                onChange={(e) => setHistoryStatus(e.target.value)}
+              >
+                <option value="all">All statuses</option>
+                <option value="2xx">2xx</option>
+                <option value="3xx">3xx</option>
+                <option value="4xx">4xx</option>
+                <option value="5xx">5xx</option>
+                <option value="errors">Errors</option>
+              </select>
+            </div>
+            <div className="history-retention">
+              <label htmlFor="history-limit">Keep</label>
+              <HistoryLimitInput value={historyLimit} onChange={onChangeHistoryLimit} />
+              <span>entries</span>
+              <button
+                className="mini-btn history-clear"
+                onClick={onClearHistory}
+                disabled={history.length === 0}
+              >
+                Clear
+              </button>
+            </div>
           </div>
+
           {history.length === 0 && <div className="sidebar-empty">No history yet.</div>}
-          {history.map((h) => (
-            <div
-              key={h.id}
-              className="history-item"
-              onClick={() => h.snapshot && onOpenRequest(h.snapshot)}
-            >
-              <span className={`method-tag method-${h.method}`}>{h.method}</span>
-              <span className="history-url">{h.url}</span>
-              {h.status != null && (
-                <span className={`history-status s${Math.floor(h.status / 100)}`}>{h.status}</span>
-              )}
+          {history.length > 0 && filteredHistory.length === 0 && (
+            <div className="sidebar-empty">No history entries match these filters.</div>
+          )}
+
+          {historyGroups.map((group) => (
+            <div key={group.label} className="history-group">
+              <div className="history-date">{group.label}</div>
+              {group.entries.map((h) => (
+                <div
+                  key={h.id}
+                  className="history-item"
+                  onClick={() => h.snapshot && onOpenRequest(h.snapshot)}
+                >
+                  <span className={`method-tag method-${h.method}`}>{h.method}</span>
+                  <span className="history-url" title={h.url}>
+                    {h.url}
+                  </span>
+                  {h.status != null ? (
+                    <span className={`history-status s${Math.floor(h.status / 100)}`}>
+                      {h.status}
+                    </span>
+                  ) : (
+                    !h.ok && <span className="history-status s5">error</span>
+                  )}
+                  <button
+                    className="icon-btn history-delete"
+                    title="Delete from history"
+                    aria-label="Delete history entry"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveHistory?.(h.id);
+                    }}
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
         </div>
       )}
     </aside>
   );
+}
+
+function HistoryLimitInput({ value, onChange }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  function commit() {
+    const n = Number(draft);
+    if (Number.isFinite(n) && n >= 10 && n <= 1000) {
+      onChange?.(Math.trunc(n));
+    } else {
+      setDraft(String(value));
+    }
+  }
+
+  return (
+    <input
+      id="history-limit"
+      className="history-limit-input"
+      type="number"
+      min={10}
+      max={1000}
+      aria-label="History retention limit"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+      }}
+    />
+  );
+}
+
+// Search (method/url), method and status-bucket filters for the history view.
+function filterHistory(entries, { query, method, status }) {
+  const q = String(query || '').trim().toLowerCase();
+  return (entries || []).filter((h) => {
+    if (method && method !== 'all' && h.method !== method) return false;
+    if (status && status !== 'all') {
+      if (status === 'errors') {
+        if (h.ok) return false;
+      } else {
+        const bucket = h.status != null ? `${Math.floor(h.status / 100)}xx` : '';
+        if (bucket !== status) return false;
+      }
+    }
+    if (!q) return true;
+    return `${h.method || ''} ${h.url || ''}`.toLowerCase().includes(q);
+  });
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function dayKey(date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function historyDayLabel(at) {
+  const d = at ? new Date(at) : null;
+  if (!d || Number.isNaN(d.getTime())) return 'Unknown';
+  const now = new Date();
+  const key = dayKey(d);
+  if (key === dayKey(now)) return 'Today';
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (key === dayKey(yesterday)) return 'Yesterday';
+  return key;
+}
+
+// Group newest-first entries by calendar day, preserving their order.
+function groupHistoryByDay(entries) {
+  const groups = new Map();
+  for (const entry of entries || []) {
+    const label = historyDayLabel(entry.at);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(entry);
+  }
+  return [...groups].map(([label, groupEntries]) => ({ label, entries: groupEntries }));
 }
 
 // Filter a tree by a case-insensitive query against request name/url and

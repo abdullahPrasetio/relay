@@ -107,3 +107,68 @@ export function pruneExpired(jar) {
   const now = Date.now();
   return (jar || []).filter((c) => c.expires == null || c.expires > now);
 }
+
+// Coerce a user-supplied expiry into epoch ms. Accepts epoch ms numbers,
+// numeric strings, and anything Date.parse understands (e.g. ISO-8601).
+// Blank or unparseable values mean a session cookie (`null`).
+export function coerceExpiry(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  if (/^\d+$/.test(text)) {
+    const n = Number(text);
+    return n > 0 ? n : null;
+  }
+  const parsed = Date.parse(text);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function normalizeDomain(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^\./, '')
+    .toLowerCase();
+}
+
+// Validate + normalize one manually entered cookie for the jar.
+export function normalizeCookie(input) {
+  const name = String(input?.name ?? '').trim();
+  if (!name) throw new Error('Cookie name is required');
+  return {
+    name,
+    value: String(input?.value ?? ''),
+    domain: normalizeDomain(input?.domain),
+    path: String(input?.path || '/').trim() || '/',
+    expires: coerceExpiry(input?.expires),
+    secure: Boolean(input?.secure),
+    httpOnly: Boolean(input?.httpOnly),
+  };
+}
+
+// Insert or replace a manually edited cookie. Identity is name+domain+path,
+// matching how response cookies are replaced. Returns a new jar.
+export function upsertCookie(jar, cookie) {
+  const next = normalizeCookie(cookie);
+  const out = [...(jar || [])];
+  const idx = out.findIndex(
+    (c) => c.name === next.name && c.domain === next.domain && c.path === next.path
+  );
+  if (idx >= 0) out[idx] = next;
+  else out.push(next);
+  return out;
+}
+
+// Remove the cookie identified by name+domain+path. Returns a new jar.
+export function deleteCookie(jar, { name, domain, path } = {}) {
+  const target = {
+    name: String(name ?? '').trim(),
+    domain: normalizeDomain(domain),
+    path: String(path || '/').trim() || '/',
+  };
+  return (jar || []).filter(
+    (c) => !(c.name === target.name && c.domain === target.domain && c.path === target.path)
+  );
+}

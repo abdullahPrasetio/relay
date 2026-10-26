@@ -10,6 +10,7 @@ import {
 } from './auth/index.js';
 import { createStore } from './store.js';
 import { writeResponseFile } from './response-file.js';
+import { deleteCookie, pruneExpired, upsertCookie } from './cookie-jar.js';
 import { createSendContext } from './network-runtime.js';
 import { normalizeNetworkSettings, sanitizeNetworkSettings } from '../shared/networkSettings.js';
 import { SCHEMA_VERSION } from '../shared/schema.js';
@@ -68,6 +69,11 @@ function getRuntimeNetwork() {
 
 let mainWindow = null;
 
+// Set once the renderer confirmed it is fine to quit (no unsaved work, or the
+// user chose to discard). Until then the close is vetoed so the renderer can
+// show a real prompt instead of the window dying silently.
+let allowWindowClose = false;
+
 // In-flight sends, keyed by the renderer-generated request id, so the Stop
 // button can abort exactly one request.
 const inflight = new Map();
@@ -97,8 +103,17 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
+  // Quit handshake: the renderer decides whether there is unsaved work. It
+  // answers through `app:close-confirmed`; a second close request is harmless.
+  mainWindow.on('close', (event) => {
+    if (allowWindowClose || !mainWindow || mainWindow.webContents.isDestroyed()) return;
+    event.preventDefault();
+    mainWindow.webContents.send('app:close-requested');
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
+    allowWindowClose = false;
   });
 }
 
@@ -221,6 +236,19 @@ function registerIpc() {
     store.setCookieJar([]);
     return [];
   });
+  // Insert or replace a manually entered cookie; expired cookies are pruned
+  // first so the table never shows stale rows. Returns the new jar.
+  ipcMain.handle('cookies:set', async (_event, cookie) => {
+    const jar = upsertCookie(pruneExpired(store.getCookieJar()), cookie);
+    store.setCookieJar(jar);
+    return jar;
+  });
+  // Delete by name+domain+path. Returns the new jar.
+  ipcMain.handle('cookies:delete', async (_event, identity) => {
+    const jar = deleteCookie(pruneExpired(store.getCookieJar()), identity);
+    store.setCookieJar(jar);
+    return jar;
+  });
 
   // Native file picker for form-data file uploads. Returns file metadata.
   ipcMain.handle('file:pick', async () => {
@@ -309,6 +337,16 @@ function registerIpc() {
     } catch (err) {
       return { saved: false, error: err.message };
     }
+  });
+
+  // The renderer finished its unsaved-work prompt and allows the close.
+  ipcMain.handle('app:close-confirmed', () => {
+    allowWindowClose = true;
+    // `mainWindow.close()` alone leaves the process alive on macOS (no
+    // window-all-closed quit), which makes quit look hung. This is a
+    // single-window app: an explicit close means quit.
+    app.quit();
+    return true;
   });
 
   // Data persistence channels.

@@ -9,6 +9,33 @@ import { hydrateWorkspaceSecrets, sealWorkspaceSecrets } from './secretVars.js';
 // Network settings are NOT persisted here: the main process owns them.
 const hasBridge = typeof window !== 'undefined' && !!window.api;
 
+// History retention. Persisted separately from workspace data (it is a UI
+// preference, not workspace content) so the limit survives workspace switches.
+export const DEFAULT_HISTORY_LIMIT = 100;
+export const HISTORY_LIMIT_MIN = 10;
+export const HISTORY_LIMIT_MAX = 1000;
+export const HISTORY_LIMIT_KEY = 'relay-history-limit';
+
+// Clamp any input to the supported retention range; non-numeric input falls
+// back to the default instead of disabling history.
+export function clampHistoryLimit(value) {
+  if (value == null || value === '') return DEFAULT_HISTORY_LIMIT;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_HISTORY_LIMIT;
+  return Math.min(HISTORY_LIMIT_MAX, Math.max(HISTORY_LIMIT_MIN, Math.trunc(n)));
+}
+
+function readHistoryLimit() {
+  try {
+    if (typeof localStorage === 'undefined') return DEFAULT_HISTORY_LIMIT;
+    const raw = localStorage.getItem(HISTORY_LIMIT_KEY);
+    return raw == null ? DEFAULT_HISTORY_LIMIT : clampHistoryLimit(raw);
+  } catch {
+    return DEFAULT_HISTORY_LIMIT;
+  }
+}
+
+
 async function loadInitial() {
   if (hasBridge) {
     try {
@@ -49,6 +76,7 @@ export function useStore() {
   // Surfaced to the UI: a failed seal/write must not be silent, because
   // skipping the write leaves the last change unsaved (never plaintext on disk).
   const [saveError, setSaveError] = useState('');
+  const [historyLimit, setHistoryLimitState] = useState(readHistoryLimit);
   const saveTimer = useRef(null);
 
   useEffect(() => {
@@ -131,10 +159,30 @@ export function useStore() {
 
   const addHistory = useCallback(
     (entry) => {
-      setHistory((prev) => [entry, ...(prev || [])].slice(0, 100));
+      setHistory((prev) => [entry, ...(prev || [])].slice(0, historyLimit));
+    },
+    [setHistory, historyLimit]
+  );
+
+  const removeHistoryEntry = useCallback(
+    (id) => {
+      setHistory((prev) => (prev || []).filter((h) => h.id !== id));
     },
     [setHistory]
   );
+
+  const setHistoryLimit = useCallback((value) => {
+    const next = clampHistoryLimit(value);
+    setHistoryLimitState(next);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(HISTORY_LIMIT_KEY, String(next));
+      }
+    } catch {
+      /* preference is best-effort */
+    }
+    return next;
+  }, []);
 
   // ---- Workspace management ----
   const createWorkspace = useCallback((name) => {
@@ -175,6 +223,9 @@ export function useStore() {
     history: active?.history || [],
     addHistory,
     setHistory,
+    removeHistoryEntry,
+    historyLimit,
+    setHistoryLimit,
     activeEnvId: active?.activeEnvId ?? null,
     setActiveEnvId,
     // Workspace surface.

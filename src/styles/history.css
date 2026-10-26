@@ -1,0 +1,89 @@
+/* History view: search/filter toolbar, date groups and per-entry actions. */
+
+.history-view {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.history-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.history-filters {
+  display: flex;
+  gap: 6px;
+}
+
+.history-filter {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 5px 6px;
+  font-size: 12px;
+}
+
+.history-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.history-retention {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.history-limit-input {
+  width: 64px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.history-limit-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.history-clear {
+  margin-left: auto;
+}
+
+.history-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-date {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 8px 8px 4px;
+}
+
+.history-delete {
+  opacity: 0;
+  flex: 0 0 auto;
+}
+
+.history-item:hover .history-delete,
+.history-delete:focus-visible {
+  opacity: 1;
+}
+
+.history-delete:hover {
+  color: var(--red);
+}

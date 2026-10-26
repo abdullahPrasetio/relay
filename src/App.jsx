@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar.jsx';
 import RequestPanel from './components/RequestPanel.jsx';
 import ResponsePanel from './components/ResponsePanel.jsx';
-import EnvBar from './components/EnvBar.jsx';
 import TabBar from './components/TabBar.jsx';
 import SplitPane from './components/SplitPane.jsx';
 import SaveRequestModal from './components/SaveRequestModal.jsx';
@@ -39,6 +38,11 @@ import {
   flattenRequests,
   findFolder,
 } from './lib/collectionTree.js';
+import {
+  SESSION_KEY,
+  serializeSession,
+  restoreSession,
+} from './lib/session.js';
 
 const hasBridge = typeof window !== 'undefined' && !!window.api;
 
@@ -87,6 +91,30 @@ function newTab(request) {
   };
 }
 
+// Persisted tab sessions live in localStorage (renderer-only UI state).
+function readStoredSession() {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+// True while a tab is still the untouched blank the app boots with. Used to
+// avoid restoring a session over edits made before collections finished loading.
+function isPristineTab(tab) {
+  return (
+    !!tab &&
+    !tab.dirty &&
+    !tab.sending &&
+    !tab.response &&
+    !!tab.request &&
+    tab.request.url === '' &&
+    (tab.request.name || 'Untitled Request') === 'Untitled Request'
+  );
+}
+
 export default function App() {
   const store = useStore();
   const network = useNetworkSettings();
@@ -105,6 +133,12 @@ export default function App() {
   const [cookiesOpen, setCookiesOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [requestSettingsOpen, setRequestSettingsOpen] = useState(false);
+
+  // Session restore waits for the store: tab requests that live in a
+  // collection must be rebuilt from the freshly loaded tree.
+  const [rawSession] = useState(readStoredSession);
+  const [sessionReady, setSessionReady] = useState(false);
+  const restoreStarted = useRef(false);
 
   const activeTab = tabs.find((t) => t.tabId === activeTabId) || tabs[0];
 
@@ -523,19 +557,6 @@ export default function App() {
     },
     [tabs, activeTabId, store, updateTab]
   );
-
-  // Keyboard: Cmd/Ctrl+S saves the active request.
-  useEffect(() => {
-    function onKey(e) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        save();
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [save]);
-
   const openRequest = useCallback(
     (req) => {
       const existing = tabs.find((t) => t.request.id === req.id);
@@ -576,6 +597,134 @@ export default function App() {
     [activeTabId]
   );
 
+  // Restore the persisted session once the collection tree has loaded. It only
+  // applies while the untouched initial tab is still the only tab: anything the
+  // user typed before the async load finished must never be overwritten.
+  useEffect(() => {
+    if (!store.loaded || restoreStarted.current) return;
+    restoreStarted.current = true;
+
+    const untouched = tabs.length === 1 && isPristineTab(tabs[0]);
+    if (rawSession && untouched) {
+      const restored = restoreSession(rawSession, {
+        collections: store.collections,
+        makeTab: (request) => newTab(request),
+      });
+      if (restored) {
+        setTabs(restored.tabs);
+        setActiveTabId(restored.activeTabId);
+        setRailView(restored.railView);
+      }
+    }
+    // Mark the session authoritative so persistence can start.
+    setSessionReady(true);
+  }, [store.loaded, store.collections, rawSession, tabs]);
+
+  // Persist the tab layout (debounced). The serialized shape excludes
+  // responses/test results, so they never reach storage.
+  useEffect(() => {
+    if (!sessionReady) return undefined;
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          SESSION_KEY,
+          JSON.stringify(serializeSession({ tabs, activeTabId, railView }))
+        );
+      } catch {
+        /* storage disabled or over quota: sessions are best-effort */
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [sessionReady, tabs, activeTabId, railView]);
+
+  const hasDirtyTabs = tabs.some((t) => t.dirty);
+  const closePromptOpen = useRef(false);
+
+  // Electron asks before closing (main process intercepts window close). A
+  // dirty tab gets an in-app confirmation; window.confirm does not work here.
+  // The subscription includes `tabs` so the prompt sees current dirty state.
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api || typeof api.onCloseRequested !== 'function') return undefined;
+
+    const unsubscribe = api.onCloseRequested(async () => {
+      // A second close request must not stack dialogs.
+      if (closePromptOpen.current) return;
+      const dirtyCount = tabs.filter((t) => t.dirty).length;
+      if (dirtyCount === 0) {
+        try {
+          await api.confirmClose?.();
+        } catch {
+          /* leave the window open; the next close request retries */
+        }
+        return;
+      }
+
+      closePromptOpen.current = true;
+      try {
+        const discard = await dialogs.confirm(
+          `${dirtyCount} tab punya perubahan yang belum disimpan. Keluar tanpa menyimpan?`,
+          { title: 'Unsaved changes', okLabel: 'Discard and quit', danger: true }
+        );
+        if (discard) await api.confirmClose?.();
+      } catch {
+        /* prompt or IPC failed: keep the window open */
+      } finally {
+        closePromptOpen.current = false;
+      }
+    });
+
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [tabs, dialogs]);
+
+  // Browser dev has no close handshake; use the native leave prompt there.
+  // Electron never registers this (the handshake above is authoritative).
+  useEffect(() => {
+    if (hasBridge || !hasDirtyTabs) return undefined;
+    function onBeforeUnload(e) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasDirtyTabs]);
+
+  // Global shortcuts. Capture phase so they run before panel-local handlers;
+  // stopPropagation keeps Cmd/Ctrl+Enter from sending twice (RequestPanel has
+  // its own bubble-phase handler that does not check defaultPrevented).
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.defaultPrevented || e.repeat) return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+
+      if (key === 'enter') {
+        const tab = tabs.find((t) => t.tabId === activeTabId);
+        if (!tab || tab.sending) return;
+        e.preventDefault();
+        e.stopPropagation();
+        send();
+      } else if (key === 's') {
+        e.preventDefault();
+        save();
+      } else if (key === 'w') {
+        e.preventDefault();
+        closeTab(activeTabId);
+      } else if (key === 'k') {
+        e.preventDefault();
+        const search = document.querySelector('.global-search');
+        if (search) {
+          search.focus();
+          search.select?.();
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [tabs, activeTabId, send, save, closeTab]);
+
   const varsModalCollection = store.collections.find((c) => c.id === varsModalCollectionId);
 
   const varsModalEnvironment = store.environments.find((e) => e.id === envModalId);
@@ -612,6 +761,9 @@ export default function App() {
           onSelectEnv={store.setActiveEnvId}
           history={store.history}
           onClearHistory={() => store.setHistory([])}
+          historyLimit={store.historyLimit}
+          onChangeHistoryLimit={store.setHistoryLimit}
+          onRemoveHistory={store.removeHistoryEntry}
           activeRequestId={activeTab.request.id}
           onOpenRequest={openRequest}
           onEditCollectionVars={setVarsModalCollectionId}

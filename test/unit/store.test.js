@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createStore } from '../../electron/store.js';
+import { deleteCookie, pruneExpired, upsertCookie } from '../../electron/cookie-jar.js';
+import { clampHistoryLimit, DEFAULT_HISTORY_LIMIT } from '../../src/lib/useStore.js';
 
 let dir;
 let file;
@@ -64,5 +66,70 @@ describe('main-process store', () => {
 
   it('does not create a backup on a fresh install', () => {
     expect(createStore(file).backup('v1')).toBeNull();
+  });
+
+  it('persists a manually added cookie across renderer saves and store instances', () => {
+    const store = createStore(file);
+    const added = upsertCookie(pruneExpired(store.getCookieJar()), {
+      name: 'sid',
+      value: 'v1',
+      domain: 'Example.com',
+      path: '/',
+    });
+    store.setCookieJar(added);
+
+    // Renderer workspace saves must not clobber the main-process jar.
+    store.setAll({ workspaces: [], activeWorkspaceId: null });
+
+    expect(store.getCookieJar()).toEqual(added);
+    expect(createStore(file).getCookieJar()).toEqual(added);
+  });
+
+  it('persists a manual cookie delete and prunes expired entries', () => {
+    const store = createStore(file);
+    const now = Date.now();
+    const seed = [
+      { name: 'keep', value: '1', domain: 'example.com', path: '/', expires: null },
+      { name: 'stale', value: '2', domain: 'example.com', path: '/', expires: now - 1000 },
+      { name: 'drop', value: '3', domain: 'example.com', path: '/' },
+    ];
+
+    // cookies:set = prune expired, then upsert.
+    const afterSet = upsertCookie(pruneExpired(seed), {
+      name: 'drop',
+      value: '3',
+      domain: 'example.com',
+      path: '/',
+    });
+    store.setCookieJar(afterSet);
+    expect(afterSet.map((c) => c.name)).toEqual(['keep', 'drop']);
+
+    // cookies:delete removes only the matching identity.
+    const afterDelete = deleteCookie(afterSet, {
+      name: 'drop',
+      domain: 'example.com',
+      path: '/',
+    });
+    store.setCookieJar(afterDelete);
+
+    expect(store.getCookieJar().map((c) => c.name)).toEqual(['keep']);
+    expect(createStore(file).getCookieJar().map((c) => c.name)).toEqual(['keep']);
+  });
+});
+
+describe('history retention limit', () => {
+  it('clamps the retention input to 10..1000', () => {
+    expect(clampHistoryLimit(10)).toBe(10);
+    expect(clampHistoryLimit(1000)).toBe(1000);
+    expect(clampHistoryLimit(1)).toBe(10);
+    expect(clampHistoryLimit(5000)).toBe(1000);
+    expect(clampHistoryLimit('250')).toBe(250);
+    expect(clampHistoryLimit(12.9)).toBe(12);
+  });
+
+  it('falls back to the default for non-numeric input', () => {
+    expect(clampHistoryLimit('')).toBe(DEFAULT_HISTORY_LIMIT);
+    expect(clampHistoryLimit('nope')).toBe(DEFAULT_HISTORY_LIMIT);
+    expect(clampHistoryLimit(null)).toBe(DEFAULT_HISTORY_LIMIT);
   });
 });
