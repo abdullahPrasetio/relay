@@ -18,6 +18,7 @@ export function newRequest(overrides = {}) {
     body: newBody(),
     auth: newAuth(),
     settings: newRequestSettings(),
+    grpc: newGrpcConfig(),
     preRequest: '',
     tests: '',
     examples: [], // saved request/response snapshots
@@ -35,6 +36,19 @@ export function newRequestSettings() {
     verifyTls: null,
     proxyId: null,
     useCookieJar: true,
+  };
+}
+
+// Per-request gRPC configuration. `streaming` records which mode the user
+// last used so the panel can restore its state; it is not sent to the server.
+export function newGrpcConfig() {
+  return {
+    protoPath: '',
+    service: '',
+    method: '',
+    message: '{}',
+    metadata: [], // [{ key, value, enabled }]
+    streaming: false,
   };
 }
 
@@ -163,5 +177,10 @@ export function normalizeRequest(req) {
       jwt: { ...newAuth().jwt, ...(req.auth?.jwt || {}) },
     },
     settings: { ...newRequestSettings(), ...(req.settings || {}) },
+    grpc: {
+      ...newGrpcConfig(),
+      ...(req.grpc || {}),
+      metadata: Array.isArray(req.grpc?.metadata) ? req.grpc.metadata : [],
+    },
   };
 }

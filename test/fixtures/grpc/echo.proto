@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package relay.test;
+
+message EchoRequest {
+  string message = 1;
+  int32 count = 2;
+}
+
+message EchoReply {
+  string message = 1;
+  int32 count = 2;
+}
+
+service Echo {
+  rpc Say (EchoRequest) returns (EchoReply);
+  rpc Count (EchoRequest) returns (stream EchoReply);
+}

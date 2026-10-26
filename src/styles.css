@@ -1885,3 +1885,218 @@ input.has-unresolved-var {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ===== MQTT and Socket.IO panels ===== */
+.mqtt-panel,
+.socketio-panel {
+  gap: 8px;
+}
+.mqtt-client-id,
+.socketio-socket-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mqtt-subscribe,
+.mqtt-publish-head,
+.socketio-composer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mqtt-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.mqtt-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.mqtt-input:disabled,
+.mqtt-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.mqtt-select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--text);
+  font-size: 12px;
+}
+.mqtt-badge {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.mqtt-badge.retain {
+  background: rgba(234, 179, 8, 0.15);
+  color: var(--yellow);
+}
+.mqtt-topic,
+.socketio-event {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+.mqtt-publish,
+.socketio-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.socketio-composer .auth-hint {
+  margin: 0;
+}
+
+/* ===== gRPC panel ===== */
+.grpc-panel {
+  gap: 8px;
+}
+.grpc-target {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.grpc-config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-3);
+}
+.grpc-proto-row,
+.grpc-select-row,
+.grpc-metadata-head,
+.grpc-metadata-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.grpc-proto-path {
+  flex: 1;
+  min-width: 0;
+}
+.grpc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.grpc-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.grpc-config .mqtt-select {
+  width: 100%;
+}
+.grpc-signature code {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.grpc-message-field {
+  flex: 1;
+}
+.grpc-message {
+  resize: vertical;
+  min-height: 90px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.grpc-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.grpc-metadata-head {
+  justify-content: space-between;
+}
+.grpc-metadata-row .mqtt-input {
+  flex: 1;
+  min-width: 0;
+}
+.grpc-invoke {
+  min-width: 74px;
+}
+.grpc-invoke:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.grpc-output {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+.grpc-result {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-3);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40%;
+  overflow: auto;
+}
+.grpc-result.error {
+  border-color: var(--red);
+}
+.grpc-result-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.grpc-result-body {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.grpc-result-error,
+.grpc-event-text {
+  color: #fecaca;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.grpc-event-end .ws-type,
+.grpc-event-error .ws-type {
+  color: var(--yellow);
+  background: rgba(234, 179, 8, 0.12);
+}
+.grpc-event .grpc-event-text {
+  color: var(--text-dim);
+}

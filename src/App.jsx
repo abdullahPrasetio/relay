@@ -3,6 +3,9 @@ import Sidebar from './components/Sidebar.jsx';
 import RequestPanel from './components/RequestPanel.jsx';
 import ResponsePanel from './components/ResponsePanel.jsx';
 import WebSocketPanel from './components/WebSocketPanel.jsx';
+import MqttPanel from './components/MqttPanel.jsx';
+import SocketIoPanel from './components/SocketIoPanel.jsx';
+import GrpcPanel from './components/GrpcPanel.jsx';
 import TabBar from './components/TabBar.jsx';
 import SplitPane from './components/SplitPane.jsx';
 import SaveRequestModal from './components/SaveRequestModal.jsx';
@@ -22,7 +25,7 @@ import { useDialogs } from './components/Dialogs.jsx';
 import { useStore } from './lib/useStore.js';
 import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { newRequest, normalizeRequest, uid } from './lib/factory.js';
-import { isWebSocket } from './lib/protocol.js';
+import { isWebSocket, isMqtt, isSocketIo, isGrpc, isGrpcTls } from './lib/protocol.js';
 import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from './lib/variables.js';
 import { collectSecretValues } from './lib/secretVars.js';
 import { runTests, runPreRequest } from './lib/testRunner.js';
@@ -98,6 +101,39 @@ function wsFrameSize({ text, base64 }) {
   return new TextEncoder().encode(String(text ?? '')).length;
 }
 
+// Size of a Socket.IO payload, used only for the renderer's log preview.
+function jsonSize(value) {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).length;
+  } catch {
+    return 0;
+  }
+}
+
+// gRPC arguments shared by unary and streaming calls. The target keeps its
+// grpc:///grpcs:// scheme; main strips it and uses `tls` for credentials.
+function grpcPayloadFor(request) {
+  const grpc = request?.grpc || {};
+  return {
+    target: request?.url || '',
+    protoPath: grpc.protoPath || '',
+    service: grpc.service || '',
+    method: grpc.method || '',
+    message: grpc.message ?? '{}',
+    metadata: Array.isArray(grpc.metadata) ? grpc.metadata : [],
+    tls: isGrpcTls(request?.url || ''),
+  };
+}
+
+// gRPC selection is per request; the panel keeps the fields in sync through
+// `onChange`, so a tab switch re-reads them from the request itself.
+function grpcMissingField(request) {
+  const grpc = request?.grpc || {};
+  if (!grpc.protoPath) return 'Choose a .proto file';
+  if (!grpc.service || !grpc.method) return 'Choose a service and method';
+  return null;
+}
+
 function wsProtocolsFor(request) {
   if (Array.isArray(request?.protocols)) {
     return request.protocols.map((p) => String(p).trim()).filter(Boolean);
@@ -133,6 +169,15 @@ function newTab(request) {
     wsStatus: null,
     wsLog: [],
     wsError: null,
+    streamKind: null,
+    streamSessionId: null,
+    streamStatus: null,
+    streamLog: [],
+    streamError: null,
+    streamUrl: null,
+    grpcStreamId: null,
+    grpcLog: [],
+    grpcError: null,
     dirty: false,
     savedCollectionId: null,
   };
@@ -425,6 +470,433 @@ export default function App() {
     }
   }, [tabs, activeTabId, updateTab]);
 
+  // Open an MQTT or Socket.IO session. Both share one tab lifecycle: `sending`
+  // keeps Send as Stop while the session is open and the panel renders from
+  // streamStatus / streamLog / streamError.
+  const openStream = useCallback(
+    async (tab, kind) => {
+      const api = typeof window !== 'undefined' ? window.api : null;
+      const connectFn = kind === 'mqtt' ? api?.mqttConnect : api?.socketIoConnect;
+      if (!hasBridge || typeof connectFn !== 'function') {
+        updateTab(tab.tabId, {
+          sending: false,
+          sendingId: null,
+          streamStatus: { state: 'closed', at: Date.now() },
+          streamError:
+            kind === 'mqtt'
+              ? 'MQTT transport is only available in the desktop app.'
+              : 'Socket.IO transport is only available in the desktop app.',
+        });
+        return;
+      }
+
+      const sessionId = newRequestId();
+      updateTab(tab.tabId, {
+        sending: true,
+        sendingId: sessionId,
+        streamKind: kind,
+        streamSessionId: sessionId,
+        streamUrl: tab.request.url,
+        streamStatus: { state: 'connecting', at: Date.now() },
+        streamLog: [],
+        streamError: null,
+        response: null,
+        testResults: null,
+      });
+
+      try {
+        const owningCollection = findRequestCollection(store.collections, tab.request.id);
+        const chain = findNodePath(store.collections, tab.request.id) || [];
+        const vars = buildScopeVars({
+          collection: varsToMap(owningCollection?.variables),
+          environment: varsToMap(activeEnv),
+          globals: varsToMap(store.globals),
+        });
+        const resolved = resolveRequest(withEffectiveAuth(tab.request, chain), vars);
+        const target = buildWebSocketUrl(resolved);
+
+        const headers = {};
+        for (const header of resolved.headers || []) {
+          if (header.enabled === false || !header.key) continue;
+          headers[header.key] = header.value ?? '';
+        }
+
+        const auth = resolved.auth || {};
+        let result;
+        if (kind === 'mqtt') {
+          const username = auth.type === 'basic' ? auth.basic?.username || '' : '';
+          const password = auth.type === 'basic' ? auth.basic?.password || '' : '';
+          result = await api.mqttConnect({
+            id: sessionId,
+            url: target,
+            username: username || undefined,
+            password: password || undefined,
+          });
+        } else {
+          let authPayload;
+          if (auth.type === 'bearer' && auth.bearer?.token) {
+            authPayload = { token: auth.bearer.token };
+          } else if (auth.type === 'basic' && auth.basic?.username) {
+            authPayload = {
+              username: auth.basic.username,
+              password: auth.basic.password || '',
+            };
+          }
+          result = await api.socketIoConnect({
+            id: sessionId,
+            url: target,
+            auth: authPayload,
+            headers,
+          });
+        }
+
+        if (!result?.ok) {
+          updateTab(tab.tabId, {
+            sending: false,
+            sendingId: null,
+            streamSessionId: null,
+            streamStatus: { state: 'closed', at: Date.now() },
+            streamError:
+              result?.error ||
+              (kind === 'mqtt' ? 'MQTT connection failed' : 'Socket.IO connection failed'),
+          });
+        }
+      } catch (err) {
+        updateTab(tab.tabId, {
+          sending: false,
+          sendingId: null,
+          streamSessionId: null,
+          streamStatus: { state: 'closed', at: Date.now() },
+          streamError: err?.message || String(err),
+        });
+      }
+    },
+    [activeEnv, store, updateTab]
+  );
+
+  // Close a stream session without waiting for a lifecycle event (tab switch,
+  // tab close, URL change). State is cleared locally so a late event is
+  // ignored instead of reopening a dead panel.
+  const disconnectTabStream = useCallback((tabId, sessionId, kind, reason = '') => {
+    if (!sessionId) return;
+    const api = typeof window !== 'undefined' ? window.api : null;
+    const closeFn = kind === 'mqtt' ? api?.mqttClose : api?.socketIoClose;
+    if (typeof closeFn === 'function') {
+      try {
+        const pending = closeFn({ id: sessionId });
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+      } catch {
+        /* session already gone */
+      }
+    }
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.tabId === tabId && tab.streamSessionId === sessionId
+          ? {
+              ...tab,
+              streamSessionId: null,
+              sending: false,
+              sendingId: null,
+              streamStatus: { state: 'closed', reason, at: Date.now() },
+            }
+          : tab
+      )
+    );
+  }, []);
+
+  const sendMqttPublish = useCallback(
+    async (payload) => {
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      if (!tab?.streamSessionId || tab.streamKind !== 'mqtt' || !hasBridge) return false;
+      try {
+        const result = await window.api.mqttPublish({ id: tab.streamSessionId, ...payload });
+        if (!result?.ok) {
+          updateTab(tab.tabId, { streamError: result?.error || 'MQTT publish failed' });
+          return false;
+        }
+        const entry = {
+          direction: 'out',
+          topic: payload.topic,
+          ...(payload.base64 !== undefined
+            ? { payload: payload.base64, binary: true }
+            : { text: payload.payload ?? '' }),
+          size: wsFrameSize({ text: payload.payload, base64: payload.base64 }),
+          qos: Number(payload.qos) || 0,
+          retain: Boolean(payload.retain),
+          at: Date.now(),
+        };
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.tabId === tab.tabId
+              ? { ...t, streamError: null, streamLog: appendWsLog(t.streamLog, entry) }
+              : t
+          )
+        );
+        return true;
+      } catch (err) {
+        updateTab(tab.tabId, { streamError: err?.message || String(err) });
+        return false;
+      }
+    },
+    [tabs, activeTabId, updateTab]
+  );
+
+  const sendMqttSubscribe = useCallback(
+    async (topic, qos) => {
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      if (!tab?.streamSessionId || tab.streamKind !== 'mqtt' || !hasBridge) return false;
+      try {
+        const result = await window.api.mqttSubscribe({ id: tab.streamSessionId, topic, qos });
+        if (!result?.ok) {
+          updateTab(tab.tabId, { streamError: result?.error || 'MQTT subscribe failed' });
+          return false;
+        }
+        updateTab(tab.tabId, { streamError: null });
+        return true;
+      } catch (err) {
+        updateTab(tab.tabId, { streamError: err?.message || String(err) });
+        return false;
+      }
+    },
+    [tabs, activeTabId, updateTab]
+  );
+
+  const sendMqttUnsubscribe = useCallback(
+    async (topic) => {
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      if (!tab?.streamSessionId || tab.streamKind !== 'mqtt' || !hasBridge) return false;
+      try {
+        const result = await window.api.mqttUnsubscribe({ id: tab.streamSessionId, topic });
+        if (!result?.ok) {
+          updateTab(tab.tabId, { streamError: result?.error || 'MQTT unsubscribe failed' });
+          return false;
+        }
+        updateTab(tab.tabId, { streamError: null });
+        return true;
+      } catch (err) {
+        updateTab(tab.tabId, { streamError: err?.message || String(err) });
+        return false;
+      }
+    },
+    [tabs, activeTabId, updateTab]
+  );
+
+  const sendSocketIoEmit = useCallback(
+    async (event, args) => {
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      if (!tab?.streamSessionId || tab.streamKind !== 'socketio' || !hasBridge) return false;
+      try {
+        const result = await window.api.socketIoEmit({
+          id: tab.streamSessionId,
+          event,
+          args,
+        });
+        if (!result?.ok) {
+          updateTab(tab.tabId, { streamError: result?.error || 'Socket.IO emit failed' });
+          return false;
+        }
+        const entry = { direction: 'out', event, args, size: jsonSize(args), at: Date.now() };
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.tabId === tab.tabId
+              ? { ...t, streamError: null, streamLog: appendWsLog(t.streamLog, entry) }
+              : t
+          )
+        );
+        return true;
+      } catch (err) {
+        updateTab(tab.tabId, { streamError: err?.message || String(err) });
+        return false;
+      }
+    },
+    [tabs, activeTabId, updateTab]
+  );
+
+  const closeStreamConnection = useCallback(async () => {
+    const tab = tabs.find((t) => t.tabId === activeTabId);
+    if (!tab?.streamSessionId) return;
+    const sessionId = tab.streamSessionId;
+    const kind = tab.streamKind;
+    updateTab(tab.tabId, {
+      streamSessionId: null,
+      sending: false,
+      sendingId: null,
+      streamStatus: { state: 'closed', reason: 'Closed by user', at: Date.now() },
+    });
+    const api = typeof window !== 'undefined' ? window.api : null;
+    const closeFn = kind === 'mqtt' ? api?.mqttClose : api?.socketIoClose;
+    if (typeof closeFn !== 'function') return;
+    try {
+      await closeFn({ id: sessionId });
+    } catch {
+      /* closing an already-closed session is a no-op in main */
+    }
+  }, [tabs, activeTabId, updateTab]);
+
+  // ---- gRPC ----
+  // Send is a unary call. The result is mapped into the normal response shape
+  // so diagnostics still work; no pre-request/test scripts run for gRPC.
+  const sendGrpcUnary = useCallback(
+    async (tab) => {
+      const api = typeof window !== 'undefined' ? window.api : null;
+      const missing = grpcMissingField(tab.request);
+      if (missing) {
+        updateTab(tab.tabId, {
+          response: { ok: false, error: missing, timeMs: 0 },
+          testResults: null,
+          grpcError: missing,
+        });
+        return;
+      }
+      if (!api || typeof api.grpcInvoke !== 'function') {
+        updateTab(tab.tabId, {
+          response: {
+            ok: false,
+            error: 'gRPC is only available in the desktop app.',
+            timeMs: 0,
+          },
+          testResults: null,
+        });
+        return;
+      }
+
+      const requestId = newRequestId();
+      updateTab(tab.tabId, {
+        sending: true,
+        sendingId: requestId,
+        response: null,
+        testResults: null,
+        grpcError: null,
+      });
+
+      try {
+        const result = await api.grpcInvoke(grpcPayloadFor(tab.request));
+        if (result?.ok) {
+          const body = JSON.stringify(result.response ?? {});
+          updateTab(tab.tabId, {
+            response: {
+              ok: true,
+              status: 0,
+              statusText: 'gRPC',
+              headers: Array.isArray(result.metadata) ? result.metadata : [],
+              body,
+              contentType: 'application/json',
+              timeMs: result.durationMs ?? 0,
+              size: body.length,
+              sent: {
+                method: 'GRPC',
+                url: tab.request.url,
+                headers: [],
+                body: tab.request.grpc?.message ?? '',
+              },
+            },
+            testResults: null,
+          });
+        } else {
+          updateTab(tab.tabId, {
+            response: {
+              ok: false,
+              error: result?.error || 'gRPC call failed',
+              timeMs: result?.durationMs ?? 0,
+            },
+            testResults: null,
+          });
+        }
+      } catch (err) {
+        updateTab(tab.tabId, {
+          response: { ok: false, error: err?.message || String(err), timeMs: 0 },
+          testResults: null,
+        });
+      } finally {
+        updateTab(tab.tabId, { sending: false, sendingId: null });
+      }
+    },
+    [updateTab]
+  );
+
+  const startGrpcStream = useCallback(
+    async (tab) => {
+      const api = typeof window !== 'undefined' ? window.api : null;
+      const missing = grpcMissingField(tab.request);
+      if (missing) {
+        updateTab(tab.tabId, { grpcError: missing });
+        return;
+      }
+      if (!api || typeof api.grpcStreamStart !== 'function') {
+        updateTab(tab.tabId, {
+          grpcError: 'gRPC streaming is only available in the desktop app.',
+        });
+        return;
+      }
+
+      const sessionId = newRequestId();
+      updateTab(tab.tabId, {
+        sending: true,
+        sendingId: sessionId,
+        grpcStreamId: sessionId,
+        grpcLog: [],
+        grpcError: null,
+        response: null,
+        testResults: null,
+      });
+
+      try {
+        const result = await api.grpcStreamStart({
+          id: sessionId,
+          ...grpcPayloadFor(tab.request),
+        });
+        if (!result?.ok) {
+          updateTab(tab.tabId, {
+            sending: false,
+            sendingId: null,
+            grpcStreamId: null,
+            grpcError: result?.error || 'Could not start the stream',
+          });
+        }
+      } catch (err) {
+        updateTab(tab.tabId, {
+          sending: false,
+          sendingId: null,
+          grpcStreamId: null,
+          grpcError: err?.message || String(err),
+        });
+      }
+    },
+    [updateTab]
+  );
+
+  // Stop an open stream locally *and* in main. `reason` lands in the log so a
+  // cancelled stream never looks like a server-side end.
+  const cancelGrpcStream = useCallback((tabId, sessionId, reason = 'Cancelled') => {
+    if (!sessionId) return;
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (api && typeof api.grpcStreamCancel === 'function') {
+      try {
+        const pending = api.grpcStreamCancel(sessionId);
+        pending?.catch?.(() => {});
+      } catch {
+        /* already gone in main */
+      }
+    }
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.tabId === tabId && tab.grpcStreamId === sessionId
+          ? {
+              ...tab,
+              grpcStreamId: null,
+              sending: false,
+              sendingId: null,
+              grpcLog: appendWsLog(tab.grpcLog, {
+                type: 'end',
+                status: { code: 1, details: reason },
+                at: Date.now(),
+              }),
+            }
+          : tab
+      )
+    );
+  }, []);
+
   // Cancel whatever this tab is currently sending. A socket is closed; an
   // HTTP request is aborted by its request id.
   const abort = useCallback(async () => {
@@ -434,13 +906,21 @@ export default function App() {
       await closeWsConnection();
       return;
     }
+    if (tab.streamSessionId) {
+      await closeStreamConnection();
+      return;
+    }
+    if (tab.grpcStreamId) {
+      cancelGrpcStream(tab.tabId, tab.grpcStreamId, 'Cancelled');
+      return;
+    }
     if (!tab.sendingId || !hasBridge) return;
     try {
       await window.api.abortRequest(tab.sendingId);
     } catch {
       /* a request that already finished cannot be aborted */
     }
-  }, [tabs, activeTabId, closeWsConnection]);
+  }, [tabs, activeTabId, closeWsConnection, closeStreamConnection, cancelGrpcStream]);
 
   // One subscription fans socket events out by session id, so each session
   // has exactly one listener regardless of how many tabs are open.
@@ -493,6 +973,155 @@ export default function App() {
     };
   }, []);
 
+  // MQTT session events. Same fan-out pattern as WebSocket; the stream fields
+  // are separate so the WebSocket path stays untouched.
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api || typeof api.onMqttEvent !== 'function') return undefined;
+
+    let disposed = false;
+    const unsubscribe = api.onMqttEvent((payload) => {
+      if (disposed) return;
+      const { id, event } = payload || {};
+      if (!id || !event) return;
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.streamSessionId !== id || tab.streamKind !== 'mqtt') return tab;
+          if (event.type === 'connect') {
+            return {
+              ...tab,
+              streamStatus: {
+                state: 'open',
+                clientId: event.clientId,
+                at: event.at,
+              },
+            };
+          }
+          if (event.type === 'message') {
+            return {
+              ...tab,
+              streamLog: appendWsLog(tab.streamLog, { direction: 'in', ...event }),
+            };
+          }
+          if (event.type === 'error') {
+            return { ...tab, streamError: event.message };
+          }
+          if (event.type === 'close') {
+            return {
+              ...tab,
+              streamSessionId: null,
+              sending: false,
+              sendingId: null,
+              streamStatus: { state: 'closed', reason: event.reason, at: event.at },
+            };
+          }
+          return tab;
+        })
+      );
+    });
+
+    return () => {
+      disposed = true;
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  // Socket.IO session events.
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api || typeof api.onSocketIoEvent !== 'function') return undefined;
+
+    let disposed = false;
+    const unsubscribe = api.onSocketIoEvent((payload) => {
+      if (disposed) return;
+      const { id, event } = payload || {};
+      if (!id || !event) return;
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.streamSessionId !== id || tab.streamKind !== 'socketio') return tab;
+          if (event.type === 'connect') {
+            return {
+              ...tab,
+              streamStatus: {
+                state: 'open',
+                socketId: event.socketId,
+                transport: event.transport,
+                at: event.at,
+              },
+            };
+          }
+          if (event.type === 'message') {
+            return {
+              ...tab,
+              streamLog: appendWsLog(tab.streamLog, { direction: 'in', ...event }),
+            };
+          }
+          if (event.type === 'error') {
+            return { ...tab, streamError: event.message };
+          }
+          if (event.type === 'disconnect') {
+            return {
+              ...tab,
+              streamSessionId: null,
+              sending: false,
+              sendingId: null,
+              streamStatus: { state: 'closed', reason: event.reason, at: event.at },
+            };
+          }
+          return tab;
+        })
+      );
+    });
+
+    return () => {
+      disposed = true;
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  // gRPC stream events, keyed by the renderer-generated stream id. A terminal
+  // event clears the id so the Send button returns to its normal state.
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api || typeof api.onGrpcEvent !== 'function') return undefined;
+
+    let disposed = false;
+    const unsubscribe = api.onGrpcEvent((payload) => {
+      if (disposed) return;
+      const { id, event } = payload || {};
+      if (!id || !event) return;
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.grpcStreamId !== id) return tab;
+          if (event.type === 'data' || event.type === 'end' || event.type === 'error') {
+            return { ...tab, grpcLog: appendWsLog(tab.grpcLog, event) };
+          }
+          return tab;
+        })
+      );
+      if (event.type === 'end' || event.type === 'error') {
+        setTabs((prev) =>
+          prev.map((tab) =>
+            tab.grpcStreamId === id
+              ? {
+                  ...tab,
+                  grpcStreamId: null,
+                  sending: false,
+                  sendingId: null,
+                  grpcError: event.type === 'error' ? event.message : tab.grpcError,
+                }
+              : tab
+          )
+        );
+      }
+    });
+
+    return () => {
+      disposed = true;
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
   // Switching tabs disconnects the socket that tab owned: the conversation is
   // no longer on screen, and keeping it open would leak a session.
   const previousActiveTabRef = useRef(activeTabId);
@@ -502,7 +1131,13 @@ export default function App() {
     if (previous === activeTabId) return;
     const tab = tabs.find((t) => t.tabId === previous);
     if (tab?.wsSessionId) disconnectTabWs(previous, tab.wsSessionId, 'Tab switched');
-  }, [activeTabId, tabs, disconnectTabWs]);
+    if (tab?.streamSessionId) {
+      disconnectTabStream(previous, tab.streamSessionId, tab.streamKind, 'Tab switched');
+    }
+    if (tab?.grpcStreamId) {
+      cancelGrpcStream(tab.tabId, tab.grpcStreamId, 'Tab switched');
+    }
+  }, [activeTabId, tabs, disconnectTabWs, disconnectTabStream, cancelGrpcStream]);
 
   // Editing a connected request's URL into an HTTP one ends the socket too.
   useEffect(() => {
@@ -511,13 +1146,50 @@ export default function App() {
     disconnectTabWs(activeTab.tabId, activeTab.wsSessionId, 'URL changed');
   }, [activeTab?.tabId, activeTab?.request.url, activeTab?.wsSessionId, disconnectTabWs]);
 
+  // Same rule for MQTT/Socket.IO: editing the connected URL (any edit, not
+  // only a scheme change) ends the session so the panel never outlives it.
+  useEffect(() => {
+    if (!activeTab?.streamSessionId) return;
+    if (activeTab.streamUrl === activeTab.request.url) return;
+    disconnectTabStream(
+      activeTab.tabId,
+      activeTab.streamSessionId,
+      activeTab.streamKind,
+      'URL changed'
+    );
+  }, [
+    activeTab?.tabId,
+    activeTab?.request.url,
+    activeTab?.streamSessionId,
+    activeTab?.streamUrl,
+    activeTab?.streamKind,
+    disconnectTabStream,
+  ]);
+
   const send = useCallback(async () => {
     const tab = tabs.find((t) => t.tabId === activeTabId);
     if (!tab || !tab.request.url.trim() || tab.sending) return;
 
+    // gRPC uses Send for a unary call; server streaming is started from the
+    // panel's Stream button.
+    if (isGrpc(tab.request.url)) {
+      await sendGrpcUnary(tab);
+      return;
+    }
+
     // WebSocket requests share the Send button but not the HTTP pipeline.
     if (isWebSocket(tab.request.url)) {
       await openWebSocket(tab);
+      return;
+    }
+
+    // MQTT and Socket.IO use the same Send-as-connect lifecycle.
+    if (isMqtt(tab.request.url)) {
+      await openStream(tab, 'mqtt');
+      return;
+    }
+    if (isSocketIo(tab.request.url)) {
+      await openStream(tab, 'socketio');
       return;
     }
 
@@ -673,7 +1345,7 @@ export default function App() {
     } finally {
       updateTab(activeTabId, { sending: false, sendingId: null });
     }
-  }, [tabs, activeTabId, activeEnv, store, updateTab, persistVarMutations, transport, dialogs, openWebSocket]);
+  }, [tabs, activeTabId, activeEnv, store, updateTab, persistVarMutations, transport, dialogs, openWebSocket, openStream, sendGrpcUnary]);
 
   const showCode = useCallback(() => {
     const tab = tabs.find((t) => t.tabId === activeTabId);
@@ -864,6 +1536,12 @@ export default function App() {
       if (closing?.wsSessionId) {
         disconnectTabWs(tabId, closing.wsSessionId, 'Tab closed');
       }
+      if (closing?.streamSessionId) {
+        disconnectTabStream(tabId, closing.streamSessionId, closing.streamKind, 'Tab closed');
+      }
+      if (closing?.grpcStreamId) {
+        cancelGrpcStream(tabId, closing.grpcStreamId, 'Tab closed');
+      }
       setTabs((prev) => {
         const idx = prev.findIndex((t) => t.tabId === tabId);
         const next = prev.filter((t) => t.tabId !== tabId);
@@ -879,7 +1557,7 @@ export default function App() {
         return next;
       });
     },
-    [activeTabId, tabs, disconnectTabWs]
+    [activeTabId, tabs, disconnectTabWs, disconnectTabStream, cancelGrpcStream]
   );
 
   // Restore the persisted session once the collection tree has loaded. It only
@@ -1079,7 +1757,27 @@ export default function App() {
               sending={activeTab.sending}
               dirty={activeTab.dirty}
             />
-            {isWebSocket(activeTab.request.url) ? (
+            {isGrpc(activeTab.request.url) ? (
+              <GrpcPanel
+                key={activeTab.tabId}
+                request={activeTab.request}
+                response={activeTab.response}
+                sending={activeTab.sending}
+                streamActive={!!activeTab.grpcStreamId}
+                streamLog={activeTab.grpcLog}
+                streamError={activeTab.grpcError}
+                onChange={setActiveRequest}
+                onInvoke={send}
+                onStartStream={() => {
+                  const tab = tabs.find((t) => t.tabId === activeTabId);
+                  if (tab && !tab.sending) startGrpcStream(tab);
+                }}
+                onCancelStream={() =>
+                  cancelGrpcStream(activeTab.tabId, activeTab.grpcStreamId, 'Cancelled')
+                }
+                onClearLog={() => updateTab(activeTab.tabId, { grpcLog: [] })}
+              />
+            ) : isWebSocket(activeTab.request.url) ? (
               <WebSocketPanel
                 status={activeTab.wsStatus}
                 log={activeTab.wsLog}
@@ -1087,6 +1785,26 @@ export default function App() {
                 onSend={sendWsFrame}
                 onDisconnect={closeWsConnection}
                 onClear={() => updateTab(activeTab.tabId, { wsLog: [] })}
+              />
+            ) : isMqtt(activeTab.request.url) ? (
+              <MqttPanel
+                status={activeTab.streamStatus}
+                log={activeTab.streamLog}
+                error={activeTab.streamError}
+                onSubscribe={sendMqttSubscribe}
+                onUnsubscribe={sendMqttUnsubscribe}
+                onPublish={sendMqttPublish}
+                onDisconnect={closeStreamConnection}
+                onClear={() => updateTab(activeTab.tabId, { streamLog: [] })}
+              />
+            ) : isSocketIo(activeTab.request.url) ? (
+              <SocketIoPanel
+                status={activeTab.streamStatus}
+                log={activeTab.streamLog}
+                error={activeTab.streamError}
+                onEmit={sendSocketIoEmit}
+                onDisconnect={closeStreamConnection}
+                onClear={() => updateTab(activeTab.tabId, { streamLog: [] })}
               />
             ) : (
               <ResponsePanel

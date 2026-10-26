@@ -17,6 +17,33 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('ws:event', handler);
     return () => ipcRenderer.removeListener('ws:event', handler);
   },
+  mqttConnect: (payload) => ipcRenderer.invoke('mqtt:connect', payload),
+  mqttPublish: (payload) => ipcRenderer.invoke('mqtt:publish', payload),
+  mqttSubscribe: (payload) => ipcRenderer.invoke('mqtt:subscribe', payload),
+  mqttUnsubscribe: (payload) => ipcRenderer.invoke('mqtt:unsubscribe', payload),
+  mqttClose: (payload) => ipcRenderer.invoke('mqtt:close', payload),
+  onMqttEvent: (cb) => {
+    const handler = (_event, payload) => cb(payload);
+    ipcRenderer.on('mqtt:event', handler);
+    return () => ipcRenderer.removeListener('mqtt:event', handler);
+  },
+  socketIoConnect: (payload) => ipcRenderer.invoke('socketio:connect', payload),
+  socketIoEmit: (payload) => ipcRenderer.invoke('socketio:emit', payload),
+  socketIoClose: (payload) => ipcRenderer.invoke('socketio:close', payload),
+  onSocketIoEvent: (cb) => {
+    const handler = (_event, payload) => cb(payload);
+    ipcRenderer.on('socketio:event', handler);
+    return () => ipcRenderer.removeListener('socketio:event', handler);
+  },
+  grpcServices: (payload) => ipcRenderer.invoke('grpc:services', payload),
+  grpcInvoke: (payload) => ipcRenderer.invoke('grpc:invoke', payload),
+  grpcStreamStart: (payload) => ipcRenderer.invoke('grpc:stream', payload),
+  grpcStreamCancel: (id) => ipcRenderer.invoke('grpc:cancel', id),
+  onGrpcEvent: (cb) => {
+    const handler = (_event, payload) => cb(payload);
+    ipcRenderer.on('grpc:event', handler);
+    return () => ipcRenderer.removeListener('grpc:event', handler);
+  },
   runScript: (payload) => ipcRenderer.invoke('script:run', payload),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   saveResponse: (payload) => ipcRenderer.invoke('response:save', payload),

@@ -18,6 +18,27 @@ import {
   closeSession as closeWsSession,
   closeAll as closeAllWsSessions,
 } from './protocols/websocket.js';
+import {
+  openSession as openMqttSession,
+  publish as publishMqtt,
+  subscribe as subscribeMqtt,
+  unsubscribe as unsubscribeMqtt,
+  closeSession as closeMqttSession,
+  closeAll as closeAllMqttSessions,
+} from './protocols/mqtt.js';
+import {
+  openSession as openSocketIoSession,
+  emit as emitSocketIo,
+  closeSession as closeSocketIoSession,
+  closeAll as closeAllSocketIoSessions,
+} from './protocols/socketio.js';
+import {
+  loadServices as loadGrpcServices,
+  invokeUnary as invokeGrpcUnary,
+  startServerStream as startGrpcStream,
+  cancelStream as cancelGrpcStream,
+  closeAll as closeAllGrpcStreams,
+} from './protocols/grpc.js';
 import { normalizeNetworkSettings, sanitizeNetworkSettings } from '../shared/networkSettings.js';
 import { SCHEMA_VERSION } from '../shared/schema.js';
 import { encryptSecret, decryptSecret } from './secret-store.js';
@@ -86,14 +107,30 @@ const inflight = new Map();
 
 // Socket events go only to the focused window. Session ids are renderer
 // generated, so a stale event for a closed tab is simply ignored there.
-function forwardWsEvent(id, event) {
+function forwardProtocolEvent(channel, id, event) {
   const win = BrowserWindow.getFocusedWindow() || mainWindow;
   if (!win || win.webContents.isDestroyed()) return;
   try {
-    win.webContents.send('ws:event', { id, event });
+    win.webContents.send(channel, { id, event });
   } catch {
     /* window went away mid-event */
   }
+}
+
+function forwardWsEvent(id, event) {
+  forwardProtocolEvent('ws:event', id, event);
+}
+
+function forwardMqttEvent(id, event) {
+  forwardProtocolEvent('mqtt:event', id, event);
+}
+
+function forwardSocketIoEvent(id, event) {
+  forwardProtocolEvent('socketio:event', id, event);
+}
+
+function forwardGrpcEvent(id, event) {
+  forwardProtocolEvent('grpc:event', id, event);
 }
 
 function createWindow() {
@@ -148,11 +185,17 @@ app.on('window-all-closed', () => {
   // Sockets belong to the app, not to a single renderer; never leave them
   // running after the last window is gone.
   closeAllWsSessions();
+  closeAllMqttSessions();
+  closeAllSocketIoSessions();
+  closeAllGrpcStreams();
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', () => {
   closeAllWsSessions();
+  closeAllMqttSessions();
+  closeAllSocketIoSessions();
+  closeAllGrpcStreams();
 });
 
 // ---- IPC surface: the renderer can only call these channels. ----
@@ -387,6 +430,135 @@ function registerIpc() {
     const { id, code, reason } = payload || {};
     return closeWsSession(id, code, reason);
   });
+
+  // ---- MQTT sessions (main-process owned) ----
+  // Same contract as WebSocket: session id from the renderer, events through
+  // 'mqtt:event', failures returned as data instead of IPC rejections.
+  ipcMain.handle('mqtt:connect', async (_event, payload) => {
+    const { id, url, username, password, clientId, keepalive, clean } = payload || {};
+    try {
+      await openMqttSession({
+        id,
+        url,
+        username,
+        password,
+        clientId,
+        keepalive,
+        clean,
+        onEvent: (event) => forwardMqttEvent(id, event),
+      });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('mqtt:publish', async (_event, payload) => {
+    const { id, topic, payload: body, base64, qos, retain } = payload || {};
+    try {
+      const ok = await publishMqtt(id, { topic, payload: body, base64, qos, retain });
+      return ok ? { ok: true } : { ok: false, error: 'MQTT session is not open' };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('mqtt:subscribe', async (_event, payload) => {
+    const { id, topic, qos } = payload || {};
+    try {
+      const ok = await subscribeMqtt(id, { topic, qos });
+      return ok ? { ok: true } : { ok: false, error: 'MQTT session is not open' };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('mqtt:unsubscribe', async (_event, payload) => {
+    const { id, topic } = payload || {};
+    try {
+      const ok = await unsubscribeMqtt(id, topic);
+      return ok ? { ok: true } : { ok: false, error: 'MQTT session is not open' };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('mqtt:close', async (_event, payload) => {
+    const { id } = payload || {};
+    return closeMqttSession(id);
+  });
+
+  // ---- Socket.IO sessions (main-process owned) ----
+  ipcMain.handle('socketio:connect', async (_event, payload) => {
+    const { id, url, auth, headers } = payload || {};
+    try {
+      await openSocketIoSession({
+        id,
+        url,
+        auth,
+        headers,
+        onEvent: (event) => forwardSocketIoEvent(id, event),
+      });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('socketio:emit', async (_event, payload) => {
+    const { id, event, args } = payload || {};
+    try {
+      const ok = await emitSocketIo(id, event, args);
+      return ok ? { ok: true } : { ok: false, error: 'Socket.IO session is not open' };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('socketio:close', async (_event, payload) => {
+    const { id } = payload || {};
+    return closeSocketIoSession(id);
+  });
+
+  // ---- gRPC calls (main-process owned) ----
+  // Every handler returns a result object, including failures; nothing here
+  // rejects. Stream events go only to the focused window as 'grpc:event'.
+  ipcMain.handle('grpc:services', async (_event, payload) => {
+    const { protoPath, reflection, useReflection } = payload || {};
+    return loadGrpcServices({ protoPath, reflection, useReflection });
+  });
+
+  ipcMain.handle('grpc:invoke', async (_event, payload) => {
+    const { target, protoPath, service, method, message, metadata, tls, reflection } =
+      payload || {};
+    return invokeGrpcUnary({
+      target,
+      protoPath,
+      service,
+      method,
+      message,
+      metadata,
+      tls,
+      reflection,
+    });
+  });
+
+  ipcMain.handle('grpc:stream', async (_event, payload) => {
+    const { id, target, protoPath, service, method, message, metadata, tls } = payload || {};
+    return startGrpcStream({
+      id,
+      target,
+      protoPath,
+      service,
+      method,
+      message,
+      metadata,
+      tls,
+      onEvent: (event) => forwardGrpcEvent(id, event),
+    });
+  });
+
+  ipcMain.handle('grpc:cancel', async (_event, id) => cancelGrpcStream(id));
 
   // Save a response body to disk. Payload: { suggestedName, base64?, text? }.
   ipcMain.handle('response:save', async (_event, payload) => {
