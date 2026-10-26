@@ -2,7 +2,7 @@
   "name": "relay",
   "productName": "Relay",
   "version": "0.1.0",
-  "description": "Relay — a modern local API client (Postman-style) built with Electron + React + Vite",
+  "description": "Relay \u2014 a modern local API client (Postman-style) built with Electron + React + Vite",
   "main": "dist-electron/main.js",
   "bin": {
     "relay": "cli/relay.mjs"
@@ -25,11 +25,18 @@
     "dist:dir": "vite build && electron-builder --mac --arm64 --dir",
     "dist:win": "vite build && electron-builder --win nsis --x64",
     "dist:linux": "vite build && electron-builder --linux AppImage --x64",
+    "release": "vite build && electron-builder --mac --arm64 --publish always",
     "cli": "node cli/relay.mjs"
   },
   "build": {
     "appId": "com.relay.apiclient",
     "productName": "Relay",
+    "publish": {
+      "provider": "github",
+      "owner": "abdullahPrasetio",
+      "repo": "relay"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -41,9 +48,19 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "gatekeeperAssess": false,
       "target": [
         {
           "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
           "arch": [
             "universal"
           ]
@@ -86,6 +103,7 @@
     "@grpc/proto-loader": "^0.8.1",
     "@monaco-editor/react": "^4.6.0",
     "crypto-js": "^4.2.0",
+    "electron-updater": "^6.8.11",
     "graphql": "^17.0.2",
     "http-proxy-agent": "^7.0.2",
     "https-proxy-agent": "^7.0.6",
