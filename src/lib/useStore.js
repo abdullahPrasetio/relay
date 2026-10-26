@@ -210,6 +210,19 @@ export function useStore() {
 
   const switchWorkspace = useCallback((id) => setActiveWorkspaceId(id), []);
 
+  // Add an imported workspace (from a Git export) and make it active.
+  const importWorkspace = useCallback((workspace) => {
+    if (!workspace || typeof workspace.id !== 'string' || !workspace.id) {
+      throw new Error('Imported workspace is missing an id');
+    }
+    if (typeof workspace.name !== 'string' || !workspace.name.trim()) {
+      throw new Error('Imported workspace is missing a name');
+    }
+    setWorkspaces((prev) => [...prev, workspace]);
+    setActiveWorkspaceId(workspace.id);
+    return workspace.id;
+  }, []);
+
   return {
     loaded,
     saveError,
@@ -236,5 +249,6 @@ export function useStore() {
     renameWorkspace,
     deleteWorkspace,
     switchWorkspace,
+    importWorkspace,
   };
 }
