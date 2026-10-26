@@ -40,6 +40,7 @@ export function buildTlsOptions(network) {
   if (network.clientCertPath) tls.cert = read(network.clientCertPath);
   if (network.clientKeyPath) tls.key = read(network.clientKeyPath);
   if (network.clientCertPassphrase) tls.passphrase = network.clientCertPassphrase;
+  if (network.servername) tls.servername = network.servername;
   return tls;
 }
 
@@ -65,6 +66,7 @@ export function createSendContext({ network, request }) {
     DEFAULT_MAX_REDIRECTS
   );
   const verifyTls = pick(settings.verifyTls, network.verifyTls) !== false;
+  const useCookieJar = pick(settings.useCookieJar, true) !== false;
   const maxResponseBytes = clampInt(
     network.maxResponseBytes,
     1024,
@@ -97,6 +99,7 @@ export function createSendContext({ network, request }) {
       maxRedirects,
       verifyTls,
       maxResponseBytes,
+      useCookieJar,
       proxy,
       tls,
     },

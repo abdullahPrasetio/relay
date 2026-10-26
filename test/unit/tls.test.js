@@ -126,6 +126,29 @@ describe('TLS handling', () => {
       })
     ).toThrow(/Cannot read TLS file/);
   });
+
+  it('verifies the certificate against the configured SNI name', async () => {
+    const { port } = await startHttps({
+      key: pem('server-key.pem'),
+      cert: pem('server-cert.pem'), // valid for localhost only
+    });
+    const caPath = path.join(tlsDir, 'ca-cert.pem');
+
+    // Connecting by IP while asserting the name the certificate carries.
+    const named = await send(`https://127.0.0.1:${port}/`, {}, {
+      customCaPath: caPath,
+      servername: 'localhost',
+    });
+    expect(named.ok).toBe(true);
+    expect(named.status).toBe(200);
+
+    const wrongName = await send(`https://127.0.0.1:${port}/`, {}, {
+      customCaPath: caPath,
+      servername: 'wrong.example',
+    });
+    expect(wrongName.ok).toBe(false);
+    expect(wrongName.error).toMatch(/altnames|hostname|certificate/i);
+  });
 });
 
 describe('redirect policy', () => {

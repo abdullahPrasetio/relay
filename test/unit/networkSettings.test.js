@@ -76,6 +76,12 @@ describe('normalizeNetworkSettings', () => {
     expect(s.proxies[0].bypass).toEqual(['localhost', '*.corp']);
     expect(s.bypass).toBeUndefined();
   });
+
+  it('defaults the SNI override to empty and trims it when set', () => {
+    expect(normalizeNetworkSettings({}).servername).toBe('');
+    expect(normalizeNetworkSettings({ servername: '  api.corp  ' }).servername).toBe('api.corp');
+    expect(sanitizeNetworkSettings({ servername: 'api.corp' }).servername).toBe('api.corp');
+  });
 });
 
 describe('sanitizeNetworkSettings', () => {

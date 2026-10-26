@@ -152,3 +152,48 @@ describe('response body decoding', () => {
     expect(res.error).toContain('Response exceeds');
   });
 });
+
+describe('cookie jar policy', () => {
+  const jar = [
+    {
+      name: 'sid',
+      value: 'abc',
+      domain: '127.0.0.1',
+      path: '/',
+      expires: null,
+      secure: false,
+      httpOnly: false,
+    },
+  ];
+
+  it('sends and updates jar cookies by default', async () => {
+    let seenCookie = null;
+    const { port } = await startServer((req, res) => {
+      seenCookie = req.headers.cookie || '';
+      res.writeHead(200, { 'Set-Cookie': 'fresh=1', 'Content-Type': 'text/plain' });
+      res.end('ok');
+    });
+
+    const res = await get(`http://127.0.0.1:${port}/`, { cookieJar: jar });
+
+    expect(seenCookie).toBe('sid=abc');
+    expect(res.cookieJar.map((c) => c.name)).toEqual(['sid', 'fresh']);
+  });
+
+  it('neither sends nor stores cookies when the request opts out', async () => {
+    let seenCookie = null;
+    const { port } = await startServer((req, res) => {
+      seenCookie = req.headers.cookie || '';
+      res.writeHead(200, { 'Set-Cookie': 'fresh=1', 'Content-Type': 'text/plain' });
+      res.end('ok');
+    });
+
+    const res = await get(`http://127.0.0.1:${port}/`, {
+      cookieJar: jar,
+      useCookieJar: false,
+    });
+
+    expect(seenCookie).toBe('');
+    expect(res.cookieJar.map((c) => c.name)).toEqual(['sid']);
+  });
+});

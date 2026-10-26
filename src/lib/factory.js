@@ -34,6 +34,7 @@ export function newRequestSettings() {
     maxRedirects: null,
     verifyTls: null,
     proxyId: null,
+    useCookieJar: true,
   };
 }
 

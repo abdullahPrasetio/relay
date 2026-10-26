@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -44,5 +44,25 @@ describe('main-process store', () => {
     store.setAll({ workspaces: [], activeWorkspaceId: null });
 
     expect(store.getCookieJar()).toEqual([{ name: 'a', value: 'b' }]);
+  });
+
+  it('takes a one-time backup of the pre-migration file', () => {
+    writeFileSync(file, JSON.stringify({ schemaVersion: 1, workspaces: [{ id: 'ws_old' }] }));
+    const store = createStore(file);
+
+    const backupPath = store.backup('v1');
+    expect(backupPath).toBe(`${file}.v1.bak`);
+    const backedUp = JSON.parse(readFileSync(backupPath, 'utf8'));
+    expect(backedUp.schemaVersion).toBe(1);
+    expect(backedUp.workspaces[0].id).toBe('ws_old');
+
+    // A later write (the migrated data) must not clobber the backup.
+    store.setAll({ schemaVersion: 2, workspaces: [], activeWorkspaceId: null });
+    expect(JSON.parse(readFileSync(backupPath, 'utf8')).schemaVersion).toBe(1);
+    expect(store.backup('v1')).toBe(backupPath);
+  });
+
+  it('does not create a backup on a fresh install', () => {
+    expect(createStore(file).backup('v1')).toBeNull();
   });
 });

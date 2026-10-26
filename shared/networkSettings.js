@@ -16,6 +16,8 @@ export const DEFAULT_NETWORK_SETTINGS = Object.freeze({
   customCaPath: '',
   clientCertPath: '',
   clientKeyPath: '',
+  // Optional SNI override; empty = use the request URL's hostname.
+  servername: '',
   // Encrypted client-cert passphrase (safeStorage ciphertext, base64). The
   // renderer never sees this field; sanitizeNetworkSettings drops it.
   clientCertPassphraseEnc: '',
@@ -105,6 +107,7 @@ export function normalizeNetworkSettings(raw) {
     customCaPath: toStr(d.customCaPath).trim(),
     clientCertPath: toStr(d.clientCertPath).trim(),
     clientKeyPath: toStr(d.clientKeyPath).trim(),
+    servername: toStr(d.servername).trim(),
     clientCertPassphraseEnc: toStr(d.clientCertPassphraseEnc),
     hasClientCertPassphrase: toBool(d.hasClientCertPassphrase, false),
   };

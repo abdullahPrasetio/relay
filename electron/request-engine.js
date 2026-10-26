@@ -331,7 +331,10 @@ function performWithRedirects(request, redirectCount, chain, jarRef, options = {
     ensureHeader(headers, 'Accept-Encoding', 'gzip, deflate, br');
 
     // Attach cookies from the jar (unless the request already sets Cookie).
-    if (jarRef && jarRef.jar) {
+    // `useCookieJar: false` opts this request out of both reading and writing
+    // the shared jar, without affecting other requests.
+    const useCookieJar = options.useCookieJar !== false;
+    if (useCookieJar && jarRef && jarRef.jar) {
       const cookieHeader = cookieHeaderFor(jarRef.jar, url.toString());
       if (cookieHeader && !Object.keys(headers).some((k) => k.toLowerCase() === 'cookie')) {
         headers['Cookie'] = cookieHeader;
@@ -378,7 +381,7 @@ function performWithRedirects(request, redirectCount, chain, jarRef, options = {
         const nextUrl = new URL(res.headers.location, url).toString();
         const nextMethod = res.statusCode === 303 ? 'GET' : request.method;
         // Store cookies set on the redirect response before following it.
-        if (jarRef && jarRef.jar && res.headers['set-cookie']) {
+        if (useCookieJar && jarRef && jarRef.jar && res.headers['set-cookie']) {
           jarRef.jar = storeCookies(jarRef.jar, res.headers['set-cookie'], url.toString());
         }
         performWithRedirects(
@@ -419,7 +422,7 @@ function performWithRedirects(request, redirectCount, chain, jarRef, options = {
         const body = isBinary ? '' : raw.toString(charset);
         const bodyBase64 = isBinary ? raw.toString('base64') : '';
         // Store any cookies from the final response into the jar.
-        if (jarRef && jarRef.jar && res.headers['set-cookie']) {
+        if (useCookieJar && jarRef && jarRef.jar && res.headers['set-cookie']) {
           jarRef.jar = storeCookies(jarRef.jar, res.headers['set-cookie'], url.toString());
         }
         resolve({

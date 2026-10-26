@@ -30,6 +30,7 @@ function toDraft(settings) {
     maxRedirects: s.maxRedirects == null ? '' : String(s.maxRedirects),
     verifyTls: boolToTri(s.verifyTls),
     proxyId: s.proxyId == null ? 'default' : s.proxyId,
+    useCookieJar: boolToTri(s.useCookieJar),
   };
 }
 
@@ -58,6 +59,7 @@ function buildSettings(draft) {
     maxRedirects: maxRedirects === '' ? null : Number(maxRedirects),
     verifyTls: triToBool(draft.verifyTls),
     proxyId: draft.proxyId === 'default' ? null : draft.proxyId,
+    useCookieJar: triToBool(draft.useCookieJar),
   };
 }
 
@@ -165,6 +167,20 @@ export default function RequestSettingsModal({ request, networkSettings, onChang
               {o.label}
             </option>
           ))}
+        </select>
+      </div>
+
+      <div className="form-row">
+        <label htmlFor="request-use-cookie-jar">Use stored cookies</label>
+        <select
+          id="request-use-cookie-jar"
+          data-testid="request-use-cookie-jar"
+          value={draft.useCookieJar}
+          onChange={(e) => set({ useCookieJar: e.target.value })}
+        >
+          <option value="default">Use default (on)</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
         </select>
       </div>
 

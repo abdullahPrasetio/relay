@@ -88,5 +88,19 @@ export function createStore(filePath) {
       data.network = network || DEFAULT_NETWORK_SETTINGS;
       persist();
     },
+    // One-time safety copy of the data file, e.g. before a schema migration.
+    // Never overwrites an existing backup; returns null when there is nothing
+    // to copy (fresh install) or the copy failed.
+    backup(tag) {
+      if (!fs.existsSync(filePath)) return null;
+      const target = `${filePath}.${tag}.bak`;
+      if (fs.existsSync(target)) return target;
+      try {
+        fs.copyFileSync(filePath, target);
+        return target;
+      } catch {
+        return null;
+      }
+    },
   };
 }

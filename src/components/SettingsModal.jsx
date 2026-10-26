@@ -36,6 +36,7 @@ function toDraft(settings) {
     customCaPath: s.customCaPath || '',
     clientCertPath: s.clientCertPath || '',
     clientKeyPath: s.clientKeyPath || '',
+    servername: s.servername || '',
     clientCertPassphrase: '',
     clearClientCertPassphrase: false,
     hasClientCertPassphrase: !!s.hasClientCertPassphrase,
@@ -95,6 +96,7 @@ function buildPayload(d) {
     customCaPath: d.customCaPath,
     clientCertPath: d.clientCertPath,
     clientKeyPath: d.clientKeyPath,
+    servername: d.servername,
     proxies: d.proxies.map((p) => {
       const out = {
         id: p.id,
@@ -424,6 +426,16 @@ export default function SettingsModal({ settings, onSave, onClose }) {
         onPick={() => pick('clientKeyPath')}
         onClear={() => set({ clientKeyPath: '' })}
       />
+      <div className="form-row">
+        <label htmlFor="settings-servername">TLS server name (SNI)</label>
+        <input
+          id="settings-servername"
+          data-testid="settings-servername"
+          placeholder="Auto (from the request URL)"
+          value={draft.servername}
+          onChange={(e) => set({ servername: e.target.value })}
+        />
+      </div>
       <div className="form-row">
         <label htmlFor="settings-client-passphrase">Client key passphrase</label>
         <input

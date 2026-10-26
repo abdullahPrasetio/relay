@@ -3,11 +3,9 @@
 // personal/local workspaces.
 import { uid, newCollection } from './factory.js';
 import { normalizeCollection } from './collectionTree.js';
+import { SCHEMA_VERSION } from '../../shared/schema.js';
 
-// Persisted-data schema version.
-//   1 — implicit shape before per-request network settings existed.
-//   2 — adds `request.settings` (timeout/redirect/TLS/proxy overrides).
-export const SCHEMA_VERSION = 2;
+export { SCHEMA_VERSION };
 
 export function newWorkspace(name = 'New Workspace') {
   return {

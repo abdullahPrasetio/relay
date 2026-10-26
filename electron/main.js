@@ -7,6 +7,7 @@ import { createStore } from './store.js';
 import { writeResponseFile } from './response-file.js';
 import { createSendContext } from './network-runtime.js';
 import { normalizeNetworkSettings, sanitizeNetworkSettings } from '../shared/networkSettings.js';
+import { SCHEMA_VERSION } from '../shared/schema.js';
 import { encryptSecret, decryptSecret } from './secret-store.js';
 // Script runner runs user scripts here in Node (renderer CSP forbids eval).
 // Imported (not require'd from a copied .cjs) so Vite bundles it + its deps
@@ -42,6 +43,12 @@ function resolveDataFile() {
   return current;
 }
 const store = createStore(resolveDataFile());
+
+// One-time safety copy of the data file before the renderer migrates it to the
+// current schema. Never overwrites an existing backup, and does nothing on a
+// fresh install (no file yet).
+const storedSchema = Number(store.getAll().schemaVersion) || 1;
+if (storedSchema < SCHEMA_VERSION) store.backup(`v${storedSchema}`);
 
 // Stored settings -> runtime settings: ciphertext secrets are decrypted here,
 // in main, and never cross the IPC boundary back to the renderer.
