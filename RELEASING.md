@@ -100,3 +100,12 @@ higher version with the old code:
 4. For an urgent stop, set `RELAY_DISABLE_UPDATER=1` in a hotfix or remove the
    release's `latest*.yml`; already-downloaded updates still need the user to
    restart.
+
+## Gotcha: never define certificate variables empty
+
+`CSC_LINK` / `WIN_CSC_LINK` must be either a real path/URL or **unset**. An
+empty-but-defined value makes electron-builder try to read `''` as a
+certificate file and the build fails with `not a file` (reproduced locally
+with `CSC_LINK= npm run dist`). That is why `.github/workflows/build.yml`
+splits the build into separate unsigned/signed steps instead of passing the
+secrets unconditionally.
