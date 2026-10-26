@@ -46,6 +46,9 @@ contextBridge.exposeInMainWorld('api', {
   },
   runScript: (payload) => ipcRenderer.invoke('script:run', payload),
   pickFile: () => ipcRenderer.invoke('file:pick'),
+  exportWorkspace: (files, suggestedName) =>
+    ipcRenderer.invoke('workspace:export', { files, suggestedName }),
+  importWorkspaceFiles: () => ipcRenderer.invoke('workspace:import'),
   saveResponse: (payload) => ipcRenderer.invoke('response:save', payload),
   getOAuth2Token: (cfg) => ipcRenderer.invoke('oauth2:token', cfg),
   authorizeOAuth2: (cfg) => ipcRenderer.invoke('oauth2:authorize', cfg),
@@ -65,6 +68,9 @@ contextBridge.exposeInMainWorld('api', {
   confirmClose: () => ipcRenderer.invoke('app:close-confirmed'),
   getNetworkSettings: () => ipcRenderer.invoke('network:get'),
   setNetworkSettings: (settings) => ipcRenderer.invoke('network:set', settings),
+  mockStart: (payload) => ipcRenderer.invoke('mock:start', payload),
+  mockStop: () => ipcRenderer.invoke('mock:stop'),
+  mockStatus: () => ipcRenderer.invoke('mock:status'),
   loadData: () => ipcRenderer.invoke('store:get'),
   saveData: (data) => ipcRenderer.invoke('store:set', data),
 });

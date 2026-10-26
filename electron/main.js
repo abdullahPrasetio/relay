@@ -42,6 +42,8 @@ import {
 import { normalizeNetworkSettings, sanitizeNetworkSettings } from '../shared/networkSettings.js';
 import { SCHEMA_VERSION } from '../shared/schema.js';
 import { encryptSecret, decryptSecret } from './secret-store.js';
+import { initAutoUpdate } from './updater.js';
+import { registerMockIpc, stopMockServer } from './mock-ipc.js';
 // Script runner runs user scripts here in Node (renderer CSP forbids eval).
 // Imported (not require'd from a copied .cjs) so Vite bundles it + its deps
 // into main.js, eliminating stale-copy bugs.
@@ -176,6 +178,11 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
 
+  // Best-effort; no-op in dev and when RELAY_DISABLE_UPDATER=1.
+  initAutoUpdate({ app, dialog }).catch((err) => {
+    console.error('[updater] initialization failed:', err?.message || err);
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -188,6 +195,7 @@ app.on('window-all-closed', () => {
   closeAllMqttSessions();
   closeAllSocketIoSessions();
   closeAllGrpcStreams();
+  stopMockServer();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -196,10 +204,39 @@ app.on('before-quit', () => {
   closeAllMqttSessions();
   closeAllSocketIoSessions();
   closeAllGrpcStreams();
+  stopMockServer();
 });
+
+// ---- Git-friendly workspace export/import file helpers. ----
+// The renderer owns the workspace format; main only validates paths and moves
+// bytes. Paths are always relative to a user-chosen folder.
+const WORKSPACE_EXPORT_MAX_FILES = 200;
+const WORKSPACE_EXPORT_MAX_FILE_BYTES = 2 * 1024 * 1024;
+
+function safeExportDirName(name) {
+  const cleaned = String(name || 'relay-workspace')
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '');
+  if (!cleaned || cleaned === '.' || cleaned === '..') return 'relay-workspace';
+  return cleaned;
+}
+
+// Convert a renderer-supplied relative path to OS segments, rejecting
+// traversal and absolute paths. Returns null when unsafe.
+function workspaceRelativePath(relative) {
+  if (typeof relative !== 'string' || !relative) return null;
+  const normalized = relative.replace(/\\/g, '/');
+  if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) return null;
+  const parts = normalized.split('/');
+  if (parts.some((part) => !part || part === '.' || part === '..')) return null;
+  return parts.join(path.sep);
+}
 
 // ---- IPC surface: the renderer can only call these channels. ----
 function registerIpc() {
+  // Local mock server (collection + saved examples) — start/stop/status IPC.
+  registerMockIpc({ ipcMain, store, BrowserWindow });
+
   // Fire an HTTP request from Node (no browser CORS, full network access).
   // Uses the persistent cookie jar: attaches matching cookies and stores any
   // Set-Cookie from the response.
@@ -572,6 +609,94 @@ function registerIpc() {
       return { saved: true, path: res.filePath };
     } catch (err) {
       return { saved: false, error: err.message };
+    }
+  });
+
+  // Export a workspace as a Git-friendly folder (one file per collection).
+  ipcMain.handle('workspace:export', async (_event, payload) => {
+    const { files, suggestedName } = payload || {};
+    if (!files || typeof files !== 'object') return { ok: false, error: 'No files to export' };
+    const entries = Object.entries(files);
+    if (entries.length > WORKSPACE_EXPORT_MAX_FILES) {
+      return { ok: false, error: `Too many files (max ${WORKSPACE_EXPORT_MAX_FILES})` };
+    }
+
+    const win = BrowserWindow.getFocusedWindow();
+    const res = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (res.canceled || !res.filePaths?.length) return { ok: false, canceled: true };
+
+    try {
+      const root = path.join(res.filePaths[0], safeExportDirName(suggestedName));
+      let count = 0;
+      for (const [relative, content] of entries) {
+        const safe = workspaceRelativePath(relative);
+        if (!safe) continue; // never write outside the chosen folder
+        const target = path.join(root, safe);
+        if (!target.startsWith(`${root}${path.sep}`)) continue;
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, typeof content === 'string' ? content : String(content ?? ''));
+        count += 1;
+      }
+      return { ok: true, dir: root, count };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Read an exported workspace folder: manifest plus the files it references.
+  ipcMain.handle('workspace:import', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const res = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
+    if (res.canceled || !res.filePaths?.length) return { ok: false, canceled: true };
+
+    const root = res.filePaths[0];
+    try {
+      let manifest;
+      try {
+        const raw = fs.readFileSync(path.join(root, 'relay-workspace.json'), 'utf8');
+        manifest = JSON.parse(raw);
+      } catch {
+        return { ok: false, error: 'Not a Relay workspace export' };
+      }
+      if (!manifest || manifest.format !== 'relay-workspace') {
+        return { ok: false, error: 'Not a Relay workspace export' };
+      }
+
+      const wanted = new Set(['relay-workspace.json', 'globals.json']);
+      for (const entry of Array.isArray(manifest.collections) ? manifest.collections : []) {
+        if (typeof entry?.file === 'string') wanted.add(entry.file);
+      }
+      for (const entry of Array.isArray(manifest.environments) ? manifest.environments : []) {
+        if (typeof entry?.file === 'string') wanted.add(entry.file);
+      }
+      if (wanted.size > WORKSPACE_EXPORT_MAX_FILES) {
+        return { ok: false, error: `Too many files (max ${WORKSPACE_EXPORT_MAX_FILES})` };
+      }
+
+      const files = {};
+      for (const relative of wanted) {
+        const safe = workspaceRelativePath(relative);
+        if (!safe) continue; // ignore traversal entries, never read them
+        const target = path.join(root, safe);
+        if (!target.startsWith(`${root}${path.sep}`)) continue;
+        let stat;
+        try {
+          stat = fs.statSync(target);
+        } catch {
+          continue; // the renderer reports missing files as warnings
+        }
+        if (!stat.isFile()) continue;
+        if (stat.size > WORKSPACE_EXPORT_MAX_FILE_BYTES) {
+          return { ok: false, error: `File too large (max 2 MB): ${relative}` };
+        }
+        files[relative.replace(/\\/g, '/')] = fs.readFileSync(target, 'utf8');
+      }
+
+      return { ok: true, files };
+    } catch (err) {
+      return { ok: false, error: err.message };
     }
   });
 
