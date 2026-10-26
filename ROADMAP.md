@@ -64,15 +64,15 @@ Fase 1 dan 2 boleh berjalan paralel setelah Fase 0 selesai, tetapi **response bi
 
 Tujuan: membuat perubahan P0 bisa diverifikasi dan data lama aman.
 
-- [ ] Tambah Vitest untuk unit test `src/lib` dan `electron/*` yang pure.
-- [ ] Tambah Playwright Electron smoke test minimal: launch app, kirim request ke server lokal, cek response.
-- [ ] Tambah ESLint minimal (`@eslint/js`, `eslint-plugin-react-hooks`) dan script `npm run lint`.
-- [ ] Tambah script `npm test`, `npm run test:e2e`, `npm run check` di `package.json`.
-- [ ] Buat fixture: Postman collection dengan pre-request/examples/path vars/file, environment, CSV data, OpenAPI Petstore, HAR, cURL.
-- [ ] Tambah `schemaVersion` di data store dan fungsi `migrateWorkspaces(data)`.
-- [ ] Pastikan migrasi tidak menghapus field lama; buat backup `.bak` sebelum migrasi.
-- [ ] Tambah GitHub Actions: install, lint, unit test, build Vite (macOS runner dulu).
-- [ ] Tulis `ARCHITECTURE.md` singkat: renderer/main boundary, IPC, alur request, script runtime, persistence.
+- [x] Tambah Vitest untuk unit test `src/lib` dan `electron/*` yang pure.
+- [x] Tambah Playwright Electron smoke test minimal: launch app, kirim request ke server lokal, cek response.
+- [x] Tambah ESLint minimal (`@eslint/js`, `eslint-plugin-react-hooks`) dan script `npm run lint`.
+- [x] Tambah script `npm test`, `npm run test:e2e`, `npm run check` di `package.json`.
+- [ ] Buat fixture: Postman collection dengan pre-request/examples/path vars/file, environment, CSV data, OpenAPI Petstore, HAR, cURL. — **sebagian:** Postman (events/examples/path vars/file) + data legacy sudah ada; environment/CSV/OpenAPI/HAR/cURL menyusul bersama converter Fase 2.
+- [x] Tambah `schemaVersion` di data store dan fungsi `migrateWorkspaces(data)`.
+- [x] Pastikan migrasi tidak menghapus field lama; buat backup `.bak` sebelum migrasi. — `.bak` ditulis tiap persist; main juga menyalin `<file>.vN.bak` sekali sebelum migrasi. Field asing di level workspace dipertahankan, collection dinormalisasi.
+- [x] Tambah GitHub Actions: install, lint, unit test, build Vite (macOS runner dulu). — `.github/workflows/ci.yml` (unit di ubuntu, e2e di macOS) + `build.yml` (dmg artifact/release).
+- [x] Tulis `ARCHITECTURE.md` singkat: renderer/main boundary, IPC, alur request, script runtime, persistence.
 
 **Acceptance:** `npm run check` hijau di CI; data lama tetap terbuka; ada smoke test yang benar-benar mengirim HTTP request.
 
@@ -82,7 +82,7 @@ Tujuan: request bisa dipercaya untuk API nyata, termasuk localhost HTTPS, proxy,
 
 ### 1.1 Request settings dan schema
 
-- [ ] Tambah `request.settings` di `factory.js`:
+- [x] Tambah `request.settings` di `factory.js`:
   ```js
   {
     timeoutMs: 30000,
@@ -93,34 +93,36 @@ Tujuan: request bisa dipercaya untuk API nyata, termasuk localhost HTTPS, proxy,
     useCookieJar: true
   }
   ```
-- [ ] Tambah app-level network settings: proxy profiles, custom CA, client certificate, default timeout.
-- [ ] Normalisasi di `normalizeRequest()` agar data lama otomatis mendapat default.
-- [ ] UI: gear di samping URL atau tab “Settings” untuk override per request.
+
+  _Catatan implementasi: shape-nya sparse — `null` = inherit app setting; `useCookieJar` ditambahkan (default `true`)._
+- [x] Tambah app-level network settings: proxy profiles, custom CA, client certificate, default timeout.
+- [x] Normalisasi di `normalizeRequest()` agar data lama otomatis mendapat default.
+- [x] UI: gear di samping URL atau tab “Settings” untuk override per request.
 
 ### 1.2 TLS / proxy
 
-- [ ] Engine menerima `verifyTls`, `ca`, `cert`, `key`, `passphrase`, `servername`.
-- [ ] Gunakan `rejectUnauthorized: false` hanya jika user memilih insecure; tampilkan warning di UI.
-- [ ] Tambah agent proxy: `http-proxy-agent`, `https-proxy-agent`, `socks-proxy-agent`.
-- [ ] Hormati environment `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` sebagai default opsional.
-- [ ] Jangan log kredensial proxy/client cert.
+- [x] Engine menerima `verifyTls`, `ca`, `cert`, `key`, `passphrase`, `servername`.
+- [x] Gunakan `rejectUnauthorized: false` hanya jika user memilih insecure; tampilkan warning di UI.
+- [x] Tambah agent proxy: `http-proxy-agent`, `https-proxy-agent`, `socks-proxy-agent`.
+- [x] Hormati environment `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` sebagai default opsional. — mode `environment` (opt-in); belum ada auto-detect proxy OS.
+- [x] Jangan log kredensial proxy/client cert.
 
 ### 1.3 Abort dan timeout
 
-- [ ] Beri `requestId` unik per pengiriman dari renderer.
-- [ ] Simpan `ClientRequest` aktif di `Map<requestId, req>` pada main process.
-- [ ] IPC `http:abort` → destroy request dan lepas socket.
-- [ ] Engine menerima `AbortSignal`; semua redirect harus ikut abort.
-- [ ] UI: tombol Send berubah menjadi Stop saat `sending`; Stop membatalkan tepat satu request.
-- [ ] Timeout per request + default global; error message menyebut nilai timeout.
+- [x] Beri `requestId` unik per pengiriman dari renderer.
+- [x] Simpan `ClientRequest` aktif di `Map<requestId, req>` pada main process. — peta menyimpan send-context (AbortController + cleanup), bukan `ClientRequest` mentah.
+- [x] IPC `http:abort` → destroy request dan lepas socket.
+- [x] Engine menerima `AbortSignal`; semua redirect harus ikut abort.
+- [x] UI: tombol Send berubah menjadi Stop saat `sending`; Stop membatalkan tepat satu request.
+- [x] Timeout per request + default global; error message menyebut nilai timeout.
 
 ### 1.4 Binary response
 
-- [ ] Deteksi binary berdasarkan `content-type` dan validitas UTF-8.
-- [ ] Return `{ body, bodyBase64, isBinary, charset }`; jangan decode binary ke string.
-- [ ] IPC `response:save` memakai `dialog.showSaveDialog` + tulis byte asli.
-- [ ] Response tab: preview image/PDF, tombol Save/Download, tampilkan ukuran asli.
-- [ ] Batasi ukuran response di memori (mis. 50 MB) dan beri error yang jelas.
+- [x] Deteksi binary berdasarkan `content-type` dan validitas UTF-8.
+- [x] Return `{ body, bodyBase64, isBinary, charset }`; jangan decode binary ke string.
+- [x] IPC `response:save` memakai `dialog.showSaveDialog` + tulis byte asli.
+- [x] Response tab: preview image/PDF, tombol Save/Download, tampilkan ukuran asli.
+- [x] Batasi ukuran response di memori (mis. 50 MB) dan beri error yang jelas.
 
 **Acceptance Fase 1:**
 - HTTPS self-signed gagal saat verify ON dan berhasil saat OFF.
