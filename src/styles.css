@@ -1722,3 +1722,166 @@ input.has-unresolved-var {
   background: var(--red);
   border-bottom: 1px solid var(--border);
 }
+
+/* ===== WebSocket panel ===== */
+.ws-panel {
+  gap: 8px;
+}
+.ws-state-open {
+  color: #052e16;
+  background: var(--green);
+}
+.ws-state-connecting {
+  color: #422006;
+  background: var(--yellow);
+}
+.ws-state-closed,
+.ws-state-idle {
+  color: var(--text-dim);
+  background: var(--bg-3);
+}
+.ws-close-reason {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-disconnect {
+  color: var(--red);
+  border-color: var(--red);
+}
+.ws-error {
+  padding: 8px 10px;
+  border: 1px solid var(--red);
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ws-log {
+  flex: 1;
+  min-height: 80px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.ws-empty {
+  margin: auto;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.ws-message {
+  border-left: 3px solid var(--border-strong);
+  padding: 4px 8px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.ws-message.ws-in {
+  border-left-color: var(--blue);
+}
+.ws-message.ws-out {
+  border-left-color: var(--accent);
+}
+.ws-message-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+  font-size: 11px;
+}
+.ws-arrow {
+  font-weight: 700;
+  color: var(--text-dim);
+  width: 12px;
+  text-align: center;
+}
+.ws-type {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ws-type.text {
+  color: var(--green);
+  background: rgba(34, 197, 94, 0.12);
+}
+.ws-type.binary {
+  color: var(--purple);
+  background: rgba(168, 85, 247, 0.12);
+}
+.ws-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.ws-preview {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+}
+.ws-preview.binary {
+  color: var(--purple);
+}
+.ws-binary-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.ws-composer {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.ws-input {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.ws-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ws-composer-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  width: 96px;
+}
+.ws-binary-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ws-composer .send-btn {
+  width: 100%;
+}
+.ws-composer .send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

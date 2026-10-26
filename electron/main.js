@@ -12,6 +12,12 @@ import { createStore } from './store.js';
 import { writeResponseFile } from './response-file.js';
 import { deleteCookie, pruneExpired, upsertCookie } from './cookie-jar.js';
 import { createSendContext } from './network-runtime.js';
+import {
+  openSession as openWsSession,
+  sendFrame as sendWsFrame,
+  closeSession as closeWsSession,
+  closeAll as closeAllWsSessions,
+} from './protocols/websocket.js';
 import { normalizeNetworkSettings, sanitizeNetworkSettings } from '../shared/networkSettings.js';
 import { SCHEMA_VERSION } from '../shared/schema.js';
 import { encryptSecret, decryptSecret } from './secret-store.js';
@@ -78,6 +84,18 @@ let allowWindowClose = false;
 // button can abort exactly one request.
 const inflight = new Map();
 
+// Socket events go only to the focused window. Session ids are renderer
+// generated, so a stale event for a closed tab is simply ignored there.
+function forwardWsEvent(id, event) {
+  const win = BrowserWindow.getFocusedWindow() || mainWindow;
+  if (!win || win.webContents.isDestroyed()) return;
+  try {
+    win.webContents.send('ws:event', { id, event });
+  } catch {
+    /* window went away mid-event */
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -127,7 +145,14 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  // Sockets belong to the app, not to a single renderer; never leave them
+  // running after the last window is gone.
+  closeAllWsSessions();
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  closeAllWsSessions();
 });
 
 // ---- IPC surface: the renderer can only call these channels. ----
@@ -323,6 +348,45 @@ function registerIpc() {
       typeof encoded === 'string' ? decryptSecret(encoded) : ''
     )
   );
+
+  // ---- WebSocket sessions (main-process owned) ----
+  // The renderer supplies the session id and receives every event through
+  // 'ws:event'. Connect failures are returned as data, never as an IPC
+  // rejection, so the panel can show a banner instead of crashing.
+  ipcMain.handle('ws:connect', async (_event, payload) => {
+    const { id, url, headers, protocols } = payload || {};
+    try {
+      await openWsSession({
+        id,
+        url,
+        headers,
+        protocols,
+        onEvent: (event) => forwardWsEvent(id, event),
+      });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('ws:send', async (_event, payload) => {
+    const { id, text, base64 } = payload || {};
+    try {
+      if (base64 !== undefined && text === undefined) {
+        await sendWsFrame(id, { base64 });
+      } else {
+        await sendWsFrame(id, { text });
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+
+  ipcMain.handle('ws:close', async (_event, payload) => {
+    const { id, code, reason } = payload || {};
+    return closeWsSession(id, code, reason);
+  });
 
   // Save a response body to disk. Payload: { suggestedName, base64?, text? }.
   ipcMain.handle('response:save', async (_event, payload) => {

@@ -9,6 +9,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   sendRequest: (request, requestId) => ipcRenderer.invoke('http:send', { request, requestId }),
   abortRequest: (requestId) => ipcRenderer.invoke('http:abort', requestId),
+  wsConnect: (payload) => ipcRenderer.invoke('ws:connect', payload),
+  wsSend: (payload) => ipcRenderer.invoke('ws:send', payload),
+  wsClose: (payload) => ipcRenderer.invoke('ws:close', payload),
+  onWsEvent: (cb) => {
+    const handler = (_event, payload) => cb(payload);
+    ipcRenderer.on('ws:event', handler);
+    return () => ipcRenderer.removeListener('ws:event', handler);
+  },
   runScript: (payload) => ipcRenderer.invoke('script:run', payload),
   pickFile: () => ipcRenderer.invoke('file:pick'),
   saveResponse: (payload) => ipcRenderer.invoke('response:save', payload),

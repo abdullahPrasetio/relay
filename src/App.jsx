@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './components/Sidebar.jsx';
 import RequestPanel from './components/RequestPanel.jsx';
 import ResponsePanel from './components/ResponsePanel.jsx';
+import WebSocketPanel from './components/WebSocketPanel.jsx';
 import TabBar from './components/TabBar.jsx';
 import SplitPane from './components/SplitPane.jsx';
 import SaveRequestModal from './components/SaveRequestModal.jsx';
@@ -21,6 +22,7 @@ import { useDialogs } from './components/Dialogs.jsx';
 import { useStore } from './lib/useStore.js';
 import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { newRequest, normalizeRequest, uid } from './lib/factory.js';
+import { isWebSocket } from './lib/protocol.js';
 import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from './lib/variables.js';
 import { collectSecretValues } from './lib/secretVars.js';
 import { runTests, runPreRequest } from './lib/testRunner.js';
@@ -77,6 +79,47 @@ function maskSentView(sent, secrets) {
   };
 }
 
+const WS_LOG_LIMIT = 500;
+
+// The renderer keeps its own copy of the conversation (outgoing frames are
+// only known here; incoming ones arrive through ws:event). Keep it capped at
+// the same limit as the main-process history.
+function appendWsLog(log, entry) {
+  const next = Array.isArray(log) ? [...log, entry] : [entry];
+  return next.length > WS_LOG_LIMIT ? next.slice(-WS_LOG_LIMIT) : next;
+}
+
+function wsFrameSize({ text, base64 }) {
+  if (typeof base64 === 'string') {
+    const clean = base64.replace(/\s+/g, '');
+    const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+    return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
+  }
+  return new TextEncoder().encode(String(text ?? '')).length;
+}
+
+function wsProtocolsFor(request) {
+  if (Array.isArray(request?.protocols)) {
+    return request.protocols.map((p) => String(p).trim()).filter(Boolean);
+  }
+  if (typeof request?.protocols === 'string') {
+    return request.protocols.split(',').map((p) => p.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+// Mirror the HTTP engine's param handling for socket URLs, then hand the
+// main process a single canonical URL.
+function buildWebSocketUrl(resolved) {
+  const url = new URL(String(resolved.url || '').trim());
+  for (const param of resolved.params || []) {
+    if (param.enabled !== false && param.key) {
+      url.searchParams.append(param.key, param.value ?? '');
+    }
+  }
+  return url.toString();
+}
+
 function newTab(request) {
   const req = request ? normalizeRequest(request) : newRequest();
   return {
@@ -86,6 +129,10 @@ function newTab(request) {
     testResults: null,
     sending: false,
     sendingId: null,
+    wsSessionId: null,
+    wsStatus: null,
+    wsLog: [],
+    wsError: null,
     dirty: false,
     savedCollectionId: null,
   };
@@ -225,20 +272,254 @@ export default function App() {
     []
   );
 
-  // Cancel whatever this tab is currently sending. Unknown ids are a no-op.
+  // Open a socket for a ws/wss request. `sending` stays true while the socket
+  // is open so RequestPanel's Send button becomes Stop; a close event (local
+  // or remote) clears it.
+  const openWebSocket = useCallback(
+    async (tab) => {
+      if (!hasBridge || typeof window.api.wsConnect !== 'function') {
+        updateTab(tab.tabId, {
+          sending: false,
+          sendingId: null,
+          wsStatus: { state: 'closed', at: Date.now() },
+          wsError: 'WebSocket transport is only available in the desktop app.',
+        });
+        return;
+      }
+
+      const sessionId = newRequestId();
+      updateTab(tab.tabId, {
+        sending: true,
+        sendingId: sessionId,
+        wsSessionId: sessionId,
+        wsStatus: { state: 'connecting', at: Date.now() },
+        wsLog: [],
+        wsError: null,
+        response: null,
+        testResults: null,
+      });
+
+      try {
+        const owningCollection = findRequestCollection(store.collections, tab.request.id);
+        const chain = findNodePath(store.collections, tab.request.id) || [];
+        const vars = buildScopeVars({
+          collection: varsToMap(owningCollection?.variables),
+          environment: varsToMap(activeEnv),
+          globals: varsToMap(store.globals),
+        });
+        const resolved = resolveRequest(withEffectiveAuth(tab.request, chain), vars);
+
+        const headers = {};
+        for (const header of resolved.headers || []) {
+          if (header.enabled === false || !header.key) continue;
+          headers[header.key] = header.value ?? '';
+        }
+
+        const result = await window.api.wsConnect({
+          id: sessionId,
+          url: buildWebSocketUrl(resolved),
+          headers,
+          protocols: wsProtocolsFor(tab.request),
+        });
+
+        if (!result?.ok) {
+          updateTab(tab.tabId, {
+            sending: false,
+            sendingId: null,
+            wsSessionId: null,
+            wsStatus: { state: 'closed', at: Date.now() },
+            wsError: result?.error || 'WebSocket connection failed',
+          });
+        }
+      } catch (err) {
+        updateTab(tab.tabId, {
+          sending: false,
+          sendingId: null,
+          wsSessionId: null,
+          wsStatus: { state: 'closed', at: Date.now() },
+          wsError: err?.message || String(err),
+        });
+      }
+    },
+    [activeEnv, store, updateTab]
+  );
+
+  // Close a session without waiting for the close event. Used for tab
+  // switches/closes, where the tab stops being visible and its state no
+  // longer matters.
+  const disconnectTabWs = useCallback((tabId, sessionId, reason = '') => {
+    if (!sessionId) return;
+    if (hasBridge && typeof window.api.wsClose === 'function') {
+      try {
+        const pending = window.api.wsClose({ id: sessionId });
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+      } catch {
+        /* socket already gone */
+      }
+    }
+    setTabs((prev) =>
+      prev.map((tab) =>
+        tab.tabId === tabId && tab.wsSessionId === sessionId
+          ? {
+              ...tab,
+              wsSessionId: null,
+              sending: false,
+              sendingId: null,
+              wsStatus: { state: 'closed', reason, at: Date.now() },
+            }
+          : tab
+      )
+    );
+  }, []);
+
+  const sendWsFrame = useCallback(
+    async (payload) => {
+      const tab = tabs.find((t) => t.tabId === activeTabId);
+      if (!tab?.wsSessionId || !hasBridge) return false;
+      try {
+        const result = await window.api.wsSend({ id: tab.wsSessionId, ...payload });
+        if (!result?.ok) {
+          updateTab(tab.tabId, { wsError: result?.error || 'WebSocket send failed' });
+          return false;
+        }
+        const entry = {
+          direction: 'out',
+          type: payload.text !== undefined ? 'text' : 'binary',
+          ...(payload.text !== undefined
+            ? { data: payload.text }
+            : { base64: payload.base64 || '' }),
+          size: wsFrameSize(payload),
+          at: Date.now(),
+        };
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.tabId === tab.tabId
+              ? { ...t, wsError: null, wsLog: appendWsLog(t.wsLog, entry) }
+              : t
+          )
+        );
+        return true;
+      } catch (err) {
+        updateTab(tab.tabId, { wsError: err?.message || String(err) });
+        return false;
+      }
+    },
+    [tabs, activeTabId, updateTab]
+  );
+
+  const closeWsConnection = useCallback(async () => {
+    const tab = tabs.find((t) => t.tabId === activeTabId);
+    if (!tab?.wsSessionId) return;
+    const sessionId = tab.wsSessionId;
+    updateTab(tab.tabId, {
+      wsSessionId: null,
+      sending: false,
+      sendingId: null,
+      wsStatus: { state: 'closed', reason: 'Closed by user', at: Date.now() },
+    });
+    if (!hasBridge || typeof window.api.wsClose !== 'function') return;
+    try {
+      await window.api.wsClose({ id: sessionId });
+    } catch {
+      /* closing an already-closed socket is a no-op in main */
+    }
+  }, [tabs, activeTabId, updateTab]);
+
+  // Cancel whatever this tab is currently sending. A socket is closed; an
+  // HTTP request is aborted by its request id.
   const abort = useCallback(async () => {
     const tab = tabs.find((t) => t.tabId === activeTabId);
-    if (!tab?.sendingId || !hasBridge) return;
+    if (!tab) return;
+    if (tab.wsSessionId) {
+      await closeWsConnection();
+      return;
+    }
+    if (!tab.sendingId || !hasBridge) return;
     try {
       await window.api.abortRequest(tab.sendingId);
     } catch {
       /* a request that already finished cannot be aborted */
     }
-  }, [tabs, activeTabId]);
+  }, [tabs, activeTabId, closeWsConnection]);
+
+  // One subscription fans socket events out by session id, so each session
+  // has exactly one listener regardless of how many tabs are open.
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api || typeof api.onWsEvent !== 'function') return undefined;
+
+    let disposed = false;
+    const unsubscribe = api.onWsEvent((payload) => {
+      if (disposed) return;
+      const { id, event } = payload || {};
+      if (!id || !event) return;
+      setTabs((prev) =>
+        prev.map((tab) => {
+          if (tab.wsSessionId !== id) return tab;
+          if (event.type === 'open') {
+            return { ...tab, wsStatus: { state: 'open', at: event.at } };
+          }
+          if (event.type === 'text' || event.type === 'binary') {
+            return {
+              ...tab,
+              wsLog: appendWsLog(tab.wsLog, { direction: 'in', ...event }),
+            };
+          }
+          if (event.type === 'close') {
+            return {
+              ...tab,
+              wsSessionId: null,
+              sending: false,
+              sendingId: null,
+              wsStatus: {
+                state: 'closed',
+                code: event.code,
+                reason: event.reason,
+                at: event.at,
+              },
+            };
+          }
+          if (event.type === 'error') {
+            return { ...tab, wsError: event.message };
+          }
+          return tab;
+        })
+      );
+    });
+
+    return () => {
+      disposed = true;
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, []);
+
+  // Switching tabs disconnects the socket that tab owned: the conversation is
+  // no longer on screen, and keeping it open would leak a session.
+  const previousActiveTabRef = useRef(activeTabId);
+  useEffect(() => {
+    const previous = previousActiveTabRef.current;
+    previousActiveTabRef.current = activeTabId;
+    if (previous === activeTabId) return;
+    const tab = tabs.find((t) => t.tabId === previous);
+    if (tab?.wsSessionId) disconnectTabWs(previous, tab.wsSessionId, 'Tab switched');
+  }, [activeTabId, tabs, disconnectTabWs]);
+
+  // Editing a connected request's URL into an HTTP one ends the socket too.
+  useEffect(() => {
+    if (!activeTab?.wsSessionId) return;
+    if (isWebSocket(activeTab.request.url)) return;
+    disconnectTabWs(activeTab.tabId, activeTab.wsSessionId, 'URL changed');
+  }, [activeTab?.tabId, activeTab?.request.url, activeTab?.wsSessionId, disconnectTabWs]);
 
   const send = useCallback(async () => {
     const tab = tabs.find((t) => t.tabId === activeTabId);
     if (!tab || !tab.request.url.trim() || tab.sending) return;
+
+    // WebSocket requests share the Send button but not the HTTP pipeline.
+    if (isWebSocket(tab.request.url)) {
+      await openWebSocket(tab);
+      return;
+    }
 
     const requestId = newRequestId();
     updateTab(activeTabId, {
@@ -392,7 +673,7 @@ export default function App() {
     } finally {
       updateTab(activeTabId, { sending: false, sendingId: null });
     }
-  }, [tabs, activeTabId, activeEnv, store, updateTab, persistVarMutations, transport, dialogs]);
+  }, [tabs, activeTabId, activeEnv, store, updateTab, persistVarMutations, transport, dialogs, openWebSocket]);
 
   const showCode = useCallback(() => {
     const tab = tabs.find((t) => t.tabId === activeTabId);
@@ -579,6 +860,10 @@ export default function App() {
 
   const closeTab = useCallback(
     (tabId) => {
+      const closing = tabs.find((t) => t.tabId === tabId);
+      if (closing?.wsSessionId) {
+        disconnectTabWs(tabId, closing.wsSessionId, 'Tab closed');
+      }
       setTabs((prev) => {
         const idx = prev.findIndex((t) => t.tabId === tabId);
         const next = prev.filter((t) => t.tabId !== tabId);
@@ -594,7 +879,7 @@ export default function App() {
         return next;
       });
     },
-    [activeTabId]
+    [activeTabId, tabs, disconnectTabWs]
   );
 
   // Restore the persisted session once the collection tree has loaded. It only
@@ -794,13 +1079,24 @@ export default function App() {
               sending={activeTab.sending}
               dirty={activeTab.dirty}
             />
-            <ResponsePanel
-              response={activeTab.response}
-              sending={activeTab.sending}
-              testResults={activeTab.testResults}
-              onSaveExample={saveExample}
-              onSetVariable={openSetVariable}
-            />
+            {isWebSocket(activeTab.request.url) ? (
+              <WebSocketPanel
+                status={activeTab.wsStatus}
+                log={activeTab.wsLog}
+                error={activeTab.wsError}
+                onSend={sendWsFrame}
+                onDisconnect={closeWsConnection}
+                onClear={() => updateTab(activeTab.tabId, { wsLog: [] })}
+              />
+            ) : (
+              <ResponsePanel
+                response={activeTab.response}
+                sending={activeTab.sending}
+                testResults={activeTab.testResults}
+                onSaveExample={saveExample}
+                onSetVariable={openSetVariable}
+              />
+            )}
           </SplitPane>
         </main>
       </div>
