@@ -304,6 +304,22 @@ Jangan mulai sebelum Fase 1–4 stabil. Setiap item butuh keputusan produk, buka
 
 **Decision gate:** jika target produk tetap local-first, prioritaskan mock server + docs + backup/Git dan tunda cloud sync.
 
+### Keputusan Fase 6 (diputuskan 2026-10-27)
+
+Target produk tetap **local-first**. Keputusan dan status implementasinya:
+
+| Item | Keputusan | Status |
+|---|---|---|
+| Mock server lokal | **Dikerjakan** — server dari collection + saved examples, CORS, delay, route `:vars`, 404 dengan daftar route | ✅ `electron/mock-server.js` + `MockServerModal` (IPC `mock:start/stop/status`), smoke end-to-end lulus |
+| Generated API docs | **Dikerjakan** — HTML statis mandiri per collection (ToC, request cards, examples, variables; secret diredaksi) | ✅ `src/lib/apiDocs.js` + menu “Export docs (HTML)” di Sidebar |
+| Git-friendly workspace | **Dikerjakan** — satu file per collection + environment/globals + manifest, export/import folder, secret tidak pernah ditulis | ✅ `src/lib/gitWorkspace.js`, IPC `workspace:export/import`, menu di Workspace Switcher; id collision di-remap |
+| Cloud sync + collaboration | **Ditunda** — butuh backend/auth/role/conflict resolution di luar repo | ⏸ belum ada kode; jangan mulai tanpa backend |
+| Monitor terjadwal | **Ditunda** — butuh scheduler + infrastruktur | ⏸ |
+| Performance testing | **Ditunda** — bisa memakai core runner + worker, tetapi belum ada target produk | ⏸ |
+| Signing/notarization + auto-update | **Pipeline disiapkan** (pilihan produk): `hardenedRuntime` + entitlements, publish GitHub, `electron/updater.js`, CI secrets opsional | ⚠️ aktif hanya setelah secrets Apple/Windows diisi; build unsigned tetap jalan |
+
+Batas yang diketahui untuk item yang dikerjakan: mock server hanya melayani `examples` terbaru (tanpa proxy/script/dinamis), docs tidak menyertakan screenshot/live example, dan secret pada workspace Git harus diisi ulang setelah import (plaintext maupun ciphertext tidak pernah ikut ditulis).
+
 ## Milestone
 
 | Milestone | Isi | Gate |

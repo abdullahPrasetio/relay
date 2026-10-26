@@ -31,6 +31,8 @@ mengimpor `electron/*`; semua efek samping lewat IPC.
 | `secrets:encrypt` / `secrets:decrypt` / `secrets:decryptMany` | string / ciphertext / list | ciphertext / plaintext / list (safeStorage) |
 | `app:close-requested` (main→renderer) / `app:close-confirmed` | — | handshake quit |
 | `ws:*`, `mqtt:*`, `socketio:*`, `grpc:*` | sesi/frame/invoke | lihat seksi Protocols |
+| `mock:start` / `mock:stop` / `mock:status` | konfigurasi | server mock lokal + route/log |
+| `workspace:export` / `workspace:import` | `{files, suggestedName}` / — | folder Git-friendly (file per collection) |
 | `network:get` / `network:set` | settings tersanitasi / edit | settings tersanitasi (rahasia diganti flag) |
 | `store:get` / `store:set` | data workspace | data workspace |
 
@@ -242,6 +244,47 @@ completion provider scoped.
   `dist:win` (NSIS), `dist:linux` (AppImage), artifact per OS; tag `v*`
   mempublikasikan installer ke GitHub Release. Signing/notarization dan
   auto-update belum aktif (butuh secrets).
+
+## Mock server
+
+`electron/mock-server.js` (pure Node) melayani collection yang sedang aktif:
+route = `METHOD + pathname` request (dengan `:param` sebagai wildcard segmen),
+respons = `examples[last]` (status/content-type/body). Tanpa example → `501`,
+tidak ada route → `404` beserta daftar route; CORS `*` dan preflight dijawab
+sendiri; delay 0–10 s; log 200 entri `{at,method,path,status,ms}`.
+`electron/mock-ipc.js` menyimpan satu server aktif dan dipanggil dari
+`registerIpc()`; shutdown memanggil `stopMockServer()`.
+
+## Workspace Git-friendly
+
+`src/lib/gitWorkspace.js` menulis satu workspace menjadi:
+`relay-workspace.json` (manifest + id + daftar file),
+`collections/<slug>-<id>.json`, `environments/<slug>-<id>.json`,
+`globals.json`. Baris `type:'secret'` ditulis tanpa `value`/`secretEnc`
+sehingga tidak ada plaintext maupun ciphertext machine-bound di repo; import
+mengembalikannya sebagai baris secret kosong (isi ulang), dan id yang
+bertabrakan di-remap konsisten (workspace/collection/environment + item
+bersarang). Main hanya melakukan I/O folder (`workspace:export/import`,
+batas 200 file/2 MB per file, path traversal ditolak); parsing ada di
+renderer.
+
+## API docs
+
+`src/lib/apiDocs.js` menghasilkan satu file HTML mandiri (inline CSS, tanpa
+script) per collection: header + ToC ber-anchor, kartu per request (method,
+URL, query/header table, body, tipe auth saja), collection variables dengan
+secret diredaksi, dan saved examples. Semua nilai di-escape sebelum masuk
+HTML. Diekspor lewat menu collection → dialog simpan native.
+
+## Updater dan signing
+
+`electron/updater.js` (`initAutoUpdate`) hanya aktif saat `app.isPackaged`,
+memakai feed GitHub Releases (`build.publish`), me-redact URL bertoken dari
+log, dan meminta konfirmasi sebelum `quitAndInstall()`. Signing/notarization
+dikonfigurasi lewat secrets CI (`CSC_LINK`, `WIN_CSC_LINK`, `APPLE_*`) dan
+entitlements macOS; tanpa secrets build tetap unsigned dan auto-update macOS
+tidak bisa dipasang (Squirrel.Mac butuh app bertanda tangan). Runbook:
+`RELEASING.md`.
 
 ## Runtime script
 
