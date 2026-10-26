@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { runCollection } from '../../src/lib/runner.js';
+import { runCollection, RESPONSE_SNAPSHOT_LIMIT } from '../../src/lib/runner.js';
 
 // The runner passes scripts to the main process; stub it so we can inspect the
 // resolved variables without an IPC bridge.
@@ -17,7 +17,7 @@ const SCRIPT_DEFAULTS = {
 vi.mock('../../src/lib/testRunner.js', () => ({
   runPreRequest: async (_script, context, request) => {
     if (mockState.localPatch) Object.assign(context.local, mockState.localPatch);
-    const extra = mockState.pre ? await mockState.pre(request) : null;
+    const extra = mockState.pre ? await mockState.pre(request, context) : null;
     return { ...SCRIPT_DEFAULTS, ...(extra || {}) };
   },
   runTests: async () => {
@@ -279,5 +279,313 @@ describe('runner conditional flow (pm.execution)', () => {
 
     expect(calls).toHaveLength(1);
     expect(out.results).toHaveLength(1);
+  });
+});
+
+describe('runner retries', () => {
+  const okResponse = { ok: true, status: 200, headers: [], body: 'ok', timeMs: 2 };
+
+  it('retries a 5xx response and records the successful attempt', async () => {
+    const responses = [
+      { ok: false, status: 500, error: 'Server error', headers: [], body: '', timeMs: 5 },
+      okResponse,
+    ];
+    const ids = [];
+    const send = async (_request, requestId) => {
+      ids.push(requestId);
+      return responses.shift();
+    };
+
+    const out = await runCollection({ requests, send, retries: 2 });
+
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(out.results[0].attempts).toBe(2);
+    expect(out.results[0].retried).toBe(true);
+    expect(out.results[0].ok).toBe(true);
+    expect(out.summary.retriedRequests).toBe(1);
+  });
+
+  it('gives up after the configured number of extra attempts', async () => {
+    let calls = 0;
+    const send = async () => {
+      calls += 1;
+      return { ok: false, status: 503, error: 'Unavailable', headers: [], body: '', timeMs: 1 };
+    };
+
+    const out = await runCollection({ requests, send, retries: 1 });
+
+    expect(calls).toBe(2);
+    expect(out.results[0].attempts).toBe(2);
+    expect(out.results[0].retried).toBe(true);
+    expect(out.results[0].ok).toBe(false);
+  });
+
+  it('retries a transport error reported in the response object', async () => {
+    const responses = [
+      { ok: false, error: 'ECONNRESET', timeMs: 1 },
+      okResponse,
+    ];
+    let calls = 0;
+    const send = async () => {
+      calls += 1;
+      return responses.shift();
+    };
+
+    const out = await runCollection({ requests, send, retries: 1 });
+
+    expect(calls).toBe(2);
+    expect(out.results[0].ok).toBe(true);
+    expect(out.results[0].attempts).toBe(2);
+  });
+
+  it('treats a thrown transport error as a failed attempt', async () => {
+    let calls = 0;
+    const send = async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('socket hang up');
+      return okResponse;
+    };
+
+    const out = await runCollection({ requests, send, retries: 1 });
+
+    expect(calls).toBe(2);
+    expect(out.results[0].attempts).toBe(2);
+    expect(out.results[0].ok).toBe(true);
+  });
+
+  it('does not retry when retries is zero', async () => {
+    let calls = 0;
+    const send = async () => {
+      calls += 1;
+      return { ok: false, status: 500, error: 'boom', headers: [], body: '', timeMs: 1 };
+    };
+
+    const out = await runCollection({ requests, send });
+
+    expect(calls).toBe(1);
+    expect(out.results[0].attempts).toBe(1);
+    expect(out.results[0].retried).toBe(false);
+  });
+});
+
+describe('runner stop on error', () => {
+  const two = [
+    requests[0],
+    { ...requests[0], id: 'req_2', name: 'Second', url: 'http://example.test/two' },
+  ];
+
+  it('stops the run after the first failed request', async () => {
+    const calls = [];
+    const send = async (request) => {
+      calls.push(request.url);
+      if (calls.length === 1) {
+        return { ok: false, status: 500, error: 'boom', headers: [], body: '', timeMs: 1 };
+      }
+      return { ok: true, status: 200, headers: [], body: '', timeMs: 1 };
+    };
+
+    const out = await runCollection({ requests: two, send, stopOnError: true });
+
+    expect(calls).toEqual(['http://example.test/one']);
+    expect(out.results).toHaveLength(1);
+    expect(out.summary.stoppedReason).toBe('error');
+    expect(out.summary.aborted).toBe(false);
+  });
+
+  it('stops after a failed assertion', async () => {
+    const calls = [];
+    const send = async (request) => {
+      calls.push(request.url);
+      return { ok: true, status: 200, headers: [], body: '', timeMs: 1 };
+    };
+    mockState.test = async () => ({ results: [{ name: 'expects', passed: false, error: 'nope' }] });
+
+    const out = await runCollection({ requests: two, send, stopOnError: true });
+
+    expect(calls).toHaveLength(1);
+    expect(out.summary.stoppedReason).toBe('error');
+    expect(out.summary.testsFailed).toBe(1);
+  });
+
+  it('continues past failures when stopOnError is false', async () => {
+    const calls = [];
+    const send = async (request) => {
+      calls.push(request.url);
+      return { ok: false, status: 500, error: 'boom', headers: [], body: '', timeMs: 1 };
+    };
+
+    const out = await runCollection({ requests: two, send });
+
+    expect(calls).toHaveLength(2);
+    expect(out.summary.stoppedReason).toBeNull();
+  });
+});
+
+describe('runner response snapshots', () => {
+  const textual = (body) => ({
+    ok: true,
+    status: 200,
+    headers: [{ key: 'Content-Type', value: 'text/plain; charset=utf-8' }],
+    body,
+    isBinary: false,
+    timeMs: 1,
+  });
+
+  it('keeps a truncated textual body', async () => {
+    const out = await runCollection({
+      requests,
+      send: async () => textual('x'.repeat(RESPONSE_SNAPSHOT_LIMIT + 5000)),
+      saveResponses: true,
+    });
+
+    expect(out.results[0].response.status).toBe(200);
+    expect(out.results[0].response.contentType).toBe('text/plain; charset=utf-8');
+    expect(out.results[0].response.body).toHaveLength(RESPONSE_SNAPSHOT_LIMIT);
+  });
+
+  it('never stores binary payloads', async () => {
+    const out = await runCollection({
+      requests,
+      send: async () => ({
+        ok: true,
+        status: 200,
+        headers: [{ key: 'Content-Type', value: 'image/png' }],
+        body: '',
+        bodyBase64: 'iVBORw0KGgoAAAANSUhEUg==',
+        isBinary: true,
+        timeMs: 1,
+      }),
+      saveResponses: true,
+    });
+
+    const snapshot = out.results[0].response;
+    expect(snapshot).toEqual({ status: 200, contentType: 'image/png', body: null });
+    expect(JSON.stringify(snapshot)).not.toContain('iVBORw0KGgo');
+  });
+
+  it('omits snapshots by default', async () => {
+    const out = await runCollection({
+      requests,
+      send: async () => textual('hello'),
+    });
+
+    expect(out.results[0].response).toBeUndefined();
+  });
+});
+
+describe('runner variable persistence', () => {
+  const mutate = async (_request, context) => {
+    context.environment.token = 'changed';
+    context.collection.mode = 'changed';
+    return null;
+  };
+
+  it('keeps mutated scopes by default', async () => {
+    mockState.pre = mutate;
+    const out = await runCollection({
+      requests,
+      send: async () => ({ ok: true, status: 200, headers: [], body: '', timeMs: 1 }),
+      environment: { token: 'original' },
+      collection: { mode: 'original' },
+    });
+
+    expect(out.scopes.environment.token).toBe('changed');
+    expect(out.scopes.collection.mode).toBe('changed');
+  });
+
+  it('restores the initial scopes when keepVariableValues is false', async () => {
+    mockState.pre = mutate;
+    const out = await runCollection({
+      requests,
+      send: async () => ({ ok: true, status: 200, headers: [], body: '', timeMs: 1 }),
+      environment: { token: 'original' },
+      collection: { mode: 'original' },
+      keepVariableValues: false,
+    });
+
+    expect(out.scopes.environment.token).toBe('original');
+    expect(out.scopes.collection.mode).toBe('original');
+  });
+});
+
+describe('runner cancellation', () => {
+  const two = [
+    requests[0],
+    { ...requests[0], id: 'req_2', name: 'Second', url: 'http://example.test/two' },
+  ];
+
+  it('stops before the next request when shouldStop flips', async () => {
+    const calls = [];
+    const send = async (request) => {
+      calls.push(request.url);
+      return { ok: true, status: 200, headers: [], body: '', timeMs: 1 };
+    };
+
+    const out = await runCollection({
+      requests: two,
+      send,
+      shouldStop: () => calls.length >= 1,
+    });
+
+    expect(calls).toEqual(['http://example.test/one']);
+    expect(out.summary.aborted).toBe(true);
+    expect(out.summary.stoppedAtStep).toBe(1);
+  });
+
+  it('wins over the conditional-jump guard', async () => {
+    const calls = [];
+    const three = ['a', 'b', 'c'].map((path) => ({
+      id: `req_${path}`,
+      name: path,
+      method: 'GET',
+      url: `http://example.test/${path}`,
+      params: [],
+      headers: [],
+      body: { mode: 'none' },
+      auth: { type: 'none' },
+    }));
+    mockState.pre = async (request) => {
+      if (request.id === 'req_a') return { nextRequestSet: true, nextRequest: 'b' };
+      if (request.id === 'req_b') return { nextRequestSet: true, nextRequest: 'a' };
+      return null;
+    };
+    const send = async (request) => {
+      calls.push(request.url);
+      return { ok: true, status: 200, headers: [], body: '', timeMs: 1 };
+    };
+
+    const out = await runCollection({
+      requests: three,
+      send,
+      shouldStop: () => calls.length >= 2,
+    });
+
+    // Without shouldStop the A -> B -> A loop would execute three requests.
+    expect(calls).toHaveLength(2);
+    expect(out.summary.aborted).toBe(true);
+    expect(out.summary.stoppedAtStep).toBe(2);
+  });
+
+  it('reports the request id to the caller before each send', async () => {
+    const events = [];
+    const sendIds = [];
+    const send = async (_request, requestId) => {
+      events.push('send');
+      sendIds.push(requestId);
+      return { ok: true, status: 200, headers: [], body: '', timeMs: 1 };
+    };
+
+    await runCollection({
+      requests,
+      send,
+      onRequestId: (id) => {
+        events.push('id');
+        expect(id).toMatch(UUID_RE);
+      },
+    });
+
+    expect(events).toEqual(['id', 'send']);
+    expect(sendIds).toHaveLength(1);
   });
 });

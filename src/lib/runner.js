@@ -11,6 +11,10 @@ import { buildScopeVars, resolveRequest } from './variables.js';
 import { runPreRequest, runTests } from './testRunner.js';
 import { withEffectiveAuth, combinedPreRequest, combinedTests, applyRequestPatch } from './inheritance.js';
 
+// Response snapshots kept by `saveResponses` are capped so a huge body cannot
+// bloat the in-memory report.
+export const RESPONSE_SNAPSHOT_LIMIT = 128 * 1024;
+
 // Build a display URL that includes enabled query params, so the run report
 // shows the full URL actually sent (the transport appends params itself).
 function displayUrl(resolved) {
@@ -23,14 +27,53 @@ function displayUrl(resolved) {
   return base + (base.includes('?') ? '&' : '?') + qs;
 }
 
-// Request ids let the transport (and, later, the runner UI) cancel a specific
-// send. The browser fallback ignores the second argument.
+// Request ids let the transport (and the runner UI) cancel a specific send.
+// The browser fallback ignores the second argument.
 function newRequestId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
   return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
+
+function headerValue(headers, name) {
+  const wanted = name.toLowerCase();
+  if (Array.isArray(headers)) {
+    const found = headers.find((h) => String(h?.key || h?.name || '').toLowerCase() === wanted);
+    return found ? String(found.value ?? '') : '';
+  }
+  if (headers && typeof headers === 'object') {
+    const key = Object.keys(headers).find((k) => k.toLowerCase() === wanted);
+    return key ? String(headers[key] ?? '') : '';
+  }
+  return '';
+}
+
+function isTextualContentType(contentType) {
+  const ct = String(contentType || '').split(';')[0].trim().toLowerCase();
+  if (!ct) return true; // the engine falls back to UTF-8 validity
+  return /^text\//.test(ct)
+    || /^application\/(json|xml|javascript|ecmascript|x-www-form-urlencoded|graphql|problem\+json|ld\+json)$/.test(ct)
+    || /\+json$/.test(ct)
+    || /\+xml$/.test(ct);
+}
+
+// Keep only a small, report-safe view of the response. Binary payloads are
+// never copied, and textual bodies are truncated to the snapshot limit.
+function snapshotResponse(response) {
+  const contentType = headerValue(response.headers, 'content-type');
+  const textual = response.isBinary === false
+    || (response.isBinary === undefined && isTextualContentType(contentType));
+  let body = null;
+  if (textual && typeof response.body === 'string') {
+    body = response.body.length > RESPONSE_SNAPSHOT_LIMIT
+      ? response.body.slice(0, RESPONSE_SNAPSHOT_LIMIT)
+      : response.body;
+  }
+  return { status: response.status ?? null, contentType, body };
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function runCollection({
   requests,
@@ -43,6 +86,13 @@ export async function runCollection({
   delayMs = 0,
   data = null, // array of row objects for data-driven iterations
   iterations = 1, // how many times to run (ignored if data is provided)
+  retries = 0, // extra attempts for failed/5xx requests
+  retryDelayMs = 0,
+  stopOnError = false, // stop the whole run after the first failed step
+  saveResponses = false, // keep a truncated response snapshot per step
+  keepVariableValues = true, // persist variable mutations after the run
+  shouldStop = null, // callback checked before every request
+  onRequestId = null, // callback fired with the id right before each send
   onProgress,
 }) {
   // Ancestor chain for auth/script inheritance. The old `collectionNode`
@@ -61,6 +111,13 @@ export async function runCollection({
     globals: { ...globals },
   };
 
+  // Snapshot used to restore the scopes when keepVariableValues is false.
+  const initialScopes = {
+    environment: { ...environment },
+    collection: { ...collection },
+    globals: { ...globals },
+  };
+
   // Data-driven: one iteration per data row. Otherwise `iterations` plain runs.
   const rows = Array.isArray(data) && data.length ? data : null;
   const iterCount = rows ? rows.length : Math.max(1, iterations || 1);
@@ -71,6 +128,23 @@ export async function runCollection({
   let stepCounter = 0;
   const totalSteps = iterCount * requests.length;
   let stopRun = false; // pm.execution.setNextRequest(null) stops the whole run
+  let stoppedReason = null;
+  let aborted = false;
+  let stoppedAtStep = null;
+
+  const maxAttempts = 1 + Math.max(0, Math.floor(Number(retries) || 0));
+  const retryDelay = Math.max(0, Number(retryDelayMs) || 0);
+
+  // `shouldStop` is authoritative: it wins over any scripted jump, including
+  // the jump-cycle guard below.
+  function isStopRequested() {
+    if (typeof shouldStop !== 'function') return false;
+    try {
+      return shouldStop() === true;
+    } catch {
+      return false;
+    }
+  }
 
   for (let iter = 0; iter < iterCount && !stopRun; iter += 1) {
     const iterationData = rows ? rows[iter] : {};
@@ -88,6 +162,15 @@ export async function runCollection({
     let stopIteration = false;
 
     while (!stopIteration && index >= 0 && index < requests.length) {
+      // UI cancellation is checked before every request.
+      if (isStopRequested()) {
+        aborted = true;
+        stoppedAtStep = stepCounter;
+        stopRun = true;
+        stopIteration = true;
+        break;
+      }
+
       const request = requests[index];
       const stepStarted = Date.now();
 
@@ -121,12 +204,31 @@ export async function runCollection({
 
       // 3. Send, unless the pre-request script asked to skip the request.
       let response;
+      let attempts = 0;
       if (skipRequested) {
         response = { ok: true, status: null, statusText: '', headers: [], body: '', timeMs: 0 };
       } else if (pre.error) {
         response = { ok: false, error: `Pre-request error: ${pre.error}`, timeMs: 0 };
       } else {
-        response = await send(resolved, newRequestId());
+        // Retry transport failures and 5xx responses up to `retries` times.
+        while (attempts < maxAttempts) {
+          attempts += 1;
+          const requestId = newRequestId();
+          if (typeof onRequestId === 'function') onRequestId(requestId);
+          try {
+            response = await send(resolved, requestId);
+          } catch (err) {
+            response = {
+              ok: false,
+              status: null,
+              error: err?.message || String(err),
+              timeMs: Date.now() - stepStarted,
+            };
+          }
+          const retryable = !response.ok || (typeof response.status === 'number' && response.status >= 500);
+          if (!retryable || attempts >= maxAttempts) break;
+          if (retryDelay > 0) await sleep(retryDelay);
+        }
       }
 
       // 4. Tests (ancestor tests first, then request's). A skipped request never
@@ -164,46 +266,77 @@ export async function runCollection({
         status: response.ok ? response.status : null,
         error: response.ok ? null : response.error,
         skipped,
+        attempts,
+        retried: attempts > 1,
         timeMs: response.ok ? response.timeMs : Date.now() - stepStarted,
         tests: testRun.results,
         testsPassed: stepPassed,
         testsFailed: stepFailed,
         nextRequest: scriptNext === undefined ? null : scriptNext,
       };
+      if (saveResponses) stepResult.response = snapshotResponse(response);
       results.push(stepResult);
 
       if (onProgress) onProgress(stepResult, stepCounter, totalSteps);
 
-      // 5. Resolve the jump for the next step.
-      let nextIndex = index + 1;
-      if (scriptNext === null) {
+      // A failure is a transport error, a 5xx response, or a failed assertion.
+      const stepIsFailure = !skipped
+        && (!response.ok
+          || (typeof response.status === 'number' && response.status >= 500)
+          || stepFailed > 0);
+
+      // The UI may have requested a stop while this request was in flight; the
+      // active send was aborted, and no further request may start.
+      if (isStopRequested()) {
+        aborted = true;
+        stoppedAtStep = stepCounter;
         stopRun = true;
         stopIteration = true;
-      } else if (scriptNext !== undefined) {
-        const target = requests.findIndex(
-          (candidate) => candidate.id === scriptNext || candidate.name === scriptNext
-        );
-        if (target < 0) {
+      } else if (stopOnError && stepIsFailure) {
+        stoppedReason = 'error';
+        stopRun = true;
+        stopIteration = true;
+      } else {
+        // 5. Resolve the jump for the next step.
+        let nextIndex = index + 1;
+        if (scriptNext === null) {
+          stopRun = true;
           stopIteration = true;
-        } else if ((jumpCounts.get(target) || 0) >= 1) {
-          stopIteration = true;
-        } else {
-          jumpCounts.set(target, (jumpCounts.get(target) || 0) + 1);
-          nextIndex = target;
+        } else if (scriptNext !== undefined) {
+          const target = requests.findIndex(
+            (candidate) => candidate.id === scriptNext || candidate.name === scriptNext
+          );
+          if (target < 0) {
+            stopIteration = true;
+          } else if ((jumpCounts.get(target) || 0) >= 1) {
+            stopIteration = true;
+          } else {
+            jumpCounts.set(target, (jumpCounts.get(target) || 0) + 1);
+            nextIndex = target;
+          }
         }
+        index = nextIndex;
       }
 
-      if (delayMs > 0 && stepCounter < totalSteps) {
-        await new Promise((r) => setTimeout(r, delayMs));
+      if (!stopRun && !stopIteration && delayMs > 0 && stepCounter < totalSteps && !isStopRequested()) {
+        await sleep(delayMs);
       }
-
-      index = nextIndex;
     }
   }
 
+  // keepVariableValues === false restores the pre-run values so a later run
+  // (or the persisted environment) starts from the same baseline.
+  const finalScopes = keepVariableValues
+    ? scopes
+    : {
+        environment: { ...initialScopes.environment },
+        collection: { ...initialScopes.collection },
+        globals: { ...initialScopes.globals },
+      };
+
   return {
     results,
-    scopes,
+    scopes: finalScopes,
     summary: {
       iterations: iterCount,
       total: totalSteps,
@@ -212,6 +345,10 @@ export async function runCollection({
       requestsSkipped: results.filter((r) => r.skipped).length,
       testsPassed: passedTests,
       testsFailed: failedTests,
+      retriedRequests: results.filter((r) => r.retried).length,
+      aborted,
+      stoppedAtStep: aborted ? stoppedAtStep : null,
+      stoppedReason,
     },
   };
 }
