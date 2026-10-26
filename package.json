@@ -1,0 +1,60 @@
+{
+  "name": "relay",
+  "productName": "Relay",
+  "version": "0.1.0",
+  "description": "Relay — a modern local API client (Postman-style) built with Electron + React + Vite",
+  "main": "dist-electron/main.js",
+  "type": "module",
+  "author": "Relay",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build:vite": "vite build",
+    "preview": "vite preview",
+    "start": "electron .",
+    "dist": "vite build && electron-builder --mac --arm64",
+    "dist:universal": "vite build && electron-builder --mac --universal",
+    "dist:dir": "vite build && electron-builder --mac --arm64 --dir"
+  },
+  "build": {
+    "appId": "com.relay.apiclient",
+    "productName": "Relay",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "target": [
+        { "target": "dmg", "arch": ["universal"] }
+      ]
+    },
+    "dmg": {
+      "title": "Relay ${version}"
+    }
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "crypto-js": "^4.2.0",
+    "moment": "^2.30.1",
+    "monaco-editor": "^0.52.2",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.2.0",
+    "electron-builder": "^24.13.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.11",
+    "vite-plugin-electron": "^0.28.8",
+    "vite-plugin-electron-renderer": "^0.14.6"
+  }
+}
