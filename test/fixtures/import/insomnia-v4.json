@@ -1,0 +1,75 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2024-05-01T12:00:00.000Z",
+  "__export_source": "insomnia.desktop.app:v2023.5.8",
+  "resources": [
+    {
+      "_id": "wrk_demo",
+      "parentId": null,
+      "_type": "workspace",
+      "name": "Demo Workspace",
+      "description": "Insomnia v4 fixture for import tests"
+    },
+    {
+      "_id": "env_dev",
+      "parentId": "wrk_demo",
+      "_type": "environment",
+      "name": "Development",
+      "data": {
+        "baseUrl": "https://api.example.com",
+        "apiKey": "dev-key",
+        "__hidden": "ignored"
+      }
+    },
+    {
+      "_id": "fld_pets",
+      "parentId": "wrk_demo",
+      "_type": "request_group",
+      "name": "Pets"
+    },
+    {
+      "_id": "req_list",
+      "parentId": "fld_pets",
+      "_type": "request",
+      "name": "List pets",
+      "method": "GET",
+      "url": "https://api.example.com/pets",
+      "headers": [
+        { "name": "Accept", "value": "application/json" }
+      ],
+      "parameters": [
+        { "name": "limit", "value": "20" }
+      ],
+      "authentication": {
+        "type": "basic",
+        "username": "user",
+        "password": "pass"
+      }
+    },
+    {
+      "_id": "req_create",
+      "parentId": "fld_pets",
+      "_type": "request",
+      "name": "Create pet",
+      "method": "POST",
+      "url": "https://api.example.com/pets",
+      "headers": [],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\"name\":\"doggie\"}"
+      },
+      "authentication": {
+        "type": "bearer",
+        "token": "{{token}}"
+      }
+    },
+    {
+      "_id": "spc_pets",
+      "parentId": "wrk_demo",
+      "_type": "api_spec",
+      "name": "Pets OpenAPI",
+      "spec": { "openapi": "3.0.0", "paths": {} }
+    }
+  ]
+}

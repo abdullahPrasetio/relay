@@ -1,0 +1,159 @@
+{
+  "info": {
+    "_postman_id": "22222222-2222-4222-8222-222222222222",
+    "name": "Full Fidelity",
+    "description": {
+      "content": "Collection with folders, scripts, auth, examples, and files.",
+      "type": "text/markdown"
+    },
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "collection-token" }]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": ["pm.collectionVariables.set('ran', true);"]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": ["pm.test('collection level', function () {});"]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "https://api.example.com" },
+    { "key": "disabledVar", "value": "nope", "disabled": true }
+  ],
+  "item": [
+    {
+      "name": "Users",
+      "description": {
+        "content": "Folder about users.",
+        "type": "text/markdown"
+      },
+      "auth": {
+        "type": "basic",
+        "basic": [
+          { "key": "username", "value": "folder-user" },
+          { "key": "password", "value": "folder-pass" }
+        ]
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": ["pm.variables.set('folderRan', true);"]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": ["console.log('folder test');"]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "Get User",
+          "description": "Fetches one user.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.variables.set('id', '42');"]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status is 200', function () {});"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "https://api.example.com/users/:id",
+              "protocol": "https",
+              "host": ["api", "example", "com"],
+              "path": ["users", ":id"],
+              "variable": [{ "key": "id", "value": "42" }]
+            }
+          },
+          "response": [
+            {
+              "name": "Fetched",
+              "originalRequest": {
+                "method": "GET",
+                "header": [{ "key": "Accept", "value": "application/json" }],
+                "url": {
+                  "raw": "https://api.example.com/users/42",
+                  "protocol": "https",
+                  "host": ["api", "example", "com"],
+                  "path": ["users", "42"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": 42,\n  \"name\": \"Ada\"\n}"
+            },
+            {
+              "name": "Fetched with body",
+              "originalRequest": {
+                "method": "POST",
+                "header": [{ "key": "Content-Type", "value": "application/json" }],
+                "url": { "raw": "https://api.example.com/users" },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"name\":\"Ada\"}",
+                  "options": { "raw": { "language": "json" } }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "header": [{ "key": "Content-Type", "value": "application/json" }],
+              "body": "{\n  \"id\": 42\n}"
+            }
+          ]
+        },
+        {
+          "name": "Upload Avatar",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "name", "value": "Ada", "type": "text" },
+                {
+                  "key": "avatar",
+                  "type": "file",
+                  "src": ["/tmp/avatar.png"],
+                  "contentType": "image/png"
+                }
+              ]
+            },
+            "url": {
+              "raw": "https://api.example.com/users/:id/avatar",
+              "variable": [{ "key": "id", "value": "42" }]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

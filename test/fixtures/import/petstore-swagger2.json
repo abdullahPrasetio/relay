@@ -1,0 +1,68 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Petstore (Swagger 2)",
+    "version": "1.0.0",
+    "description": "Swagger 2.0 fixture for import tests."
+  },
+  "host": "api.example.com",
+  "basePath": "/v1",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "apiKey": {
+      "type": "apiKey",
+      "name": "X-API-Key",
+      "in": "header"
+    }
+  },
+  "security": [{ "apiKey": [] }],
+  "paths": {
+    "/pets": {
+      "get": {
+        "operationId": "getPetsWithBody",
+        "summary": "Filter pets with a body filter",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": { "$ref": "#/definitions/Pet" }
+          }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "operationId": "createPet",
+        "summary": "Create a pet",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": { "$ref": "#/definitions/Pet" }
+          },
+          {
+            "name": "verbose",
+            "in": "query",
+            "type": "boolean",
+            "default": false
+          }
+        ],
+        "responses": { "201": { "description": "Created" } }
+      }
+    }
+  },
+  "definitions": {
+    "Pet": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "id": { "type": "integer" },
+        "name": { "type": "string", "example": "doggie" },
+        "tag": { "type": "string" }
+      }
+    }
+  }
+}

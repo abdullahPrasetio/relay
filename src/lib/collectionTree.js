@@ -11,7 +11,16 @@
 import { newRequest, newCollection, normalizeRequest, uid } from './factory.js';
 
 export function newFolder(name = 'New Folder') {
-  return { id: uid('fld'), type: 'folder', name, items: [] };
+  return {
+    id: uid('fld'),
+    type: 'folder',
+    name,
+    description: '',
+    auth: null, // null means "inherit from the parent collection"
+    preRequest: '',
+    tests: '',
+    items: [],
+  };
 }
 
 // Ensure a collection has the tree shape, migrating the legacy `requests[]`.
@@ -47,6 +56,10 @@ function normalizeNode(node) {
       id: node.id || uid('fld'),
       type: 'folder',
       name: node.name || 'Folder',
+      description: typeof node.description === 'string' ? node.description : '',
+      auth: node.auth || null,
+      preRequest: node.preRequest || '',
+      tests: node.tests || '',
       items: (node.items || []).map(normalizeNode),
     };
   }

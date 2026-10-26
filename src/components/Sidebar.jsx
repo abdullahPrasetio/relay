@@ -11,7 +11,8 @@ import {
   moveNodeTo,
   moveNodeBefore,
 } from '../lib/collectionTree.js';
-import { toPostmanCollection, fromPostmanCollection } from '../lib/postmanFormat.js';
+import { toPostmanCollection } from '../lib/postmanFormat.js';
+import { importAny } from '../lib/import/index.js';
 import { toPostmanEnvironment, fromPostmanEnvironment } from '../lib/environmentFormat.js';
 import TreeNode from './TreeNode.jsx';
 import Icon from './Icon.jsx';
@@ -110,17 +111,24 @@ export default function Sidebar({
     fileInputRef.current?.click();
   }
 
+  // One button for every supported format: Postman, OpenAPI/Swagger, HAR,
+  // cURL and Insomnia. Detection happens on the file text, so the picker does
+  // not need a format selector.
   function onFileChosen(e) {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const json = JSON.parse(reader.result);
-        const collection = fromPostmanCollection(json);
-        onChangeCollections([...collections, collection]);
+        const result = importAny(String(reader.result || ''));
+        if (result.collections.length) {
+          onChangeCollections([...collections, ...result.collections]);
+        }
+        if (result.environments.length) {
+          onChangeEnvironments([...environments, ...result.environments]);
+        }
       } catch (err) {
-        dialogs.alert('Failed to import collection: ' + err.message, { title: 'Import Error' });
+        dialogs.alert('Failed to import: ' + err.message, { title: 'Import Error' });
       }
     };
     reader.readAsText(file);
@@ -197,13 +205,17 @@ export default function Sidebar({
             <button className="mini-btn" onClick={addCollection}>
               + New
             </button>
-            <button className="mini-btn" onClick={onImportClick} title="Import Postman v2.1 collection">
+            <button
+              className="mini-btn"
+              onClick={onImportClick}
+              title="Import Postman, OpenAPI/Swagger, HAR, cURL or Insomnia"
+            >
               Import
             </button>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json,application/json"
+              accept=".json,.har,.yaml,.yml,.sh,.txt,application/json"
               style={{ display: 'none' }}
               onChange={onFileChosen}
             />

@@ -1,0 +1,179 @@
+{
+  "info": {
+    "_postman_id": "33333333-3333-4333-8333-333333333333",
+    "name": "Auth Types",
+    "description": "Fixture: collection-level awsv4, folder-level oauth1, and one request per auth family.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "awsv4",
+    "awsv4": [
+      { "key": "accessKey", "value": "AKIACOLLECTION", "type": "string" },
+      { "key": "secretKey", "value": "collection-secret", "type": "string" },
+      { "key": "region", "value": "eu-west-1", "type": "string" },
+      { "key": "service", "value": "execute-api", "type": "string" },
+      { "key": "sessionToken", "value": "collection-session", "type": "string" },
+      { "key": "addTo", "value": "query", "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth Requests",
+      "description": "Every supported auth family.",
+      "auth": {
+        "type": "oauth1",
+        "oauth1": [
+          { "key": "consumerKey", "value": "folder-consumer", "type": "string" },
+          { "key": "consumerSecret", "value": "folder-consumer-secret", "type": "string" },
+          { "key": "token", "value": "folder-token", "type": "string" },
+          { "key": "tokenSecret", "value": "folder-token-secret", "type": "string" },
+          { "key": "signatureMethod", "value": "HMAC-SHA256", "type": "string" },
+          { "key": "realm", "value": "relay-realm", "type": "string" },
+          { "key": "addTo", "value": "query", "type": "string" },
+          { "key": "version", "value": "1.0", "type": "string" }
+        ]
+      },
+      "item": [
+        {
+          "name": "Digest",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "https://api.example.com/digest" },
+            "auth": {
+              "type": "digest",
+              "digest": [
+                { "key": "username", "value": "digest-user", "type": "string" },
+                { "key": "password", "value": "digest-pass", "type": "string" },
+                { "key": "algorithm", "value": "SHA-256", "type": "string" },
+                { "key": "qop", "value": "auth", "type": "string" },
+                { "key": "nonce", "value": "ignored-disabled", "type": "string", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "NTLM",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "https://api.example.com/ntlm" },
+            "auth": {
+              "type": "ntlm",
+              "ntlm": [
+                { "key": "username", "value": "ntlm-user", "type": "string" },
+                { "key": "password", "value": "ntlm-pass", "type": "string" },
+                { "key": "domain", "value": "RELAY", "type": "string" },
+                { "key": "workstation", "value": "WS01", "type": "string" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "JWT",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "https://api.example.com/jwt" },
+            "auth": {
+              "type": "jwt",
+              "jwt": [
+                { "key": "algorithm", "value": "RS256", "type": "string" },
+                { "key": "secret", "value": "", "type": "string" },
+                {
+                  "key": "privateKey",
+                  "value": "fixture-private-key",
+                  "type": "string"
+                },
+                {
+                  "key": "payload",
+                  "value": "{\"sub\":\"fixture\",\"iat\":1700000000}",
+                  "type": "string"
+                },
+                {
+                  "key": "header",
+                  "value": "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"key-1\"}",
+                  "type": "string"
+                },
+                { "key": "headerPrefix", "value": "Bearer", "type": "string" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "OAuth2",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "https://api.example.com/oauth2" },
+            "auth": {
+              "type": "oauth2",
+              "oauth2": [
+                { "key": "accessToken", "value": "oauth2-access-token", "type": "string" },
+                { "key": "tokenType", "value": "Bearer", "type": "string" },
+                { "key": "addTokenTo", "value": "header", "type": "string" },
+                { "key": "authUrl", "value": "https://auth.example.com/authorize", "type": "string" },
+                {
+                  "key": "accessTokenUrl",
+                  "value": "https://auth.example.com/token",
+                  "type": "string"
+                },
+                { "key": "scope", "value": "read write", "type": "string" },
+                { "key": "audience", "value": "https://api.example.com", "type": "string" },
+                { "key": "clientId", "value": "oauth2-client", "type": "string" },
+                { "key": "clientSecret", "value": "oauth2-secret", "type": "string" },
+                { "key": "grant_type", "value": "refresh_token", "type": "string" },
+                { "key": "refreshToken", "value": "oauth2-refresh", "type": "string" },
+                { "key": "headerPrefix", "value": "Bearer", "type": "string" },
+                { "key": "extraParam", "value": "ignored-disabled", "type": "string", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Basic",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "https://api.example.com/basic" },
+            "auth": {
+              "type": "basic",
+              "basic": [
+                { "key": "username", "value": "basic-user", "type": "string" },
+                { "key": "password", "value": "basic-pass", "type": "string" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "API Key",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "https://api.example.com/apikey" },
+            "auth": {
+              "type": "apikey",
+              "apikey": [
+                { "key": "key", "value": "X-Api-Key", "type": "string" },
+                { "key": "value", "value": "apikey-value", "type": "string" },
+                { "key": "in", "value": "query", "type": "string" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Bearer",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "https://api.example.com/bearer" },
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "bearer-token", "type": "string" }]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
