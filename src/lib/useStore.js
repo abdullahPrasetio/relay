@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { newWorkspace, migrateToWorkspaces, SCHEMA_VERSION } from './workspace.js';
+import { hydrateWorkspaceSecrets, sealWorkspaceSecrets } from './secretVars.js';
 
 // Persisted shape (workspace-aware):
 //   { schemaVersion, workspaces: [{id,name,collections,environments,globals,history,activeEnvId}],
@@ -45,15 +46,22 @@ export function useStore() {
   const [workspaces, setWorkspaces] = useState([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  // Surfaced to the UI: a failed seal/write must not be silent, because
+  // skipping the write leaves the last change unsaved (never plaintext on disk).
+  const [saveError, setSaveError] = useState('');
   const saveTimer = useRef(null);
 
   useEffect(() => {
     let mounted = true;
-    loadInitial().then((data) => {
+    loadInitial().then(async (data) => {
       if (!mounted) return;
       const migrated = migrateToWorkspaces(data);
+      // Ciphertext exists only on disk; React state holds plaintext so inputs
+      // and the runner resolve secret variables normally.
+      const hydrated = await hydrateWorkspaceSecrets(migrated.workspaces);
+      if (!mounted) return;
       // schemaVersion is written on save; it is not renderer state.
-      setWorkspaces(migrated.workspaces);
+      setWorkspaces(hydrated);
       setActiveWorkspaceId(migrated.activeWorkspaceId);
       setLoaded(true);
     });
@@ -64,9 +72,23 @@ export function useStore() {
 
   useEffect(() => {
     if (!loaded) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      persist({ schemaVersion: SCHEMA_VERSION, workspaces, activeWorkspaceId });
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        // Seal a deep copy at the persistence boundary; in-memory state keeps
+        // plaintext. Without a bridge this is a no-op (localStorage dev only).
+        const sealed = await sealWorkspaceSecrets(workspaces);
+        await persist({
+          schemaVersion: SCHEMA_VERSION,
+          workspaces: sealed,
+          activeWorkspaceId,
+        });
+        setSaveError('');
+      } catch (err) {
+        // Encryption unavailable (or failed): skip this write rather than
+        // ever persisting plaintext. The next edit retries.
+        setSaveError(err?.message || String(err));
+      }
     }, 300);
   }, [workspaces, activeWorkspaceId, loaded]);
 
@@ -142,6 +164,7 @@ export function useStore() {
 
   return {
     loaded,
+    saveError,
     // Active workspace data (same field names the app already uses).
     collections: active?.collections || [],
     setCollections,

@@ -23,6 +23,25 @@ export function newFolder(name = 'New Folder') {
   };
 }
 
+// Variable rows are {key, value, enabled, type}, where type is 'default' or
+// 'secret'. Older persisted data has no `type`; infer 'default' so every
+// reader can rely on it. `secretEnc` (safeStorage ciphertext, written by the
+// main process) is preserved verbatim — this layer never encrypts or decrypts.
+export function normalizeVariableRows(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(Boolean).map((row) => {
+    const type = row.type === 'secret' ? 'secret' : 'default';
+    const out = {
+      key: row.key == null ? '' : String(row.key),
+      value: row.value == null ? '' : String(row.value),
+      enabled: row.enabled !== false,
+      type,
+    };
+    if (row.secretEnc) out.secretEnc = String(row.secretEnc);
+    return out;
+  });
+}
+
 // Ensure a collection has the tree shape, migrating the legacy `requests[]`.
 export function normalizeCollection(collection) {
   const defaults = newCollection(collection.name || 'Collection');
@@ -30,12 +49,16 @@ export function normalizeCollection(collection) {
     id: collection.id || defaults.id,
     name: collection.name || 'Collection',
     description: collection.description || '',
-    variables: collection.variables || [],
+    variables: normalizeVariableRows(collection.variables),
     auth: collection.auth
       ? { ...defaults.auth, ...collection.auth }
       : defaults.auth,
     preRequest: collection.preRequest || '',
     tests: collection.tests || '',
+    // Imported collections start untrusted (they carry third-party scripts);
+    // anything else is trusted. Explicit `false` must survive a reload, so it
+    // is normalized to a boolean here rather than left undefined.
+    scriptsTrusted: collection.scriptsTrusted !== false,
     items: [],
   };
   if (Array.isArray(collection.items)) {
@@ -375,6 +398,27 @@ export function findNodeCollection(collections, nodeId) {
   const contains = (items) =>
     items.some((n) => n.id === nodeId || (n.type === 'folder' && contains(n.items)));
   return collections.find((c) => contains(c.items || [])) || null;
+}
+
+// Ancestor chain for a node, outermost first: [collection, ...folders].
+// For a request the request itself is not included; for a folder the path
+// ends with that folder. Returns null when no collection contains the node.
+export function findNodePath(collections, nodeId) {
+  const walk = (items, chain) => {
+    for (const node of items || []) {
+      if (node.id === nodeId) return node.type === 'folder' ? [...chain, node] : chain;
+      if (node.type === 'folder') {
+        const found = walk(node.items, [...chain, node]);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  for (const c of collections || []) {
+    const found = walk(c.items || [], [c]);
+    if (found) return found;
+  }
+  return null;
 }
 
 // Return the collection that contains a request with the given id, or null.

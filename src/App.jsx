@@ -22,7 +22,8 @@ import { useDialogs } from './components/Dialogs.jsx';
 import { useStore } from './lib/useStore.js';
 import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { newRequest, normalizeRequest, uid } from './lib/factory.js';
-import { mergeVars, resolveRequest, varsToMap } from './lib/variables.js';
+import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from './lib/variables.js';
+import { collectSecretValues } from './lib/secretVars.js';
 import { runTests, runPreRequest } from './lib/testRunner.js';
 import {
   withEffectiveAuth,
@@ -34,6 +35,7 @@ import {
   addRequest,
   updateRequestNode,
   findRequestCollection,
+  findNodePath,
   flattenRequests,
   findFolder,
 } from './lib/collectionTree.js';
@@ -47,6 +49,28 @@ function newRequestId() {
     return crypto.randomUUID();
   }
   return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
+function maskLogEntry(entry, secrets) {
+  if (!entry || typeof entry.text !== 'string') return entry;
+  return { ...entry, text: maskSecrets(entry.text, secrets) };
+}
+
+// Mask secret values in the "sent" diagnostic view without dropping rows.
+function maskSentView(sent, secrets) {
+  if (!sent || typeof sent !== 'object') return sent;
+  return {
+    ...sent,
+    url: maskSecrets(sent.url, secrets),
+    headers: Array.isArray(sent.headers)
+      ? sent.headers.map((header) =>
+          header && typeof header === 'object'
+            ? { ...header, value: maskSecrets(String(header.value ?? ''), secrets) }
+            : header
+        )
+      : sent.headers,
+    body: maskSecrets(sent.body, secrets),
+  };
 }
 
 function newTab(request) {
@@ -127,9 +151,12 @@ export default function App() {
   // Persist mutated variable objects back into the store (env + collection + globals).
   const persistVarMutations = useCallback(
     (envObj, colObj, globObj, owningCollection) => {
+      // Functional updates: `store.*` from this closure predates any state the
+      // run itself changed (e.g. trusting a collection), and mapping over the
+      // stale array would silently revert those changes.
       if (activeEnv) {
-        store.setEnvironments(
-          store.environments.map((e) =>
+        store.setEnvironments((prev) =>
+          prev.map((e) =>
             e.id === activeEnv.id ? { ...e, variables: objToVarList(envObj, e.variables) } : e
           )
         );
@@ -140,15 +167,15 @@ export default function App() {
         for (const [k, v] of Object.entries(envObj)) globObj[k] = v;
       }
       if (owningCollection) {
-        store.setCollections(
-          store.collections.map((c) =>
+        store.setCollections((prev) =>
+          prev.map((c) =>
             c.id === owningCollection.id
               ? { ...c, variables: objToVarList(colObj, c.variables) }
               : c
           )
         );
       }
-      store.setGlobals(objToVarList(globObj, store.globals));
+      store.setGlobals((prev) => objToVarList(globObj, prev));
     },
     [activeEnv, store]
   );
@@ -189,17 +216,57 @@ export default function App() {
 
     try {
       const owningCollection = findRequestCollection(store.collections, tab.request.id);
+      const chain = findNodePath(store.collections, tab.request.id) || [];
 
-      // Mutable scope objects for scripts to read/write.
-      const envObj = varsToMap(activeEnv);
-      const colObj = varsToMap(owningCollection?.variables);
-      const globObj = varsToMap(store.globals);
-      const scriptContext = { environment: envObj, collection: colObj, globals: globObj };
+      // React state is the plaintext source of truth (see useStore); disk is
+      // the only place ciphertext lives. Collect known secret values for
+      // masking before scripts can emit them.
+      const secretPlaintexts = collectSecretValues(
+        activeEnv?.variables,
+        owningCollection?.variables,
+        store.globals
+      );
 
-      // 1. Pre-request script: collection script runs first, then the request's.
+      // Mutable scope objects for scripts to read/write. `local` is per
+      // execution only; single sends have no runner data row.
+      const scriptContext = {
+        local: {},
+        iterationData: {},
+        environment: varsToMap(activeEnv),
+        collection: varsToMap(owningCollection?.variables),
+        globals: varsToMap(store.globals),
+      };
+
+      // Ancestors' scripts run outside-in, then the request's own script.
+      const preScript = combinedPreRequest(tab.request, chain);
+      const testScript = combinedTests(tab.request, chain);
+
+      // Trust gate: imported collections are untrusted until the user allows
+      // their scripts to run. Ask once, then remember the choice.
+      let trusted = owningCollection ? owningCollection.scriptsTrusted !== false : true;
+      let scriptsSkipped = false;
+      if (!trusted && (preScript || testScript)) {
+        const allow = await dialogs.confirm(
+          `Run scripts from “${owningCollection.name}”? Scripts can read and change variables and send requests.`,
+          { title: 'Trust scripts', okLabel: 'Run scripts' }
+        );
+        if (allow) {
+          trusted = true;
+          store.setCollections(
+            store.collections.map((c) =>
+              c.id === owningCollection.id ? { ...c, scriptsTrusted: true } : c
+            )
+          );
+        } else {
+          scriptsSkipped = true;
+        }
+      }
+
+      // 1. Pre-request script: collection, folders, then the request's.
       //    Scripts get pm.request and may mutate its body/headers/url/method.
-      const preScript = combinedPreRequest(tab.request, owningCollection);
-      const pre = await runPreRequest(preScript, scriptContext, tab.request);
+      const pre = scriptsSkipped
+        ? { ran: false, logs: [] }
+        : await runPreRequest(preScript, scriptContext, tab.request, { trusted });
       if (pre.error) {
         updateTab(activeTabId, {
           response: { ok: false, error: `Pre-request script error: ${pre.error}`, timeMs: 0 },
@@ -212,10 +279,16 @@ export default function App() {
       const effectiveRequest = applyRequestPatch(tab.request, pre.requestPatch);
 
       // 2. Resolve inherited auth, then variables.
-      //    Scopes: globals < collection < environment.
-      const vars = { ...globObj, ...colObj, ...envObj };
-      const withAuth = withEffectiveAuth(effectiveRequest, owningCollection);
-      const resolved = resolveRequest(withAuth, vars);
+      //    Scopes: local > iteration data > environment > collection > globals.
+      const vars = buildScopeVars(scriptContext);
+      const withAuth = withEffectiveAuth(effectiveRequest, chain);
+      // Unknown tokens are left verbatim (Postman behaviour) but surfaced in
+      // the Console tab so a typo does not silently send "{{tokn}}".
+      const unresolved = new Set();
+      const resolved = resolveRequest(withAuth, vars, {
+        onUnresolved: (name, meta) =>
+          unresolved.add(meta?.dynamic ? `{{$${name}}}` : `{{${name}}}`),
+      });
 
       // 3. Send. A rejected IPC call (bridge failure) becomes an error response
       //    so the panel can render it like any other failure.
@@ -232,46 +305,72 @@ export default function App() {
         result &&
         !result.ok &&
         (result.code === 'ABORT_ERR' || result.code === 'ETIMEDOUT');
-      const testResults = cancelled
-        ? { ran: false, results: [] }
-        : await runTests(
-            combinedTests(tab.request, owningCollection),
-            result,
-            scriptContext,
-            resolved
-          );
+      const testResults = cancelled || scriptsSkipped
+        ? { ran: false, results: [], logs: [] }
+        : await runTests(testScript, result, scriptContext, resolved, { trusted });
 
-      // 5. Persist any variable mutations from pre-request + tests.
-      persistVarMutations(envObj, colObj, globObj, owningCollection);
+      // 5. Persist any variable mutations from pre-request + tests. Local is
+      //    intentionally not persisted.
+      persistVarMutations(
+        scriptContext.environment,
+        scriptContext.collection,
+        scriptContext.globals,
+        owningCollection
+      );
 
-      // Collect console output from both script phases for the Console tab.
-      const consoleLogs = [...(pre.logs || []), ...(testResults.logs || [])];
+      // Console output from both script phases, with known secret values masked.
+      const consoleLogs = [
+        ...(scriptsSkipped
+          ? [{ level: 'log', text: 'Scripts skipped: collection not trusted' }]
+          : []),
+        ...(pre.logs || []),
+        ...(testResults.logs || []),
+        ...[...unresolved].map((token) => ({
+          level: 'warn',
+          text: `Unresolved variable ${token}`,
+        })),
+      ].map((entry) => maskLogEntry(entry, secretPlaintexts));
+      const maskedTestResults =
+        testResults && Array.isArray(testResults.logs)
+          ? {
+              ...testResults,
+              logs: testResults.logs.map((entry) => maskLogEntry(entry, secretPlaintexts)),
+            }
+          : testResults;
+      const maskedSent = maskSentView(result?.sent, secretPlaintexts);
       const responseWithDiag =
-        result && typeof result === 'object' ? { ...result, consoleLogs } : result;
+        result && typeof result === 'object'
+          ? { ...result, sent: maskedSent, consoleLogs }
+          : result;
 
-      updateTab(activeTabId, { response: responseWithDiag, testResults });
+      updateTab(activeTabId, { response: responseWithDiag, testResults: maskedTestResults });
 
       store.addHistory({
         id: `h_${Date.now()}`,
         at: new Date().toISOString(),
         method: resolved.method,
-        url: result.ok && result.sent ? result.sent.url : resolved.url,
+        url: result.ok && result.sent ? maskedSent.url : resolved.url,
         status: result.ok ? result.status : null,
         ok: result.ok,
         snapshot: tab.request,
-        sent: result.ok ? result.sent : null,
+        sent: result.ok ? maskedSent : null,
       });
     } finally {
       updateTab(activeTabId, { sending: false, sendingId: null });
     }
-  }, [tabs, activeTabId, activeEnv, store, updateTab, persistVarMutations, transport]);
+  }, [tabs, activeTabId, activeEnv, store, updateTab, persistVarMutations, transport, dialogs]);
 
   const showCode = useCallback(() => {
     const tab = tabs.find((t) => t.tabId === activeTabId);
     if (!tab) return;
     const owningCollection = findRequestCollection(store.collections, tab.request.id);
-    const vars = mergeVars(owningCollection, activeEnv, store.globals);
-    const resolved = resolveRequest(withEffectiveAuth(tab.request, owningCollection), vars);
+    const chain = findNodePath(store.collections, tab.request.id) || [];
+    const vars = buildScopeVars({
+      collection: varsToMap(owningCollection?.variables),
+      environment: varsToMap(activeEnv),
+      globals: varsToMap(store.globals),
+    });
+    const resolved = resolveRequest(withEffectiveAuth(tab.request, chain), vars);
     setCodeModal({ request: resolved });
   }, [tabs, activeTabId, activeEnv, store]);
 
@@ -286,6 +385,10 @@ export default function App() {
         title: folderId ? container.name : collection.name,
         requests,
         collection,
+        // [collection, ...folders] so folder scripts/auth apply during a run.
+        chain: folderId
+          ? findNodePath(store.collections, folderId) || [collection]
+          : [collection],
       });
     },
     [store.collections]
@@ -295,8 +398,8 @@ export default function App() {
   const persistRunScopes = useCallback(
     (scopes, collection) => {
       if (activeEnv) {
-        store.setEnvironments(
-          store.environments.map((e) =>
+        store.setEnvironments((prev) =>
+          prev.map((e) =>
             e.id === activeEnv.id ? { ...e, variables: objToVarList(scopes.environment, e.variables) } : e
           )
         );
@@ -305,13 +408,13 @@ export default function App() {
         for (const [k, v] of Object.entries(scopes.environment || {})) scopes.globals[k] = v;
       }
       if (collection) {
-        store.setCollections(
-          store.collections.map((c) =>
+        store.setCollections((prev) =>
+          prev.map((c) =>
             c.id === collection.id ? { ...c, variables: objToVarList(scopes.collection, c.variables) } : c
           )
         );
       }
-      if (scopes.globals) store.setGlobals(objToVarList(scopes.globals, store.globals));
+      if (scopes.globals) store.setGlobals((prev) => objToVarList(scopes.globals, prev));
     },
     [activeEnv, store]
   );
@@ -489,6 +592,12 @@ export default function App() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
+      {store.saveError && (
+        <div className="persist-warning" role="alert" title="Persistence failed">
+          Changes not saved: {store.saveError}
+        </div>
+      )}
+
       <div className="body">
         <ActivityRail active={railView} onSelect={setRailView} />
         <Sidebar
@@ -628,6 +737,7 @@ export default function App() {
           title={runner.title}
           requests={runner.requests}
           collection={runner.collection}
+          chain={runner.chain}
           environment={activeEnv}
           globals={store.globals}
           send={transport}

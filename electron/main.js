@@ -276,6 +276,26 @@ function registerIpc() {
     return sanitizeNetworkSettings(next);
   });
 
+  // ---- Secret variables (safeStorage-backed, values never logged) ----
+  // Encrypt one plaintext value. Rejects when secure storage is unavailable so
+  // the renderer can show the message and leave the store untouched.
+  ipcMain.handle('secrets:encrypt', (_event, value) =>
+    typeof value === 'string' ? encryptSecret(value) : ''
+  );
+
+  // Decrypt one ciphertext; failures degrade to '' (the secret is unavailable,
+  // not an error the UI needs to act on).
+  ipcMain.handle('secrets:decrypt', (_event, encoded) =>
+    typeof encoded === 'string' ? decryptSecret(encoded) : ''
+  );
+
+  // Decrypt a whole environment in one round-trip, preserving order.
+  ipcMain.handle('secrets:decryptMany', (_event, encodedList) =>
+    (Array.isArray(encodedList) ? encodedList : []).map((encoded) =>
+      typeof encoded === 'string' ? decryptSecret(encoded) : ''
+    )
+  );
+
   // Save a response body to disk. Payload: { suggestedName, base64?, text? }.
   ipcMain.handle('response:save', async (_event, payload) => {
     const win = BrowserWindow.getFocusedWindow();

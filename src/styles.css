@@ -1656,3 +1656,12 @@ input.has-unresolved-var {
   background: var(--bg-3);
   align-self: flex-start;
 }
+
+/* Persistence failure banner (e.g. secure storage unavailable) */
+.persist-warning {
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #fff;
+  background: var(--red);
+  border-bottom: 1px solid var(--border);
+}

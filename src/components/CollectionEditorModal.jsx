@@ -45,6 +45,20 @@ export default function CollectionEditorModal({ collection, onClose, onChange })
             value={collection.description || ''}
             onChange={(e) => patch({ description: e.target.value })}
           />
+          <label
+            style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}
+          >
+            <input
+              type="checkbox"
+              checked={collection.scriptsTrusted !== false}
+              onChange={(e) => patch({ scriptsTrusted: e.target.checked })}
+            />
+            Trust scripts in this collection
+          </label>
+          <p className="auth-hint">
+            Imported collections start untrusted so their scripts never run without
+            permission.
+          </p>
         </div>
       )}
 
@@ -66,6 +80,7 @@ export default function CollectionEditorModal({ collection, onClose, onChange })
             rows={collection.variables || []}
             onChange={(variables) => patch({ variables })}
             keyPlaceholder="Variable"
+            showType
           />
           <p className="auth-hint">
             Reference with <code>{'{{name}}'}</code>. The active environment overrides these.

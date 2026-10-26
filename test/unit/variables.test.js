@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildScopeVars,
   extractPathVars,
   mergeVars,
   resolveRequest,
@@ -38,6 +39,51 @@ describe('variable scopes', () => {
         null,
       ])
     ).toEqual({ on: '1' });
+  });
+});
+
+describe('buildScopeVars precedence', () => {
+  it('collection beats globals', () => {
+    expect(buildScopeVars({ globals: { a: 'g' }, collection: { a: 'c' } })).toEqual({ a: 'c' });
+  });
+
+  it('environment beats collection', () => {
+    expect(buildScopeVars({ collection: { a: 'c' }, environment: { a: 'e' } })).toEqual({ a: 'e' });
+  });
+
+  it('iteration data beats environment', () => {
+    expect(buildScopeVars({ environment: { a: 'e' }, iterationData: { a: 'd' } })).toEqual({
+      a: 'd',
+    });
+  });
+
+  it('local beats iteration data', () => {
+    expect(buildScopeVars({ iterationData: { a: 'd' }, local: { a: 'l' } })).toEqual({
+      a: 'l',
+    });
+  });
+
+  it('applies the full local > data > env > collection > globals order', () => {
+    const merged = buildScopeVars({
+      local: { a: 'local', l: 'local-only' },
+      iterationData: { a: 'data', d: 'data-only' },
+      environment: { a: 'env', e: 'env-only' },
+      collection: { a: 'collection', c: 'collection-only' },
+      globals: { a: 'global', g: 'global-only' },
+    });
+    expect(merged).toEqual({
+      a: 'local',
+      g: 'global-only',
+      c: 'collection-only',
+      e: 'env-only',
+      d: 'data-only',
+      l: 'local-only',
+    });
+  });
+
+  it('tolerates missing scopes', () => {
+    expect(buildScopeVars({ environment: { a: 'e' } })).toEqual({ a: 'e' });
+    expect(buildScopeVars()).toEqual({});
   });
 });
 
@@ -110,5 +156,118 @@ describe('resolveRequest', () => {
     ).auth;
     expect(out.apikey.addTo).toBe('header');
     expect(out.apikey.value).toBe('abc');
+  });
+});
+
+describe('dynamic variables', () => {
+  const empty = {};
+
+  it('expands $guid to a UUID v4', () => {
+    const out = resolveVars('id={{$guid}}', empty);
+    expect(out).toMatch(
+      /^id=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+  });
+
+  it('expands $timestamp to epoch seconds', () => {
+    const before = Math.floor(Date.now() / 1000);
+    const out = resolveVars('{{$timestamp}}', empty);
+    const value = Number(out);
+    expect(Number.isInteger(value)).toBe(true);
+    expect(value).toBeGreaterThanOrEqual(before);
+    expect(value).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 1);
+  });
+
+  it('expands $isoTimestamp to a parseable ISO date', () => {
+    const out = resolveVars('{{$isoTimestamp}}', empty);
+    expect(out).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(Number.isNaN(Date.parse(out))).toBe(false);
+  });
+
+  it('expands $randomInt inside 0..1000', () => {
+    for (let i = 0; i < 25; i += 1) {
+      const value = Number(resolveVars('{{$randomInt}}', empty));
+      expect(Number.isInteger(value)).toBe(true);
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThanOrEqual(1000);
+    }
+  });
+
+  it('expands $randomFirstName to a non-empty name', () => {
+    const out = resolveVars('{{$randomFirstName}}', empty);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out).toMatch(/^[A-Za-z]+$/);
+  });
+
+  it('expands $randomEmail to an email-shaped address', () => {
+    const out = resolveVars('{{$randomEmail}}', empty);
+    expect(out).toMatch(/^[a-z]+\.[a-z]+@example\.com$/);
+  });
+
+  it('handles whitespace inside dynamic tokens', () => {
+    expect(resolveVars('{{ $randomInt }}', empty)).toMatch(/^\d+$/);
+  });
+
+  it('prefers dynamic expansion over a scope entry with the same $ name', () => {
+    const out = resolveVars('{{$guid}}', { $guid: 'from-scope' });
+    expect(out).not.toBe('from-scope');
+    expect(out).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  it('still resolves normal tokens alongside dynamic ones', () => {
+    const out = resolveVars('{{host}}/{{$randomInt}}', vars);
+    expect(out).toMatch(/^api\.example\.com\/\d+$/);
+  });
+});
+
+describe('onUnresolved reporting', () => {
+  it('reports unknown dynamic tokens and leaves them intact', () => {
+    const calls = [];
+    const out = resolveVars('{{$nope}}', {}, { onUnresolved: (name, info) => calls.push([name, info]) });
+    expect(out).toBe('{{$nope}}');
+    expect(calls).toEqual([['$nope', { dynamic: true }]]);
+  });
+
+  it('reports unknown normal tokens and leaves them intact', () => {
+    const calls = [];
+    const out = resolveVars('{{missing}}', { host: 'x' }, {
+      onUnresolved: (name, info) => calls.push([name, info]),
+    });
+    expect(out).toBe('{{missing}}');
+    expect(calls).toEqual([['missing', { dynamic: false }]]);
+  });
+
+  it('does not report known or dynamic tokens', () => {
+    const calls = [];
+    resolveVars('{{host}} {{$guid}}', vars, { onUnresolved: (name) => calls.push(name) });
+    expect(calls).toEqual([]);
+  });
+
+  it('works without the third argument', () => {
+    expect(resolveVars('{{missing}}', {})).toBe('{{missing}}');
+  });
+});
+
+describe('resolveRequest unresolved reporting', () => {
+  it('forwards onUnresolved and leaves the trickiest tokens intact', () => {
+    const calls = [];
+    const req = normalizeRequest({
+      url: 'https://{{host}}/{{missing}}',
+      params: [{ key: 'p', value: '{{alsoMissing}}', enabled: true }],
+      headers: [{ key: 'h', value: '{{host}}', enabled: true }],
+      body: { mode: 'json', raw: '{"v":"{{$nope}}"}' },
+    });
+
+    const out = resolveRequest(req, vars, {
+      onUnresolved: (name, info) => calls.push([name, info.dynamic]),
+    });
+
+    expect(out.url).toBe('https://api.example.com/{{missing}}');
+    expect(out.body.raw).toBe('{"v":"{{$nope}}"}');
+    expect(calls.sort()).toEqual([
+      ['$nope', true],
+      ['alsoMissing', false],
+      ['missing', false],
+    ]);
   });
 });

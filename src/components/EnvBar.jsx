@@ -96,6 +96,7 @@ export default function EnvBar({ environments, activeEnvId, onSelect, onChange, 
             rows={globals || []}
             onChange={onChangeGlobals}
             keyPlaceholder="Variable"
+            showType
           />
           <p className="env-hint">
             Globals apply everywhere, below collection and environment variables.
@@ -120,6 +121,7 @@ export default function EnvBar({ environments, activeEnvId, onSelect, onChange, 
             rows={active.variables || []}
             onChange={updateVars}
             keyPlaceholder="Variable"
+            showType
           />
           <p className="env-hint">
             Use <code>{'{{name}}'}</code> in the URL, params, headers, or body.

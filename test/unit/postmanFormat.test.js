@@ -142,6 +142,26 @@ describe('postman collection round-trip', () => {
   });
 });
 
+describe('postman import trust state', () => {
+  it('marks an imported collection with collection-level scripts untrusted', () => {
+    const collection = fromPostmanCollection(fixture('postman/collection-full.json'));
+    expect(collection.scriptsTrusted).toBe(false);
+  });
+
+  it('marks an imported collection with only request scripts untrusted', () => {
+    const collection = fromPostmanCollection(fixture('postman/collection-with-events.json'));
+    expect(collection.scriptsTrusted).toBe(false);
+  });
+
+  it('leaves scriptsTrusted undefined when nothing carries a script', () => {
+    const collection = fromPostmanCollection({
+      info: { name: 'Bare' },
+      item: [{ name: 'Ping', request: { method: 'GET', url: 'https://example.com' } }],
+    });
+    expect(collection.scriptsTrusted).toBeUndefined();
+  });
+});
+
 describe('postman auth types', () => {
   const loadAuthFixture = () => fromPostmanCollection(fixture('postman/collection-auth-types.json'));
 

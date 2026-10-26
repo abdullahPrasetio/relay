@@ -2,7 +2,7 @@
 // collections, environments, globals, and history. Mirrors Postman's
 // personal/local workspaces.
 import { uid, newCollection } from './factory.js';
-import { normalizeCollection } from './collectionTree.js';
+import { normalizeCollection, normalizeVariableRows } from './collectionTree.js';
 import { SCHEMA_VERSION } from '../../shared/schema.js';
 
 export { SCHEMA_VERSION };
@@ -26,8 +26,11 @@ function normalizeWorkspace(ws) {
     ...ws,
     id: ws.id || base.id,
     collections: (ws.collections || []).map(normalizeCollection),
-    environments: ws.environments || [],
-    globals: ws.globals || [],
+    environments: (ws.environments || []).map((env) => ({
+      ...env,
+      variables: normalizeVariableRows(env.variables),
+    })),
+    globals: normalizeVariableRows(ws.globals),
     history: ws.history || [],
     activeEnvId: ws.activeEnvId ?? null,
   };

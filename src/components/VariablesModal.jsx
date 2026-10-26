@@ -11,6 +11,7 @@ export default function VariablesModal({ collection, onClose, onChange }) {
         rows={collection.variables || []}
         onChange={(variables) => onChange(variables)}
         keyPlaceholder="Variable"
+        showType
       />
       <p className="auth-hint">
         Reference with <code>{'{{name}}'}</code>. The active environment overrides these.

@@ -10,6 +10,7 @@ export default function EnvironmentModal({ environment, onClose, onChange }) {
         rows={environment.variables || []}
         onChange={(variables) => onChange(variables)}
         keyPlaceholder="Variable"
+        showType
       />
       <p className="auth-hint">
         Reference with <code>{'{{name}}'}</code> in the URL, params, headers, body, or scripts.

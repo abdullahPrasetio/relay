@@ -32,8 +32,12 @@ export function toPostmanCollection(collection) {
   if (description !== undefined) out.info.description = description;
   if (collection.variables && collection.variables.length) {
     out.variable = collection.variables
-      .filter((v) => v.key)
-      .map((v) => ({ key: v.key, value: v.value, disabled: v.enabled === false }));
+      .filter((v) => v && v.key)
+      .map((v) =>
+        v.type === 'secret'
+          ? { key: v.key, value: '', type: 'secret', disabled: v.enabled === false }
+          : { key: v.key, value: v.value ?? '', disabled: v.enabled === false }
+      );
   }
   const colAuth = authToPostman(collection.auth);
   if (colAuth) out.auth = colAuth;
@@ -393,11 +397,18 @@ export function fromPostmanCollection(json) {
   collection.id = json?.info?._postman_id || collection.id;
   collection.description = descriptionToText(json?.info?.description);
   delete collection.requests;
-  collection.variables = (json?.variable || []).map((v) => ({
-    key: v.key || '',
-    value: v.value ?? '',
-    enabled: v.disabled !== true,
-  }));
+  collection.variables = (json?.variable || []).map((v) => {
+    const row = {
+      key: v.key || '',
+      value: v.value ?? '',
+      enabled: v.disabled !== true,
+    };
+    if (v.type === 'secret') {
+      row.type = 'secret';
+      row.value = '';
+    }
+    return row;
+  });
   const colAuth = fromPostmanAuth(json?.auth);
   // Collections cannot inherit: no auth, `noauth`, or an unknown type all
   // leave the collection default (`{ ...newAuth(), type: 'none' }`).
@@ -408,7 +419,18 @@ export function fromPostmanCollection(json) {
   collection.preRequest = colScripts.preRequest;
   collection.tests = colScripts.tests;
   collection.items = (json?.item || []).map(itemToNode);
+  // Imported code is untrusted until the user explicitly allows it, so the
+  // UI can ask once before running any collection/folder/request script.
+  if (hasAnyScript(collection)) collection.scriptsTrusted = false;
   return collection;
+}
+
+function hasAnyScript(node) {
+  if (!node) return false;
+  if (typeof node.preRequest === 'string' && node.preRequest.trim()) return true;
+  if (typeof node.tests === 'string' && node.tests.trim()) return true;
+  if (Array.isArray(node.items)) return node.items.some(hasAnyScript);
+  return false;
 }
 
 // Extract pre-request/test scripts from a Postman event[].
@@ -779,12 +801,11 @@ export function toPostmanGlobals(globals) {
     name: 'Globals',
     values: (globals || [])
       .filter((v) => v && v.key)
-      .map((v) => ({
-        key: v.key,
-        value: v.value ?? '',
-        type: 'default',
-        enabled: v.enabled !== false,
-      })),
+      .map((v) =>
+        v.type === 'secret'
+          ? { key: v.key, value: '', type: 'secret', enabled: v.enabled !== false }
+          : { key: v.key, value: v.value ?? '', type: 'default', enabled: v.enabled !== false }
+      ),
     _postman_variable_scope: 'globals',
   };
 }
@@ -793,11 +814,18 @@ export function fromPostmanGlobals(json) {
   const values = Array.isArray(json?.values) ? json.values : Array.isArray(json) ? json : [];
   return values
     .filter((v) => v && v.key)
-    .map((v) => ({
-      key: v.key,
-      value: v.value ?? '',
-      enabled: v.enabled !== false,
-    }));
+    .map((v) => {
+      const row = {
+        key: v.key,
+        value: v.value ?? '',
+        enabled: v.enabled !== false,
+      };
+      if (v.type === 'secret') {
+        row.type = 'secret';
+        row.value = '';
+      }
+      return row;
+    });
 }
 
 // A full workspace snapshot that keeps collections, environments, and globals
