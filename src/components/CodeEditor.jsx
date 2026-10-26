@@ -1,7 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useVarContext } from './VarContext.jsx';
+import { graphqlCompletions } from '../lib/graphql.js';
 
 // Use the locally bundled monaco (not the CDN) so it works under the strict
 // Content Security Policy (script-src 'self') in the Electron renderer.
@@ -15,7 +16,10 @@ const currentLookupRef = { fn: () => null };
 function registerVarHover(monacoApi) {
   if (hoverRegistered) return;
   hoverRegistered = true;
-  const languages = ['json', 'javascript', 'plaintext'];
+  // `graphql` is registered by the bundled Monaco basic-languages
+  // contribution (editor.main imports it), so hover previews keep working
+  // after the GraphQL body editor switches off `plaintext`.
+  const languages = ['json', 'javascript', 'plaintext', 'graphql'];
   const VAR_AT = /\{\{\s*([\w.-]+)\s*\}\}/g;
   for (const lang of languages) {
     monacoApi.languages.registerHoverProvider(lang, {
@@ -65,14 +69,69 @@ function escapeMd(v) {
 
 // A Monaco-backed code editor with a dark theme, line numbers, {{variable}}
 // highlighting, and hover previews of variable values (like Postman).
-export default function CodeEditor({ value, onChange, language = 'json', readOnly = false, height = '100%' }) {
+export default function CodeEditor({
+  value,
+  onChange,
+  language = 'json',
+  readOnly = false,
+  height = '100%',
+  graphqlSchema = null,
+}) {
   const monacoRef = useRef(null);
+  const [mounted, setMounted] = useState(false);
   const { lookup } = useVarContext();
 
   // Keep the shared ref pointing at this editor's (latest) lookup.
   useEffect(() => {
     currentLookupRef.fn = lookup || (() => null);
   }, [lookup]);
+
+  // Monaco completion providers are global per language, so register a scoped
+  // provider for the GraphQL query editor and dispose it when the schema prop
+  // changes or the editor unmounts. Other language ids are untouched.
+  useEffect(() => {
+    const monacoApi = monacoRef.current;
+    if (!mounted || !monacoApi || language !== 'graphql' || !graphqlSchema) return undefined;
+
+    const disposable = monacoApi.languages.registerCompletionItemProvider('graphql', {
+      provideCompletionItems(model, position) {
+        const linePrefix = model.getValueInRange({
+          startLineNumber: 1,
+          startColumn: 1,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+        });
+        const wordInfo = model.getWordUntilPosition(position);
+        const items = graphqlCompletions({
+          schema: graphqlSchema,
+          word: wordInfo.word,
+          linePrefix,
+        });
+        const range = new monacoApi.Range(
+          position.lineNumber,
+          wordInfo.startColumn,
+          position.lineNumber,
+          wordInfo.endColumn
+        );
+        return {
+          suggestions: items.map((item) => ({
+            label: item.label,
+            kind:
+              item.detail === 'operation'
+                ? monacoApi.languages.CompletionItemKind.Keyword
+                : /^[A-Z_]+$/.test(item.detail)
+                  ? monacoApi.languages.CompletionItemKind.Class
+                  : monacoApi.languages.CompletionItemKind.Field,
+            insertText: item.insertText,
+            detail: item.detail,
+            range,
+          })),
+        };
+      },
+    });
+
+    return () => disposable.dispose();
+  }, [mounted, language, graphqlSchema]);
 
   function handleMount(editor, monacoApi) {
     monacoRef.current = monacoApi;
@@ -81,6 +140,7 @@ export default function CodeEditor({ value, onChange, language = 'json', readOnl
     registerVarHover(monacoApi);
     applyVarDecorations(editor, monacoApi);
     editor.onDidChangeModelContent(() => applyVarDecorations(editor, monacoApi));
+    setMounted(true);
   }
 
   return (

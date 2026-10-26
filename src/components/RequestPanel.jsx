@@ -6,6 +6,7 @@ import CodeEditor from './CodeEditor.jsx';
 import Icon from './Icon.jsx';
 import { computeAutoHeaders } from '../lib/autoHeaders.js';
 import { extractPathVars } from '../lib/variables.js';
+import { buildIntrospectionRequest, parseIntrospection } from '../lib/graphql.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 const TABS = ['Params', 'Authorization', 'Headers', 'Body', 'Pre-request', 'Tests', 'Examples'];
@@ -30,8 +31,37 @@ export default function RequestPanel({
   const [tab, setTab] = useState(() =>
     BODY_METHODS.includes((request.method || 'GET').toUpperCase()) ? 'Body' : 'Params'
   );
+  // GraphQL schema fetched by the Body tab. State only: it is never persisted
+  // to the request or the store.
+  const [schemaState, setSchemaState] = useState({
+    schema: null,
+    error: '',
+    loading: false,
+  });
 
   const patch = (p) => onChange({ ...request, ...p });
+
+  async function fetchGraphqlSchema() {
+    if (schemaState.loading) return;
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api || typeof api.sendRequest !== 'function') {
+      setSchemaState({ schema: null, error: 'Fetching a schema requires the desktop app.', loading: false });
+      return;
+    }
+
+    setSchemaState((state) => ({ ...state, loading: true, error: '' }));
+    const headers = (request.headers || []).filter((h) => h && h.enabled !== false && h.key);
+    const introspectionRequest = buildIntrospectionRequest({ url: request.url, headers });
+    try {
+      const result = await api.sendRequest(introspectionRequest, newGraphqlRequestId());
+      if (!result?.ok) throw new Error(result?.error || 'Schema request failed');
+      const parsed = parseIntrospection(result.body);
+      if (parsed.error) throw new Error(parsed.error);
+      setSchemaState({ schema: parsed, error: '', loading: false });
+    } catch (err) {
+      setSchemaState({ schema: null, error: err?.message || String(err), loading: false });
+    }
+  }
 
   function onKeyDown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -128,7 +158,12 @@ export default function RequestPanel({
           <HeadersEditor request={request} onChange={(headers) => patch({ headers })} />
         )}
         {tab === 'Body' && (
-          <BodyEditor body={request.body} onChange={(body) => patch({ body })} />
+          <BodyEditor
+            body={request.body}
+            onChange={(body) => patch({ body })}
+            schemaState={schemaState}
+            onFetchSchema={fetchGraphqlSchema}
+          />
         )}
         {tab === 'Pre-request' && (
           <PreRequestEditor
@@ -281,7 +316,21 @@ const BODY_MODES = [
   { id: 'graphql', label: 'GraphQL' },
 ];
 
-function BodyEditor({ body, onChange }) {
+// crypto.randomUUID is available in the Electron renderer, but keep a fallback
+// for the plain-browser dev path.
+function newGraphqlRequestId() {
+  const webCrypto = typeof globalThis !== 'undefined' ? globalThis.crypto : null;
+  if (webCrypto && typeof webCrypto.randomUUID === 'function') {
+    try {
+      return webCrypto.randomUUID();
+    } catch {
+      /* fall through */
+    }
+  }
+  return `gql_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
+function BodyEditor({ body, onChange, schemaState, onFetchSchema }) {
   const b = body || { mode: 'none', raw: '', form: [] };
   const isForm = b.mode === 'form-urlencoded' || b.mode === 'form-data';
   return (
@@ -341,6 +390,8 @@ function BodyEditor({ body, onChange }) {
         <GraphQLEditor
           graphql={b.graphql || { query: '', variables: '' }}
           onChange={(graphql) => onChange({ ...b, graphql })}
+          schemaState={schemaState}
+          onFetchSchema={onFetchSchema}
         />
       )}
     </div>
@@ -436,19 +487,47 @@ function ParamsTab({ request, patch }) {
 }
 
 // GraphQL body: a Query editor + a JSON Variables editor. Sent as JSON
-// { query, variables }.
-function GraphQLEditor({ graphql, onChange }) {
+// { query, variables }. A fetched schema (state only) powers autocomplete in
+// the query editor; it is never written into the request.
+function GraphQLEditor({ graphql, onChange, schemaState, onFetchSchema }) {
   const g = graphql || { query: '', variables: '' };
+  const state = schemaState || { schema: null, error: '', loading: false };
+  const schema = state.schema;
   return (
     <div className="graphql-editor">
-      <div className="sent-section-title">Query</div>
+      <div className="body-toolbar">
+        <button
+          className="mini-btn"
+          data-testid="graphql-fetch-schema"
+          onClick={onFetchSchema}
+          disabled={state.loading}
+          title="Fetch the GraphQL schema from the request URL"
+        >
+          {state.loading ? 'Fetching…' : 'Fetch schema'}
+        </button>
+      </div>
       <div className="editor-box" style={{ height: 200 }}>
+        {/* Monaco's bundled basic-languages entry registers the `graphql`
+            language id, so syntax highlighting and the completion provider
+            both work here (no fallback to plaintext needed). */}
         <CodeEditor
-          language="plaintext"
+          language="graphql"
+          graphqlSchema={schema}
           value={g.query || ''}
           onChange={(v) => onChange({ ...g, query: v })}
         />
       </div>
+      {state.error ? (
+        <p className="auth-hint error-text" style={{ marginTop: 6 }}>
+          {state.error}
+        </p>
+      ) : schema ? (
+        <p className="auth-hint" style={{ marginTop: 6 }}>
+          {schema.types.length} type{schema.types.length === 1 ? '' : 's'} ·{' '}
+          {schema.rootFields.query.length} query field
+          {schema.rootFields.query.length === 1 ? '' : 's'}
+        </p>
+      ) : null}
       <div className="sent-section-title" style={{ marginTop: 10 }}>
         GraphQL Variables (JSON)
       </div>
