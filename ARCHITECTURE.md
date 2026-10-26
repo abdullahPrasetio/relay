@@ -22,7 +22,9 @@ mengimpor `electron/*`; semua efek samping lewat IPC.
 | `http:send` | `{ request, requestId }` | Response object (lihat bawah) atau `{ ok:false, error, timeMs }` |
 | `http:abort` | `requestId` | `true` bila dibatalkan, `false` bila id tak dikenal |
 | `script:run` | `{ phase, script, response?, context, request? }` | `{ ran, results, logs, error?, context, requestPatch }` |
-| `oauth2:token` | config OAuth2 | `{ ok, accessToken, raw, error }` |
+| `oauth2:token` | config OAuth2 | `{ ok, accessToken, refreshToken, expiresAt, tokenType, raw, error }` (hasil di-cache) |
+| `oauth2:authorize` | config OAuth2 | Authorization Code + PKCE via loopback + browser; `{ ok, accessToken, … }` |
+| `oauth2:status` | config OAuth2 | `{ hasToken, expiresAt }` — token tidak pernah dikirim balik |
 | `cookies:get` / `cookies:clear` | — | daftar cookie / `[]` |
 | `file:pick` | — | `{ filePath, fileName, size }` atau `null` |
 | `response:save` | `{ suggestedName, base64? \| text? }` | `{ saved, path?, error? }` |
@@ -93,6 +95,22 @@ TLS: `ca`, `cert`, `key`, `passphrase`, `servername` dibaca/diisi di
 `buildTlsOptions` sebelum timer dibuat, sehingga path file yang salah gagal
 cepat sebagai `{ ok:false, error: "Cannot read TLS file ..." }`.
 
+## Auth providers
+
+Semua auth diselesaikan di main (`electron/auth/`), bukan di renderer:
+
+- `providers.js` — registry sinkron per tipe (`bearer`, `basic`, `apikey`, `oauth1`, `oauth2`, `digest`, `ntlm`, `awsv4`, `jwt`) dengan `buildHeaders`/`buildQuery`, plus MD4/NTLMv2 sendiri karena OpenSSL 3 menolak `md4`.
+- `oauth2.js` — Authorization Code + PKCE S256, loopback `127.0.0.1:0` (validasi `state`, single-use, timeout), exchange & refresh dengan fetcher yang bisa diinjeksi.
+- `token-cache.js` — cache in-memory per hash config + expiry/refresh (persistensi terenkripsi: Fase 3.4).
+- `index.js` — `resolveAuth()` (dipakai engine; menyegarkan token OAuth2 kedaluwarsa), `authorizeOAuth2()`, `getOAuth2Status()`.
+
+Engine memanggil auth **setelah** URL dan body terbentuk (OAuth1/AWS SigV4 menandatangani keduanya) dan mengulang tepat sekali saat 401 dengan `www-authenticate` untuk Digest/NTLM. Token/kredensial tidak pernah di-log.
+
+## Import/export
+
+- Postman v2.1: `src/lib/postmanFormat.js` — event di tiga level, `examples` ↔ `item.response[]`, `pathVars` ↔ `url.variable[]`, form-data file + content type, seluruh tipe auth, globals & workspace backup (`_relayBackup` v1).
+- Format lain: `src/lib/import/` — `openapi.js` (OpenAPI 3/Swagger 2), `har.js`, `curl.js`, `insomnia.js`, dan `index.js` (`detectFormat`/`importAs`/`importAny`).
+
 ## Rahasia
 
 `safeStorage` adalah satu-satunya penyimpanan rahasia. Password proxy dan
@@ -133,9 +151,10 @@ dikembalikan lewat `context`, mutasi request lewat `requestPatch`.
 ## Testing dan CI
 
 - Unit (`test/unit`, Vitest, environment Node): modul pure + engine dengan
-  server HTTP/HTTPS lokal dan fixture TLS di `test/fixtures/tls`.
+  server HTTP/HTTPS lokal, mock IdP, dan fixture TLS di `test/fixtures/tls`.
 - E2E (`e2e`, Playwright `_electron`): build produksi (`npm run build:vite`)
-  dijalankan dengan `RELAY_TEST_USER_DATA` ke direktori sementara.
+  dijalankan dengan `RELAY_TEST_USER_DATA` ke direktori sementara; mencakup
+  network/TLS/stop, impor lima format, dan UI auth.
 - Gate lokal: `npm run check` (lint → unit → build).
 - `.github/workflows/ci.yml`: lint + unit + build di ubuntu, e2e di macOS.
 - `.github/workflows/build.yml`: `electron-builder --mac --arm64` setiap push,

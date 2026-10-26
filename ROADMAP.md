@@ -68,7 +68,7 @@ Tujuan: membuat perubahan P0 bisa diverifikasi dan data lama aman.
 - [x] Tambah Playwright Electron smoke test minimal: launch app, kirim request ke server lokal, cek response.
 - [x] Tambah ESLint minimal (`@eslint/js`, `eslint-plugin-react-hooks`) dan script `npm run lint`.
 - [x] Tambah script `npm test`, `npm run test:e2e`, `npm run check` di `package.json`.
-- [ ] Buat fixture: Postman collection dengan pre-request/examples/path vars/file, environment, CSV data, OpenAPI Petstore, HAR, cURL. — **sebagian:** Postman (events/examples/path vars/file) + data legacy sudah ada; environment/CSV/OpenAPI/HAR/cURL menyusul bersama converter Fase 2.
+- [x] Buat fixture: Postman collection dengan pre-request/examples/path vars/file, environment, CSV data, OpenAPI Petstore, HAR, cURL. — lengkap: `test/fixtures/{postman,import,data,environment}/**` (+ Insomnia v4, Swagger 2, cURL auth/file).
 - [x] Tambah `schemaVersion` di data store dan fungsi `migrateWorkspaces(data)`.
 - [x] Pastikan migrasi tidak menghapus field lama; buat backup `.bak` sebelum migrasi. — `.bak` ditulis tiap persist; main juga menyalin `<file>.vN.bak` sekali sebelum migrasi. Field asing di level workspace dipertahankan, collection dinormalisasi.
 - [x] Tambah GitHub Actions: install, lint, unit test, build Vite (macOS runner dulu). — `.github/workflows/ci.yml` (unit di ubuntu, e2e di macOS) + `build.yml` (dmg artifact/release).
@@ -137,37 +137,39 @@ Tujuan: API dengan auth standar dan proses pindah dari/tim Postman tidak kehilan
 
 ### 2.1 Auth architecture
 
-- [ ] Refactor auth menjadi provider di main process: `buildAuthHeaders()`, `buildAuthQuery()`, `refresh()`.
-- [ ] Token cache per auth config + expiry, disimpan aman (lihat 3.4).
-- [ ] Tambah tipe: OAuth1, Digest, NTLM, AWS SigV4, JWT.
-- [ ] Tiap provider punya test vector sendiri.
+- [x] Refactor auth menjadi provider di main process: `buildAuthHeaders()`, `buildAuthQuery()`, `refresh()`. — `electron/auth/{providers,oauth2,token-cache,index}.js`; engine memakai `resolveAuth()` async (signing butuh URL+body), retry 401 sekali untuk Digest/NTLM.
+- [x] Token cache per auth config + expiry, disimpan aman (lihat 3.4). — cache in-memory per hash config + expiry/refresh; **belum dipersist** terenkripsi (menunggu 3.4).
+- [x] Tambah tipe: OAuth1, Digest, NTLM, AWS SigV4, JWT.
+- [x] Tiap provider punya test vector sendiri. — RFC 5849, RFC 7616 (MD5/SHA-256), MS-NLMP §4.2.4, AWS `get-vanilla` SigV4, jwt.io HS256 + RS256, RFC 7636 PKCE.
 
 ### 2.2 OAuth 2.0 lengkap
 
-- [ ] Authorization Code + PKCE: loopback server `127.0.0.1` port acak, `state` validation, `shell.openExternal`.
-- [ ] Client Credentials dan Password tetap didukung.
-- [ ] Refresh token otomatis saat expired; tampilkan status token.
-- [ ] Dukungan `scope`, `audience`, `clientAuth` (body/basic), dan custom parameter.
-- [ ] Jangan simpan token di log/console.
+- [x] Authorization Code + PKCE: loopback server `127.0.0.1` port acak, `state` validation, `shell.openExternal`. — `oauth2:authorize` + loopback single-use, 120 s timeout, PKCE S256; diuji terhadap mock IdP.
+- [x] Client Credentials dan Password tetap didukung.
+- [x] Refresh token otomatis saat expired; tampilkan status token. — refresh sebelum kirim (skew 30 s) + status/expiry di AuthPanel; `oauth2:status` tidak pernah mengembalikan token.
+- [x] Dukungan `scope`, `audience`, `clientAuth` (body/basic), dan custom parameter.
+- [x] Jangan simpan token di log/console.
 
 ### 2.3 Import/export fidelity
 
-- [ ] Export `event` pre-request **dan** test untuk request, folder, collection.
-- [ ] Import `event` pre-request request-level (saat ini hanya test).
-- [ ] Export/import `examples` ke `item.response[]` Postman (termasuk `originalRequest`).
-- [ ] Export/import `pathVars` ke `url.variable[]`.
-- [ ] Export/import form-data file (`type: "file"`, `src`) dan content type per field.
-- [ ] Pertahankan `description` request/folder.
-- [ ] Tambah export globals dan workspace-level backup.
-- [ ] Perbaiki penggabungan URL + query agar tidak menghasilkan `?` ganda.
+- [x] Export `event` pre-request **dan** test untuk request, folder, collection.
+- [x] Import `event` pre-request request-level (saat ini hanya test).
+- [x] Export/import `examples` ke `item.response[]` Postman (termasuk `originalRequest`). — round-trip memakai `_relayId`/`_relaySavedAt`/`_relayContentType` agar tidak ada field hilang.
+- [x] Export/import `pathVars` ke `url.variable[]`.
+- [x] Export/import form-data file (`type: "file"`, `src`) dan content type per field.
+- [x] Pertahankan `description` request/folder.
+- [x] Tambah export globals dan workspace-level backup. — `toPostmanGlobals`/`fromPostmanGlobals` + `toWorkspaceBackup`/`fromWorkspaceBackup` (`_relayBackup` v1).
+- [x] Perbaiki penggabungan URL + query agar tidak menghasilkan `?` ganda. — dedupe raw vs `params` dua arah, tidak ada `??`/`&&`.
+
+_Catatan tambahan: seluruh tipe auth baru ikut di-export/import (`bearer/basic/apikey/oauth1/oauth2/digest/ntlm/awsv4/jwt`); field yang tidak punya slot di Postman (`oauth2.extraParams`, `clientAuth`, `redirectUri`, `codeVerifier`, dll.) hanya bertahan di backup Relay, bukan di file Postman._
 
 ### 2.4 Format import tambahan
 
-- [ ] OpenAPI 3 / Swagger 2 → collection. Evaluasi `openapi-to-postmanv2`; jika tidak cocok, konverter minimal.
-- [ ] HAR → collection.
-- [ ] cURL → request (evaluasi `curlconverter`).
-- [ ] Insomnia export → collection.
-- [ ] Deteksi format otomatis di satu tombol Import.
+- [x] OpenAPI 3 / Swagger 2 → collection. Evaluasi `openapi-to-postmanv2`; jika tidak cocok, konverter minimal. — konverter minimal tanpa dependency: tag→folder, `{id}`→`:id`, `$ref` 1 level, auth dari security scheme.
+- [x] HAR → collection.
+- [x] cURL → request (evaluasi `curlconverter`). — parser sendiri: `-X/-H/-d/-F/-u/-b/-G/--json/--data-urlencode`, quote + line continuation.
+- [x] Insomnia export → collection.
+- [x] Deteksi format otomatis di satu tombol Import. — `detectFormat`/`importAny` + environment ikut terimpor; e2e menutup kelima format.
 
 **Acceptance Fase 2:**
 - Round-trip Postman v2.1 mempertahankan script, examples, path vars, file fields (golden fixture).
