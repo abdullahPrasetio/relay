@@ -12,6 +12,11 @@
     "build:vite": "vite build",
     "preview": "vite preview",
     "start": "electron .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build:vite && playwright test",
+    "lint": "eslint .",
+    "check": "npm run lint && npm test && npm run build:vite",
     "dist": "vite build && electron-builder --mac --arm64",
     "dist:universal": "vite build && electron-builder --mac --universal",
     "dist:dir": "vite build && electron-builder --mac --arm64 --dir"
@@ -41,20 +46,30 @@
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
     "crypto-js": "^4.2.0",
+    "http-proxy-agent": "^7.0.2",
+    "https-proxy-agent": "^7.0.6",
     "moment": "^2.30.1",
     "monaco-editor": "^0.52.2",
+    "socks-proxy-agent": "^8.0.5",
     "uuid": "^11.0.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@playwright/test": "^1.49.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.2.0",
     "electron-builder": "^24.13.3",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.12.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vite": "^5.4.11",
     "vite-plugin-electron": "^0.28.8",
-    "vite-plugin-electron-renderer": "^0.14.6"
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "vitest": "^2.1.8"
   }
 }

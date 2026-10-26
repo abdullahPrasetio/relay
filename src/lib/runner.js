@@ -23,6 +23,15 @@ function displayUrl(resolved) {
   return base + (base.includes('?') ? '&' : '?') + qs;
 }
 
+// Request ids let the transport (and, later, the runner UI) cancel a specific
+// send. The browser fallback ignores the second argument.
+function newRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
 export async function runCollection({
   requests,
   send,
@@ -85,7 +94,7 @@ export async function runCollection({
       if (pre.error) {
         response = { ok: false, error: `Pre-request error: ${pre.error}`, timeMs: 0 };
       } else {
-        response = await send(resolved);
+        response = await send(resolved, newRequestId());
       }
 
       // 4. Tests (collection tests first, then request's).

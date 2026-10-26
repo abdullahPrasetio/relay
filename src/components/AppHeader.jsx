@@ -5,7 +5,7 @@ import Icon from './Icon.jsx';
 
 // Top application bar: brand, a centered (decorative) search field, and the
 // environment selector on the right -- echoing Postman's header layout.
-export default function AppHeader({ store, searchQuery, onSearch, onOpenCookies }) {
+export default function AppHeader({ store, searchQuery, onSearch, onOpenCookies, onOpenSettings }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -26,6 +26,15 @@ export default function AppHeader({ store, searchQuery, onSearch, onOpenCookies 
       </div>
 
       <div className="topbar-right">
+        <button
+          className="mini-btn icon-only"
+          onClick={onOpenSettings}
+          title="Network settings"
+          aria-label="Network settings"
+          data-testid="settings-open"
+        >
+          <Icon name="gear" size={14} />
+        </button>
         <button className="mini-btn icon-text" onClick={onOpenCookies} title="View stored cookies">
           <Icon name="cookie" size={14} /> Cookies
         </button>

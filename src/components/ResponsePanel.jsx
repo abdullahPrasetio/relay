@@ -34,7 +34,7 @@ export default function ResponsePanel({ response, sending, testResults, onSaveEx
   if (!response.ok) {
     return (
       <section className="response-panel">
-        <div className="response-status error">
+        <div className="response-status error" data-testid="response-status">
           <span className="status-pill error">Error</span>
           <span className="meta">{response.timeMs} ms</span>
         </div>
@@ -52,27 +52,43 @@ export default function ResponsePanel({ response, sending, testResults, onSaveEx
 
   return (
     <section className="response-panel">
-      <div className="response-status">
+      <div className="response-status" data-testid="response-status">
         <span className={`status-pill ${statusClass(response.status)}`}>
           {response.status} {response.statusText}
         </span>
         <span className="meta">Time: {response.timeMs} ms</span>
         <span className="meta">Size: {formatBytes(response.size)}</span>
+        {response.tlsInsecure && (
+          <span className="meta tls-warn" title="This response was fetched without certificate verification">
+            TLS verification off
+          </span>
+        )}
         {testResults?.ran && (
           <span className={`meta tests-summary ${passed === total ? 'all-pass' : 'some-fail'}`}>
             Tests: {passed}/{total} passed
           </span>
         )}
-        {onSaveExample && (
-          <button
-            className="mini-btn"
-            style={{ marginLeft: 'auto' }}
-            title="Save this response as an example"
-            onClick={() => onSaveExample(response)}
-          >
-            Save as Example
-          </button>
-        )}
+        <div className="status-actions">
+          {canSaveResponse() && (
+            <button
+              className="mini-btn"
+              data-testid="response-save"
+              title="Save the response body to a file"
+              onClick={() => saveBody(response)}
+            >
+              Save
+            </button>
+          )}
+          {onSaveExample && !response.isBinary && (
+            <button
+              className="mini-btn"
+              title="Save this response as an example"
+              onClick={() => onSaveExample(response)}
+            >
+              Save as Example
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="tabs">
@@ -113,12 +129,15 @@ export default function ResponsePanel({ response, sending, testResults, onSaveEx
 
 function ResponseBody({ response, onContextMenu }) {
   const ct = (response.contentType || '').toLowerCase();
-  const isJson = ct.includes('json');
   const isHtml = ct.includes('html');
   // Default view: pretty for JSON, preview for HTML, raw otherwise.
   const [view, setView] = useState(isHtml ? 'preview' : 'pretty');
 
   const pretty = useMemo(() => formatBody(response), [response]);
+
+  // Binary bodies are never decoded: show a safe preview (image/PDF) or a
+  // size summary, and let the user save the exact bytes.
+  if (response.isBinary) return <BinaryPreview response={response} />;
 
   const views = ['pretty', 'raw'];
   if (isHtml) views.push('preview');
@@ -143,7 +162,7 @@ function ResponseBody({ response, onContextMenu }) {
           className="response-preview"
           title="HTML preview"
           sandbox=""
-          srcDoc={response.body}
+          srcDoc={response.body || ''}
         />
       ) : (
         <pre
@@ -151,11 +170,84 @@ function ResponseBody({ response, onContextMenu }) {
           onContextMenu={onContextMenu}
           title="Tip: select text and right-click to set it as a variable"
         >
-          {view === 'raw' ? response.body : pretty}
+          {(view === 'raw' ? response.body : pretty) || ''}
         </pre>
       )}
     </div>
   );
+}
+
+function BinaryPreview({ response }) {
+  const ct = (response.contentType || '').split(';')[0].trim().toLowerCase();
+  const size = formatBytes(response.size);
+
+  if (ct.startsWith('image/')) {
+    return (
+      <div className="response-body-wrap">
+        <div className="body-view-switch">
+          <span className="body-ct">{response.contentType}</span>
+        </div>
+        <img
+          className="response-image"
+          data-testid="response-binary-preview"
+          alt="Response preview"
+          src={`data:${ct};base64,${response.bodyBase64}`}
+        />
+      </div>
+    );
+  }
+
+  if (ct === 'application/pdf') {
+    return (
+      <div className="response-body-wrap">
+        <div className="body-view-switch">
+          <span className="body-ct">{response.contentType}</span>
+        </div>
+        <iframe
+          className="response-preview"
+          title="PDF preview"
+          sandbox=""
+          src={`data:application/pdf;base64,${response.bodyBase64}`}
+        />
+        <p className="auth-hint">
+          Binary response ({size}). If the preview is blank, use Save to open it
+          externally.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="response-empty">
+      Binary response ({size}). Use Save to write the exact bytes to a file.
+    </div>
+  );
+}
+
+function canSaveResponse() {
+  return typeof window !== 'undefined' && !!window.api?.saveResponse;
+}
+
+// Last path segment of the final URL, sanitized for use as a file name.
+function suggestFileName(response) {
+  try {
+    const last = new URL(response.finalUrl).pathname.split('/').filter(Boolean).pop();
+    if (last) return last.replace(/[^\w.-]+/g, '_');
+  } catch {
+    /* fall through for relative or missing URLs */
+  }
+  return 'response.bin';
+}
+
+async function saveBody(response) {
+  if (!canSaveResponse()) return;
+  const payload = {
+    suggestedName: suggestFileName(response),
+    ...(response.isBinary
+      ? { base64: response.bodyBase64 }
+      : { text: response.body || '' }),
+  };
+  await window.api.saveResponse(payload);
 }
 
 function ResponseHeaders({ headers }) {

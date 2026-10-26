@@ -4,6 +4,11 @@
 import { uid, newCollection } from './factory.js';
 import { normalizeCollection } from './collectionTree.js';
 
+// Persisted-data schema version.
+//   1 — implicit shape before per-request network settings existed.
+//   2 — adds `request.settings` (timeout/redirect/TLS/proxy overrides).
+export const SCHEMA_VERSION = 2;
+
 export function newWorkspace(name = 'New Workspace') {
   return {
     id: uid('ws'),
@@ -40,7 +45,7 @@ export function migrateToWorkspaces(data) {
     const workspaces = d.workspaces.map(normalizeWorkspace);
     const activeWorkspaceId =
       workspaces.find((w) => w.id === d.activeWorkspaceId)?.id || workspaces[0].id;
-    return { workspaces, activeWorkspaceId };
+    return { schemaVersion: SCHEMA_VERSION, workspaces, activeWorkspaceId };
   }
 
   // Legacy flat shape -> Default workspace.
@@ -52,5 +57,5 @@ export function migrateToWorkspaces(data) {
     history: d.history || [],
     activeEnvId: d.activeEnvId ?? null,
   });
-  return { workspaces: [def], activeWorkspaceId: def.id };
+  return { schemaVersion: SCHEMA_VERSION, workspaces: [def], activeWorkspaceId: def.id };
 }

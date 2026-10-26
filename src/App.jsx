@@ -15,9 +15,12 @@ import ActivityRail from './components/ActivityRail.jsx';
 import AppHeader from './components/AppHeader.jsx';
 import SetVariableModal from './components/SetVariableModal.jsx';
 import CookiesModal from './components/CookiesModal.jsx';
+import SettingsModal from './components/SettingsModal.jsx';
+import RequestSettingsModal from './components/RequestSettingsModal.jsx';
 import { VarContext } from './components/VarContext.jsx';
 import { useDialogs } from './components/Dialogs.jsx';
 import { useStore } from './lib/useStore.js';
+import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { newRequest, normalizeRequest, uid } from './lib/factory.js';
 import { mergeVars, resolveRequest, varsToMap } from './lib/variables.js';
 import { runTests, runPreRequest } from './lib/testRunner.js';
@@ -37,6 +40,15 @@ import {
 
 const hasBridge = typeof window !== 'undefined' && !!window.api;
 
+// Request ids correlate a send with http:abort. randomUUID needs a secure
+// context (true for file:// and localhost); fall back defensively.
+function newRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
 function newTab(request) {
   const req = request ? normalizeRequest(request) : newRequest();
   return {
@@ -45,6 +57,7 @@ function newTab(request) {
     response: null,
     testResults: null,
     sending: false,
+    sendingId: null,
     dirty: false,
     savedCollectionId: null,
   };
@@ -52,6 +65,7 @@ function newTab(request) {
 
 export default function App() {
   const store = useStore();
+  const network = useNetworkSettings();
   const dialogs = useDialogs();
   const [tabs, setTabs] = useState(() => [newTab()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0].tabId);
@@ -65,6 +79,8 @@ export default function App() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [setVarModal, setSetVarModal] = useState(null); // { value }
   const [cookiesOpen, setCookiesOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [requestSettingsOpen, setRequestSettingsOpen] = useState(false);
 
   const activeTab = tabs.find((t) => t.tabId === activeTabId) || tabs[0];
 
@@ -137,77 +153,118 @@ export default function App() {
     [activeEnv, store]
   );
 
+  // Shared transport (Electron bridge or browser fallback). The request id is
+  // forwarded so the main process can abort this exact request; the browser
+  // fallback cannot be aborted and ignores it.
+  const transport = useCallback(
+    (resolvedRequest, requestId) =>
+      hasBridge
+        ? window.api.sendRequest(resolvedRequest, requestId)
+        : browserFallbackSend(resolvedRequest),
+    []
+  );
+
+  // Cancel whatever this tab is currently sending. Unknown ids are a no-op.
+  const abort = useCallback(async () => {
+    const tab = tabs.find((t) => t.tabId === activeTabId);
+    if (!tab?.sendingId || !hasBridge) return;
+    try {
+      await window.api.abortRequest(tab.sendingId);
+    } catch {
+      /* a request that already finished cannot be aborted */
+    }
+  }, [tabs, activeTabId]);
+
   const send = useCallback(async () => {
     const tab = tabs.find((t) => t.tabId === activeTabId);
-    if (!tab || !tab.request.url.trim()) return;
+    if (!tab || !tab.request.url.trim() || tab.sending) return;
 
-    updateTab(activeTabId, { sending: true, response: null, testResults: null });
-
-    const owningCollection = findRequestCollection(store.collections, tab.request.id);
-
-    // Mutable scope objects for scripts to read/write.
-    const envObj = varsToMap(activeEnv);
-    const colObj = varsToMap(owningCollection?.variables);
-    const globObj = varsToMap(store.globals);
-    const scriptContext = { environment: envObj, collection: colObj, globals: globObj };
-
-    // 1. Pre-request script: collection script runs first, then the request's.
-    //    Scripts get pm.request and may mutate its body/headers/url/method.
-    const preScript = combinedPreRequest(tab.request, owningCollection);
-    const pre = await runPreRequest(preScript, scriptContext, tab.request);
-    if (pre.error) {
-      updateTab(activeTabId, {
-        sending: false,
-        response: { ok: false, error: `Pre-request script error: ${pre.error}`, timeMs: 0 },
-        testResults: null,
-      });
-      return;
-    }
-
-    // Apply any pm.request.* mutations the pre-request script made.
-    const effectiveRequest = applyRequestPatch(tab.request, pre.requestPatch);
-
-    // 2. Resolve inherited auth, then variables.
-    //    Scopes: globals < collection < environment.
-    const vars = { ...globObj, ...colObj, ...envObj };
-    const withAuth = withEffectiveAuth(effectiveRequest, owningCollection);
-    const resolved = resolveRequest(withAuth, vars);
-
-    // 3. Send.
-    let result;
-    if (hasBridge) {
-      result = await window.api.sendRequest(resolved);
-    } else {
-      result = await browserFallbackSend(resolved);
-    }
-
-    // 4. Test script: collection tests run first, then the request's.
-    const testScript = combinedTests(tab.request, owningCollection);
-    const testRun = await runTests(testScript, result, scriptContext, resolved);
-    const testResults = testRun;
-
-    // 5. Persist any variable mutations from pre-request + tests.
-    persistVarMutations(envObj, colObj, globObj, owningCollection);
-
-    // Collect console output from both script phases for the Console tab.
-    const consoleLogs = [...(pre.logs || []), ...(testRun.logs || [])];
-    const responseWithDiag = result && typeof result === 'object'
-      ? { ...result, consoleLogs }
-      : result;
-
-    updateTab(activeTabId, { sending: false, response: responseWithDiag, testResults });
-
-    store.addHistory({
-      id: `h_${Date.now()}`,
-      at: new Date().toISOString(),
-      method: resolved.method,
-      url: result.ok && result.sent ? result.sent.url : resolved.url,
-      status: result.ok ? result.status : null,
-      ok: result.ok,
-      snapshot: tab.request,
-      sent: result.ok ? result.sent : null,
+    const requestId = newRequestId();
+    updateTab(activeTabId, {
+      sending: true,
+      sendingId: requestId,
+      response: null,
+      testResults: null,
     });
-  }, [tabs, activeTabId, activeEnv, store, updateTab, persistVarMutations]);
+
+    try {
+      const owningCollection = findRequestCollection(store.collections, tab.request.id);
+
+      // Mutable scope objects for scripts to read/write.
+      const envObj = varsToMap(activeEnv);
+      const colObj = varsToMap(owningCollection?.variables);
+      const globObj = varsToMap(store.globals);
+      const scriptContext = { environment: envObj, collection: colObj, globals: globObj };
+
+      // 1. Pre-request script: collection script runs first, then the request's.
+      //    Scripts get pm.request and may mutate its body/headers/url/method.
+      const preScript = combinedPreRequest(tab.request, owningCollection);
+      const pre = await runPreRequest(preScript, scriptContext, tab.request);
+      if (pre.error) {
+        updateTab(activeTabId, {
+          response: { ok: false, error: `Pre-request script error: ${pre.error}`, timeMs: 0 },
+          testResults: null,
+        });
+        return;
+      }
+
+      // Apply any pm.request.* mutations the pre-request script made.
+      const effectiveRequest = applyRequestPatch(tab.request, pre.requestPatch);
+
+      // 2. Resolve inherited auth, then variables.
+      //    Scopes: globals < collection < environment.
+      const vars = { ...globObj, ...colObj, ...envObj };
+      const withAuth = withEffectiveAuth(effectiveRequest, owningCollection);
+      const resolved = resolveRequest(withAuth, vars);
+
+      // 3. Send. A rejected IPC call (bridge failure) becomes an error response
+      //    so the panel can render it like any other failure.
+      let result;
+      try {
+        result = await transport(resolved, requestId);
+      } catch (err) {
+        result = { ok: false, error: err?.message || String(err), timeMs: 0 };
+      }
+
+      // 4. Test script: collection tests run first, then the request's.
+      //    Aborted/timed-out requests must not record a test failure.
+      const cancelled =
+        result &&
+        !result.ok &&
+        (result.code === 'ABORT_ERR' || result.code === 'ETIMEDOUT');
+      const testResults = cancelled
+        ? { ran: false, results: [] }
+        : await runTests(
+            combinedTests(tab.request, owningCollection),
+            result,
+            scriptContext,
+            resolved
+          );
+
+      // 5. Persist any variable mutations from pre-request + tests.
+      persistVarMutations(envObj, colObj, globObj, owningCollection);
+
+      // Collect console output from both script phases for the Console tab.
+      const consoleLogs = [...(pre.logs || []), ...(testResults.logs || [])];
+      const responseWithDiag =
+        result && typeof result === 'object' ? { ...result, consoleLogs } : result;
+
+      updateTab(activeTabId, { response: responseWithDiag, testResults });
+
+      store.addHistory({
+        id: `h_${Date.now()}`,
+        at: new Date().toISOString(),
+        method: resolved.method,
+        url: result.ok && result.sent ? result.sent.url : resolved.url,
+        status: result.ok ? result.status : null,
+        ok: result.ok,
+        snapshot: tab.request,
+        sent: result.ok ? result.sent : null,
+      });
+    } finally {
+      updateTab(activeTabId, { sending: false, sendingId: null });
+    }
+  }, [tabs, activeTabId, activeEnv, store, updateTab, persistVarMutations, transport]);
 
   const showCode = useCallback(() => {
     const tab = tabs.find((t) => t.tabId === activeTabId);
@@ -217,13 +274,6 @@ export default function App() {
     const resolved = resolveRequest(withEffectiveAuth(tab.request, owningCollection), vars);
     setCodeModal({ request: resolved });
   }, [tabs, activeTabId, activeEnv, store]);
-
-  // Shared transport for the runner (Electron bridge or browser fallback).
-  const transport = useCallback(
-    (resolvedRequest) =>
-      hasBridge ? window.api.sendRequest(resolvedRequest) : browserFallbackSend(resolvedRequest),
-    []
-  );
 
   const openRunner = useCallback(
     (collectionId, folderId) => {
@@ -436,6 +486,7 @@ export default function App() {
         searchQuery={globalSearch}
         onSearch={setGlobalSearch}
         onOpenCookies={() => setCookiesOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
 
       <div className="body">
@@ -477,6 +528,8 @@ export default function App() {
               onSave={save}
               onShowCode={showCode}
               onSetVariable={openSetVariable}
+              onOpenSettings={() => setRequestSettingsOpen(true)}
+              onAbort={abort}
               sending={activeTab.sending}
               dirty={activeTab.dirty}
             />
@@ -550,6 +603,23 @@ export default function App() {
       )}
 
       {cookiesOpen && <CookiesModal onClose={() => setCookiesOpen(false)} />}
+
+      {requestSettingsOpen && (
+        <RequestSettingsModal
+          request={activeTab.request}
+          networkSettings={network.settings}
+          onChange={(settings) => setActiveRequest({ ...activeTab.request, settings })}
+          onClose={() => setRequestSettingsOpen(false)}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal
+          settings={network.settings}
+          onSave={network.save}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
 
       {codeModal && <CodeModal request={codeModal.request} onClose={() => setCodeModal(null)} />}
 

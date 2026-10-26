@@ -1,18 +1,59 @@
 import http from 'node:http';
 import https from 'node:https';
+import { isUtf8 } from 'node:buffer';
 import { URL, URLSearchParams } from 'node:url';
 import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
 import { storeCookies, cookieHeaderFor } from './cookie-jar.js';
+import { shouldBypass, createProxyAgent } from './proxy.js';
 
-const MAX_REDIRECTS = 5;
-const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_MAX_REDIRECTS = 5;
+const MAX_RESPONSE_BYTES = 52428800; // 50 MB, mirrors DEFAULT_NETWORK_SETTINGS
+
+// Node names ISO-8859-1 `latin1`; servers routinely declare the IANA spelling.
+const CHARSET_ALIASES = {
+  'iso-8859-1': 'latin1',
+  'iso8859-1': 'latin1',
+  'latin-1': 'latin1',
+};
+
+/** Charset from a Content-Type header, falling back to utf8. */
+export function parseCharset(contentType) {
+  const m = /charset\s*=\s*"?([^";]+)"?/i.exec(contentType || '');
+  const raw = (m?.[1] || 'utf8').trim().toLowerCase();
+  const charset = CHARSET_ALIASES[raw] || raw;
+  return Buffer.isEncoding(charset) ? charset : 'utf8';
+}
+
+/**
+ * Is this Content-Type textual? A missing type returns true so the caller can
+ * fall back to checking whether the bytes are valid UTF-8.
+ */
+export function isTextualContentType(contentType) {
+  const ct = String(contentType || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  if (!ct) return true;
+  return (
+    /^text\//.test(ct) ||
+    /^application\/(json|xml|javascript|ecmascript|x-www-form-urlencoded|graphql|problem\+json|ld\+json)$/.test(
+      ct
+    ) ||
+    /\+json$/.test(ct) ||
+    /\+xml$/.test(ct)
+  );
+}
 
 /**
  * Send one HTTP request and return a structured response.
  * Runs in the Electron main (Node) process, so it is not subject to the
  * browser's CORS or mixed-content restrictions.
+ *
+ * `options` is the network context built by electron/network-runtime.js:
+ *   { signal, followRedirects, maxRedirects, maxResponseBytes, proxy, tls,
+ *     cookieJar }
  */
 export async function sendRequest(request, options = {}) {
   const started = Date.now();
@@ -20,7 +61,7 @@ export async function sendRequest(request, options = {}) {
   // redirects and returns the updated jar so the caller can persist it.
   const jarRef = { jar: options.cookieJar || null };
   try {
-    const result = await performWithRedirects(request, 0, [], jarRef);
+    const result = await performWithRedirects(request, 0, [], jarRef, options);
     return {
       ok: true,
       ...result,
@@ -31,11 +72,22 @@ export async function sendRequest(request, options = {}) {
     return {
       ok: false,
       error: err && err.message ? err.message : String(err),
-      code: err && err.code ? err.code : undefined,
+      code: errorCode(err),
       timeMs: Date.now() - started,
     };
   }
 }
+
+// Abort/timeout cancellations carry no OS error code, so tag them here. The UI
+// uses these tags to suppress test failures and show a clear message.
+function errorCode(err) {
+  if (err && err.code) return err.code;
+  const message = err && err.message ? String(err.message) : '';
+  if (message.startsWith('Request timed out after')) return 'ETIMEDOUT';
+  if (message === 'Request aborted' || err?.name === 'AbortError') return 'ABORT_ERR';
+  return undefined;
+}
+
 
 function buildUrl(rawUrl, params, authQuery) {
   let urlString = (rawUrl || '').trim();
@@ -95,7 +147,7 @@ function applyAuth(auth) {
 
 // Fetch an OAuth 2.0 access token (client_credentials or password grant).
 // Returns { ok, accessToken, raw, error }.
-export async function fetchOAuth2Token(cfg) {
+export async function fetchOAuth2Token(cfg, options = {}) {
   const o = cfg || {};
   if (!o.accessTokenUrl) return { ok: false, error: 'Access Token URL is required' };
 
@@ -116,13 +168,16 @@ export async function fetchOAuth2Token(cfg) {
     if (o.clientSecret) form.set('client_secret', o.clientSecret);
   }
 
-  const res = await sendRequest({
-    method: 'POST',
-    url: o.accessTokenUrl,
-    headers,
-    params: [],
-    body: { mode: 'raw', raw: form.toString() },
-  });
+  const res = await sendRequest(
+    {
+      method: 'POST',
+      url: o.accessTokenUrl,
+      headers,
+      params: [],
+      body: { mode: 'raw', raw: form.toString() },
+    },
+    options
+  );
 
   if (!res.ok) return { ok: false, error: res.error || 'Token request failed', raw: res };
   let parsed;
@@ -252,14 +307,19 @@ function ensureHeader(headers, name, value) {
   if (!exists) headers[name] = value;
 }
 
-function performWithRedirects(request, redirectCount, chain, jarRef) {
+function performWithRedirects(request, redirectCount, chain, jarRef, options = {}) {
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(options.signal.reason || new Error('Request aborted'));
+      return;
+    }
+
     const auth = applyAuth(request.auth);
 
     let url;
     try {
       url = buildUrl(request.url, request.params, auth.query);
-    } catch (e) {
+    } catch {
       reject(new Error(`Invalid URL: ${request.url}`));
       return;
     }
@@ -278,21 +338,42 @@ function performWithRedirects(request, redirectCount, chain, jarRef) {
       }
     }
 
+    // Proxy is chosen per hop so a redirect to a bypassed host goes direct.
+    const proxy =
+      options.proxy && !shouldBypass(url.hostname, options.proxy.bypass) ? options.proxy : null;
+    const agent = proxy ? createProxyAgent(url.toString(), proxy) : undefined;
+
     const transport = url.protocol === 'http:' ? http : https;
-    const options = {
+    const isHttps = url.protocol === 'https:';
+    const requestOptions = {
       method: (request.method || 'GET').toUpperCase(),
       hostname: url.hostname,
-      port: url.port || (url.protocol === 'http:' ? 80 : 443),
+      port: url.port || (isHttps ? 443 : 80),
       path: url.pathname + url.search,
       headers,
+      agent,
+      ...(isHttps ? options.tls : {}),
     };
 
-    const req = transport.request(options, (res) => {
+    const req = transport.request(requestOptions, (res) => {
+      // Exactly one of resolve/reject wins per hop. Stream errors after that
+      // are ignored (they are consequences of our own destroy calls).
+      let settled = false;
+      const fail = (err) => {
+        if (settled) return;
+        settled = true;
+        reject(err);
+        req.destroy();
+      };
+
+      const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
       if (
+        options.followRedirects !== false &&
         [301, 302, 303, 307, 308].includes(res.statusCode) &&
         res.headers.location &&
-        redirectCount < MAX_REDIRECTS
+        redirectCount < maxRedirects
       ) {
+        settled = true;
         res.resume();
         const nextUrl = new URL(res.headers.location, url).toString();
         const nextMethod = res.statusCode === 303 ? 'GET' : request.method;
@@ -304,17 +385,39 @@ function performWithRedirects(request, redirectCount, chain, jarRef) {
           { ...request, url: nextUrl, method: nextMethod, params: [], auth: { type: 'none' } },
           redirectCount + 1,
           [...chain, { from: url.toString(), status: res.statusCode, to: nextUrl }],
-          jarRef
+          jarRef,
+          options
         ).then(resolve, reject);
         return;
       }
 
       const chunks = [];
-      res.on('data', (c) => chunks.push(c));
+      const maxBytes = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
+      let receivedBytes = 0;
+
+      res.on('data', (c) => {
+        if (settled) return;
+        receivedBytes += c.length;
+        // A truncated "success" would be worse than an error: fail loudly.
+        if (receivedBytes > maxBytes) {
+          fail(new Error(`Response exceeds ${maxBytes} bytes`));
+          return;
+        }
+        chunks.push(c);
+      });
+      res.on('error', (err) => fail(err));
       res.on('end', () => {
+        if (settled) return;
+        settled = true;
         let raw = Buffer.concat(chunks);
         raw = decompress(raw, res.headers['content-encoding']);
-        const text = raw.toString('utf8');
+        const contentType = res.headers['content-type'] || '';
+        const charset = parseCharset(contentType);
+        const textual = isTextualContentType(contentType);
+        // Binary = explicitly non-textual, or textual but not valid UTF-8.
+        const isBinary = raw.length > 0 && (!textual || !isUtf8(raw));
+        const body = isBinary ? '' : raw.toString(charset);
+        const bodyBase64 = isBinary ? raw.toString('base64') : '';
         // Store any cookies from the final response into the jar.
         if (jarRef && jarRef.jar && res.headers['set-cookie']) {
           jarRef.jar = storeCookies(jarRef.jar, res.headers['set-cookie'], url.toString());
@@ -324,15 +427,19 @@ function performWithRedirects(request, redirectCount, chain, jarRef) {
           statusText: res.statusMessage || '',
           headers: flattenHeaders(res.headers),
           cookies: parseCookies(res.headers['set-cookie']),
-          body: text,
+          body,
+          bodyBase64,
+          isBinary,
+          charset,
           size: raw.length,
-          contentType: res.headers['content-type'] || '',
+          contentType,
           finalUrl: url.toString(),
           redirects: chain,
+          tlsInsecure: isHttps && options.tls?.rejectUnauthorized === false,
           // Exactly what we sent, for the "Request Sent" diagnostic view.
           // For multipart with files, show a summary instead of raw bytes.
           sent: {
-            method: options.method,
+            method: requestOptions.method,
             url: url.toString(),
             headers: Object.entries(headers).map(([key, value]) => ({ key, value: String(value) })),
             body: describeSentBody(request.body, bodyBuffer),
@@ -343,10 +450,20 @@ function performWithRedirects(request, redirectCount, chain, jarRef) {
 
     req.on('error', (err) => reject(err));
 
-    const timeout = request.timeout || DEFAULT_TIMEOUT_MS;
-    req.setTimeout(timeout, () => {
-      req.destroy(new Error(`Request timed out after ${timeout}ms`));
-    });
+    // Cancellation: the network-runtime controller owns timeouts, so aborting
+    // the signal is the single way to stop a request in flight. Reject first
+    // (destroying alone can leave a half-open response with no end/error).
+    const signal = options.signal;
+    const onAbort = () => {
+      reject(signal.reason || new Error('Request aborted'));
+      req.destroy();
+    };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
+    const cleanupSignal = () => signal?.removeEventListener('abort', onAbort);
+    req.on('close', cleanupSignal);
 
     if (bodyBuffer) req.write(bodyBuffer);
     req.end();

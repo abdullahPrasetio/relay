@@ -1,0 +1,22 @@
+{
+  "collections": [
+    {
+      "id": "col_legacy",
+      "name": "Legacy",
+      "requests": [
+        {
+          "id": "req_legacy",
+          "name": "Legacy request",
+          "method": "GET",
+          "url": "https://example.com",
+          "headers": [],
+          "params": []
+        }
+      ]
+    }
+  ],
+  "environments": [],
+  "globals": [],
+  "history": [],
+  "activeEnvId": null
+}

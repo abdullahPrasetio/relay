@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { newWorkspace, migrateToWorkspaces } from './workspace.js';
+import { newWorkspace, migrateToWorkspaces, SCHEMA_VERSION } from './workspace.js';
 
 // Persisted shape (workspace-aware):
-//   { workspaces: [{id,name,collections,environments,globals,history,activeEnvId}],
+//   { schemaVersion, workspaces: [{id,name,collections,environments,globals,history,activeEnvId}],
 //     activeWorkspaceId }
 // Legacy flat data is migrated into a "Default" workspace on load.
+// Network settings are NOT persisted here: the main process owns them.
 const hasBridge = typeof window !== 'undefined' && !!window.api;
 
 async function loadInitial() {
@@ -51,6 +52,7 @@ export function useStore() {
     loadInitial().then((data) => {
       if (!mounted) return;
       const migrated = migrateToWorkspaces(data);
+      // schemaVersion is written on save; it is not renderer state.
       setWorkspaces(migrated.workspaces);
       setActiveWorkspaceId(migrated.activeWorkspaceId);
       setLoaded(true);
@@ -64,7 +66,7 @@ export function useStore() {
     if (!loaded) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      persist({ workspaces, activeWorkspaceId });
+      persist({ schemaVersion: SCHEMA_VERSION, workspaces, activeWorkspaceId });
     }, 300);
   }, [workspaces, activeWorkspaceId, loaded]);
 

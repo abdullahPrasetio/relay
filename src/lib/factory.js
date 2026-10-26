@@ -17,10 +17,23 @@ export function newRequest(overrides = {}) {
     headers: [],
     body: newBody(),
     auth: newAuth(),
+    settings: newRequestSettings(),
     preRequest: '',
     tests: '',
     examples: [], // saved request/response snapshots
     ...overrides,
+  };
+}
+
+// Per-request network overrides. `null` means "inherit the app setting", so
+// these stay sparse and survive app-wide setting changes.
+export function newRequestSettings() {
+  return {
+    timeoutMs: null,
+    followRedirects: null,
+    maxRedirects: null,
+    verifyTls: null,
+    proxyId: null,
   };
 }
 
@@ -101,5 +114,6 @@ export function normalizeRequest(req) {
       apikey: { ...newAuth().apikey, ...(req.auth?.apikey || {}) },
       oauth2: { ...newAuth().oauth2, ...(req.auth?.oauth2 || {}) },
     },
+    settings: { ...newRequestSettings(), ...(req.settings || {}) },
   };
 }

@@ -15,7 +15,18 @@ const TABS = ['Params', 'Authorization', 'Headers', 'Body', 'Pre-request', 'Test
 // the initial tab reflects the request's method.)
 const BODY_METHODS = ['POST', 'PUT', 'PATCH'];
 
-export default function RequestPanel({ request, onChange, onSend, onSave, onShowCode, onSetVariable, sending, dirty }) {
+export default function RequestPanel({
+  request,
+  onChange,
+  onSend,
+  onSave,
+  onShowCode,
+  onSetVariable,
+  onOpenSettings,
+  onAbort,
+  sending,
+  dirty,
+}) {
   const [tab, setTab] = useState(() =>
     BODY_METHODS.includes((request.method || 'GET').toUpperCase()) ? 'Body' : 'Params'
   );
@@ -25,7 +36,8 @@ export default function RequestPanel({ request, onChange, onSend, onSave, onShow
   function onKeyDown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
-      onSend();
+      // While a request is in flight the shortcut must not queue another one.
+      if (!sending) onSend();
     }
   }
 
@@ -54,16 +66,26 @@ export default function RequestPanel({ request, onChange, onSend, onSave, onShow
           value={request.url}
           onChange={(v) => patch({ url: v })}
         />
-        <button className="send-btn" onClick={onSend} disabled={sending}>
-          {sending ? 'Sending…' : 'Send'}
-        </button>
-        <button
-          className="save-btn"
-          onClick={onSave}
-          title={dirty ? 'Unsaved changes — Save (Cmd/Ctrl+S)' : 'Saved'}
-        >
+        {sending ? (
+          <button className="send-btn stop-btn" data-testid="stop-button" onClick={onAbort}>
+            Stop
+          </button>
+        ) : (
+          <button className="send-btn" onClick={onSend}>
+            Send
+          </button>
+        )}
+        <button className="save-btn" onClick={onSave} title={dirty ? 'Unsaved changes — Save (Cmd/Ctrl+S)' : 'Saved'}>
           Save
           {dirty && <span className="dirty-dot" aria-label="unsaved changes" />}
+        </button>
+        <button
+          className="save-btn icon-only"
+          onClick={onOpenSettings}
+          title="Request settings"
+          data-testid="request-settings-open"
+        >
+          <Icon name="gear" size={16} />
         </button>
         <button className="save-btn icon-only" onClick={onShowCode} title="Generate code">
           <Icon name="code" size={16} />

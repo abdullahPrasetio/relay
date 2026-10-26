@@ -30,9 +30,8 @@ function authHeaderLines(auth) {
   } else if (auth.type === 'basic') {
     const u = auth.basic?.username ?? '';
     const p = auth.basic?.password ?? '';
-    const enc = typeof btoa === 'function'
-      ? btoa(`${u}:${p}`)
-      : Buffer.from(`${u}:${p}`).toString('base64');
+    // Renderer-only code: btoa is always available here.
+    const enc = btoa(`${u}:${p}`);
     lines.push(['Authorization', `Basic ${enc}`]);
   } else if (auth.type === 'apikey' && auth.apikey?.key && auth.apikey.addTo === 'header') {
     lines.push([auth.apikey.key, auth.apikey.value ?? '']);

@@ -1,9 +1,11 @@
 import fs from 'node:fs';
+import { DEFAULT_NETWORK_SETTINGS } from '../shared/networkSettings.js';
 
-// The renderer owns the workspace-shaped app data; the main process only
-// additionally manages the cookie jar. EMPTY just guarantees cookieJar exists.
+// The renderer owns the workspace-shaped app data; the main process owns the
+// cookie jar and the network settings. EMPTY guarantees those keys exist.
 const EMPTY = {
   cookieJar: [],
+  network: DEFAULT_NETWORK_SETTINGS,
 };
 
 /**
@@ -65,10 +67,11 @@ export function createStore(filePath) {
       return data;
     },
     setAll(next) {
-      // Preserve the cookie jar across renderer saves (the renderer store
-      // doesn't manage it; the main process does).
+      // Preserve main-process-owned fields across renderer saves (the renderer
+      // store manages neither the cookie jar nor the network settings).
       const jar = next.cookieJar != null ? next.cookieJar : data.cookieJar;
-      data = { ...EMPTY, ...next, cookieJar: jar || [] };
+      const network = next.network != null ? next.network : data.network;
+      data = { ...EMPTY, ...next, cookieJar: jar || [], network: network || DEFAULT_NETWORK_SETTINGS };
       persist();
     },
     getCookieJar() {
@@ -76,6 +79,13 @@ export function createStore(filePath) {
     },
     setCookieJar(jar) {
       data.cookieJar = jar || [];
+      persist();
+    },
+    getNetworkSettings() {
+      return data.network || DEFAULT_NETWORK_SETTINGS;
+    },
+    setNetworkSettings(network) {
+      data.network = network || DEFAULT_NETWORK_SETTINGS;
       persist();
     },
   };
