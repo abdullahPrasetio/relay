@@ -30,6 +30,7 @@ mengimpor `electron/*`; semua efek samping lewat IPC.
 | `response:save` | `{ suggestedName, base64? \| text? }` | `{ saved, path?, error? }` |
 | `secrets:encrypt` / `secrets:decrypt` / `secrets:decryptMany` | string / ciphertext / list | ciphertext / plaintext / list (safeStorage) |
 | `app:close-requested` (main→renderer) / `app:close-confirmed` | — | handshake quit |
+| `ws:*`, `mqtt:*`, `socketio:*`, `grpc:*` | sesi/frame/invoke | lihat seksi Protocols |
 | `network:get` / `network:set` | settings tersanitasi / edit | settings tersanitasi (rahasia diganti flag) |
 | `store:get` / `store:set` | data workspace | data workspace |
 
@@ -203,6 +204,44 @@ di-escape.
 - History menyimpan metadata + `sent` (bukan body), dengan filter/search,
   grouping tanggal, hapus per item, dan retensi 10–1000 di localStorage
   `relay-history-limit`.
+
+## Protocols
+
+`electron/protocols/index.js` memetakan skema URL → adapter
+(`protocolFor`/`getAdapter`); HTTP tetap memakai engine yang sudah ada
+(kind `request`), protokol lain kind `stream`:
+
+| Protokol | Skema | Backend | Status |
+|---|---|---|---|
+| WebSocket | `ws://`, `wss://` | `ws` | connect/headers/protocols, frame teks+biner, close, history 500/1 MB |
+| MQTT | `mqtt://`, `mqtts://` | `mqtt` | connect, publish/subscribe/unsubscribe, QoS 0–2, retain |
+| Socket.IO | `socketio://`, `socketios://` | `socket.io-client` | connect, emit, `onAny` listen; `http(s)` tidak ditebak |
+| gRPC | `grpc://`, `grpcs://` | `@grpc/grpc-js` + proto-loader | proto file, unary + server streaming + cancel, metadata, TLS by scheme; tanpa reflection/client-bidi |
+
+Semua sesi memakai id dari renderer, timeout koneksi 10 s, history di memori
+dengan batas 500 entri/1 MB, event diteruskan ke window aktif
+(`<proto>:event`), dan dibersihkan saat shutdown. Panel renderer
+(`WebSocketPanel`, `MqttPanel`, `SocketIoPanel`, `GrpcPanel`) menggantikan
+`ResponsePanel` untuk protokol tersebut; gRPC unary tetap dipetakan ke bentuk
+response biasa agar diagnostik `sent` konsisten.
+
+GraphQL memakai HTTP biasa: `src/lib/graphql.js` membangun request
+introspection dan mem-parse schema; Monaco (bahasa `graphql`) mendapat
+completion provider scoped.
+
+## CLI dan build
+
+- `cli/relay.mjs` (`bin: relay`) menjalankan collection Postman dengan
+  `runCollection`, script executor diinjeksi dari `electron/script-runner.js`,
+  data CSV, dan report JSON/JUnit/HTML (`src/lib/report.js`). Exit 0 = bersih,
+  1 = ada kegagalan, 2 = kesalahan input.
+- `packages/core/index.js` adalah facade boundary untuk engine/variables/
+  runner/import-export/report; modul fisiknya masih di `src/lib` dan
+  `electron/` (ekstraksi penuh ditunda, tanpa duplikasi).
+- `.github/workflows/build.yml`: matrix macOS/Windows/Linux → `dist`,
+  `dist:win` (NSIS), `dist:linux` (AppImage), artifact per OS; tag `v*`
+  mempublikasikan installer ke GitHub Release. Signing/notarization dan
+  auto-update belum aktif (butuh secrets).
 
 ## Runtime script
 

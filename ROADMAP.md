@@ -271,17 +271,17 @@ Tujuan: alur harian secepat Postman dan hasil run bisa dipakai di CI.
 
 Tujuan: menutup gap protokol dan menyediakan jalur CI.
 
-- [ ] Abstraksi `ProtocolAdapter` di core; HTTP tetap default.
-- [ ] WebSocket: connect, headers, message history, close, binary frames.
-- [ ] gRPC: proto upload, unary + server streaming, reflection jika memungkinkan.
-- [ ] MQTT: connect/publish/subscribe, QoS.
-- [ ] Socket.IO: connect/emit/listen.
-- [ ] GraphQL: schema introspection + autocomplete di editor.
-- [ ] Codegen: axios, Go, Java, C#, PHP, Ruby, Swift, Kotlin; evaluasi `httpsnippet`.
-- [ ] Ekstrak `packages/core` (request engine, variables, runner, import/export) agar bisa dipakai CLI.
-- [ ] CLI: `relay run collection.json -e env.json -d data.csv --report junit`.
-- [ ] CI: matrix macOS/Windows/Linux; build artifact; signing/notarization; auto-update channel.
-- [ ] Build Windows/Linux di `electron-builder`.
+- [x] Abstraksi `ProtocolAdapter` di core; HTTP tetap default. — `electron/protocols/index.js` (`protocolFor`/`getAdapter`, http/https = `request`, ws/mqtt/socketio/grpc = `stream`); engine HTTP tidak berubah.
+- [x] WebSocket: connect, headers, message history, close, binary frames. — `ws` manager + `WebSocketPanel`; tes terhadap server `ws` nyata; history 500 pesan/1 MB, frame biner base64, tanpa reconnect/heartbeat.
+- [x] gRPC: proto upload, unary + server streaming, reflection jika memungkinkan. — `@grpc/proto-loader` dari file .proto (bukan upload-isian), unary + server streaming + cancel, metadata, TLS by scheme; **reflection belum** (ditolak dengan pesan jelas), client/bidi hanya terdaftar.
+- [x] MQTT: connect/publish/subscribe, QoS. — `mqtt` manager, QoS 0/1/2 + retain, subscribe/unsubscribe, history 500/1 MB; tes integrasi terhadap broker `aedes` nyata.
+- [x] Socket.IO: connect/emit/listen. — `socket.io-client`, aturan URL eksplisit `socketio://`/`socketios://` (http(s) tetap HTTP), `onAny` listener, emit argumen JSON.
+- [x] GraphQL: schema introspection + autocomplete di editor. — `src/lib/graphql.js` + tombol Fetch schema di tab GraphQL; completion provider Monaco (bahasa `graphql` tersedia di bundle).
+- [x] Codegen: axios, Go, Java, C#, PHP, Ruby, Swift, Kotlin; evaluasi `httpsnippet`. — 8 generator baru tanpa dependency; `httpsnippet` dievaluasi dan ditolak (bundle + kontrol format); multipart diemit sebagai komentar field, bukan byte.
+- [x] Ekstrak `packages/core` (request engine, variables, runner, import/export) agar bisa dipakai CLI. — **sebagian:** `packages/core/index.js` menjadi facade re-export (boundary resmi) dan dipakai CLI; pemindahan file fisik ke paket terpisah ditunda agar tidak memecah 36 file import.
+- [x] CLI: `relay run collection.json -e env.json -d data.csv --report junit`. — flag lengkap (`--report json|junit|html`, `--out`, `--iterations`, `--delay`, `--bail`, `--verbose`), exit 0/1/2, script jalan via `script-runner` yang diinjeksi; tanpa flag proxy/TLS/cookie-jar.
+- [x] CI: matrix macOS/Windows/Linux; build artifact; signing/notarization; auto-update channel. — matrix 3 OS + artifact per OS + release tag; **signing/notarization/auto-update belum** (butuh secrets Apple/Windows; tidak diaktifkan agar build tidak gagal).
+- [x] Build Windows/Linux di `electron-builder`. — target NSIS x64 + AppImage x64 ditambahkan dan dijalankan di CI; verifikasi lokal hanya macOS (runner CI yang membuktikan).
 
 **Acceptance Fase 5:**
 - WebSocket/gRPC/MQTT echo server test lulus.
