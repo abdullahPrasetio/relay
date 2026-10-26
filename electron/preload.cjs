@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   pickFile: () => ipcRenderer.invoke('file:pick'),
   saveResponse: (payload) => ipcRenderer.invoke('response:save', payload),
   getOAuth2Token: (cfg) => ipcRenderer.invoke('oauth2:token', cfg),
+  authorizeOAuth2: (cfg) => ipcRenderer.invoke('oauth2:authorize', cfg),
+  getOAuth2Status: (cfg) => ipcRenderer.invoke('oauth2:status', cfg),
   getCookies: () => ipcRenderer.invoke('cookies:get'),
   clearCookies: () => ipcRenderer.invoke('cookies:clear'),
   getNetworkSettings: () => ipcRenderer.invoke('network:get'),

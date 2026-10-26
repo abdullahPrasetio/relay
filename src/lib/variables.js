@@ -47,27 +47,27 @@ function resolveKvList(list, vars) {
   }));
 }
 
+// Resolve {{vars}} inside any nested auth config. Auth shapes vary by type
+// (oauth1/awsv4/jwt/… were added after the original bearer/basic set), so walk
+// the structure instead of listing fields — a new provider needs no change here.
+function resolveDeep(value, vars) {
+  if (typeof value === 'string') return resolveVars(value, vars);
+  if (Array.isArray(value)) return value.map((v) => resolveDeep(v, vars));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = resolveDeep(v, vars);
+    return out;
+  }
+  return value;
+}
+
 function resolveAuth(auth, vars) {
   if (!auth) return auth;
-  return {
-    ...auth,
-    bearer: { token: resolveVars(auth.bearer?.token, vars) },
-    basic: {
-      username: resolveVars(auth.basic?.username, vars),
-      password: resolveVars(auth.basic?.password, vars),
-    },
-    apikey: {
-      key: resolveVars(auth.apikey?.key, vars),
-      value: resolveVars(auth.apikey?.value, vars),
-      addTo: auth.apikey?.addTo || 'header',
-    },
-    oauth2: auth.oauth2
-      ? {
-          ...auth.oauth2,
-          accessToken: resolveVars(auth.oauth2.accessToken, vars),
-        }
-      : auth.oauth2,
-  };
+  const out = {};
+  for (const [key, value] of Object.entries(auth)) out[key] = resolveDeep(value, vars);
+  // Legacy data may omit this default; apiKey needs it to know where to go.
+  if (out.apikey && !out.apikey.addTo) out.apikey.addTo = 'header';
+  return out;
 }
 
 // Extract :path variable names from a URL (e.g. /users/:id/posts/:postId).

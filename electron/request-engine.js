@@ -7,6 +7,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { storeCookies, cookieHeaderFor } from './cookie-jar.js';
 import { shouldBypass, createProxyAgent } from './proxy.js';
+import {
+  resolveAuth,
+  needsChallenge,
+  buildChallengeResponse,
+} from './auth/index.js';
 
 const DEFAULT_MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 52428800; // 50 MB, mirrors DEFAULT_NETWORK_SETTINGS
@@ -119,53 +124,66 @@ function buildHeaders(headerList, authHeaders) {
   return headers;
 }
 
-// Translate the request's auth config into headers and/or query params.
-function applyAuth(auth) {
-  const result = { headers: [], query: [] };
-  if (!auth || auth.type === 'none') return result;
-
-  if (auth.type === 'bearer' && auth.bearer?.token) {
-    result.headers.push({ key: 'Authorization', value: `Bearer ${auth.bearer.token}` });
-  } else if (auth.type === 'basic') {
-    const u = auth.basic?.username ?? '';
-    const p = auth.basic?.password ?? '';
-    const encoded = Buffer.from(`${u}:${p}`, 'utf8').toString('base64');
-    result.headers.push({ key: 'Authorization', value: `Basic ${encoded}` });
-  } else if (auth.type === 'apikey' && auth.apikey?.key) {
-    const entry = { key: auth.apikey.key, value: auth.apikey.value ?? '' };
-    if (auth.apikey.addTo === 'query') result.query.push(entry);
-    else result.headers.push(entry);
-  } else if (auth.type === 'oauth2' && auth.oauth2?.accessToken) {
-    const prefix = auth.oauth2.headerPrefix || 'Bearer';
-    result.headers.push({
-      key: 'Authorization',
-      value: `${prefix} ${auth.oauth2.accessToken}`.trim(),
-    });
+// Merge challenge headers over the initial auth headers by (case-insensitive)
+// key, so a Type 3 NTLM header replaces the Type 1 one instead of duplicating.
+function mergeAuthHeaders(base, extra) {
+  const out = [...(base || [])];
+  for (const header of extra || []) {
+    const index = out.findIndex((h) => h.key.toLowerCase() === header.key.toLowerCase());
+    if (index >= 0) out[index] = header;
+    else out.push(header);
   }
-  return result;
+  return out;
 }
 
-// Fetch an OAuth 2.0 access token (client_credentials or password grant).
-// Returns { ok, accessToken, raw, error }.
+// Build the URL-encoded body for an OAuth 2.0 token request. Supports
+// client_credentials, password, authorization_code (PKCE) and refresh_token.
+export function buildOAuth2TokenForm(cfg) {
+  const o = cfg || {};
+  const grantType = o.grantType || 'client_credentials';
+  const form = new URLSearchParams();
+  form.set('grant_type', grantType);
+  if (o.scope) form.set('scope', o.scope);
+  if (o.audience) form.set('audience', o.audience);
+
+  if (grantType === 'password') {
+    form.set('username', o.username || '');
+    form.set('password', o.password || '');
+  } else if (grantType === 'authorization_code') {
+    form.set('code', o.code || '');
+    if (o.redirectUri) form.set('redirect_uri', o.redirectUri);
+    if (o.codeVerifier) form.set('code_verifier', o.codeVerifier);
+  } else if (grantType === 'refresh_token') {
+    form.set('refresh_token', o.refreshToken || '');
+  }
+
+  if (o.clientAuth !== 'basic') {
+    if (o.clientId) form.set('client_id', o.clientId);
+    if (o.clientSecret) form.set('client_secret', o.clientSecret);
+  }
+
+  const extra = o.extraParams;
+  if (Array.isArray(extra)) {
+    for (const item of extra) {
+      if (item && item.enabled !== false && item.key) form.append(item.key, item.value ?? '');
+    }
+  } else if (extra && typeof extra === 'object') {
+    for (const [key, value] of Object.entries(extra)) form.append(key, value ?? '');
+  }
+  return form;
+}
+
+// Fetch an OAuth 2.0 access token. Returns
+// { ok, accessToken, refreshToken, tokenType, expiresIn, raw, error }.
 export async function fetchOAuth2Token(cfg, options = {}) {
   const o = cfg || {};
   if (!o.accessTokenUrl) return { ok: false, error: 'Access Token URL is required' };
 
-  const form = new URLSearchParams();
-  form.set('grant_type', o.grantType || 'client_credentials');
-  if (o.scope) form.set('scope', o.scope);
-  if (o.grantType === 'password') {
-    form.set('username', o.username || '');
-    form.set('password', o.password || '');
-  }
-
+  const form = buildOAuth2TokenForm(o);
   const headers = [{ key: 'Content-Type', value: 'application/x-www-form-urlencoded', enabled: true }];
   if (o.clientAuth === 'basic') {
     const enc = Buffer.from(`${o.clientId || ''}:${o.clientSecret || ''}`, 'utf8').toString('base64');
     headers.push({ key: 'Authorization', value: `Basic ${enc}`, enabled: true });
-  } else {
-    if (o.clientId) form.set('client_id', o.clientId);
-    if (o.clientSecret) form.set('client_secret', o.clientSecret);
   }
 
   const res = await sendRequest(
@@ -190,7 +208,15 @@ export async function fetchOAuth2Token(cfg, options = {}) {
   if (!accessToken) {
     return { ok: false, error: `No access_token in response (status ${res.status})`, raw: parsed };
   }
-  return { ok: true, accessToken, raw: parsed, status: res.status };
+  return {
+    ok: true,
+    accessToken,
+    refreshToken: parsed.refresh_token || parsed.refreshToken || '',
+    tokenType: parsed.token_type || parsed.tokenType || 'Bearer',
+    expiresIn: Number(parsed.expires_in ?? parsed.expiresIn ?? 0) || 0,
+    raw: parsed,
+    status: res.status,
+  };
 }
 
 function buildBody(body, headers) {
@@ -307,40 +333,74 @@ function ensureHeader(headers, name, value) {
   if (!exists) headers[name] = value;
 }
 
-function performWithRedirects(request, redirectCount, chain, jarRef, options = {}) {
+async function performWithRedirects(
+  request,
+  redirectCount,
+  chain,
+  jarRef,
+  options = {},
+  authState = { retried: false, headers: null }
+) {
+  if (options.signal?.aborted) {
+    throw options.signal.reason || new Error('Request aborted');
+  }
+
+  const method = (request.method || 'GET').toUpperCase();
+  const headers = buildHeaders(request.headers, []);
+  // Build the body before auth: signing schemes (OAuth1, AWS SigV4) need the
+  // exact bytes, and multipart boundaries depend on the headers.
+  const bodyBuffer = buildBody(request.body, headers);
+  if (bodyBuffer) headers['Content-Length'] = Buffer.byteLength(bodyBuffer);
+  ensureHeader(headers, 'Accept-Encoding', 'gzip, deflate, br');
+
+  let url;
+  try {
+    url = buildUrl(request.url, request.params, []);
+  } catch {
+    throw new Error(`Invalid URL: ${request.url}`);
+  }
+
+  // Auth is resolved after the URL and body exist so providers can sign them.
+  let authResult;
+  try {
+    authResult = await resolveAuth(request.auth, {
+      method,
+      url: url.toString(),
+      body: bodyBuffer,
+      headers,
+      // Auto-refresh inherits the request's proxy/TLS/abort context, but not
+      // the cookie jar: the token endpoint is not the API being called.
+      fetcher: (cfg) =>
+        fetchOAuth2Token(cfg, {
+          signal: options.signal,
+          followRedirects: options.followRedirects,
+          maxRedirects: options.maxRedirects,
+          verifyTls: options.verifyTls,
+          maxResponseBytes: options.maxResponseBytes,
+          proxy: options.proxy,
+          tls: options.tls,
+        }),
+    });
+  } catch (err) {
+    throw new Error(`Auth error: ${err?.message || err}`);
+  }
+
+  const authHeaders = mergeAuthHeaders(authResult.headers, authState.headers);
+  for (const q of authResult.query || []) url.searchParams.append(q.key, q.value ?? '');
+  for (const h of authHeaders) headers[h.key] = h.value;
+
+  // Attach cookies from the jar (unless the request already sets Cookie).
+  // `useCookieJar: false` opts this request out of both reading and writing
+  // the shared jar, without affecting other requests.
+  const useCookieJar = options.useCookieJar !== false;
+  if (useCookieJar && jarRef && jarRef.jar) {
+    const cookieHeader = cookieHeaderFor(jarRef.jar, url.toString());
+    if (cookieHeader && !Object.keys(headers).some((k) => k.toLowerCase() === 'cookie')) {
+      headers['Cookie'] = cookieHeader;
+    }
+  }
+
   return new Promise((resolve, reject) => {
-    if (options.signal?.aborted) {
-      reject(options.signal.reason || new Error('Request aborted'));
-      return;
-    }
-
-    const auth = applyAuth(request.auth);
-
-    let url;
-    try {
-      url = buildUrl(request.url, request.params, auth.query);
-    } catch {
-      reject(new Error(`Invalid URL: ${request.url}`));
-      return;
-    }
-
-    const headers = buildHeaders(request.headers, auth.headers);
-    const bodyBuffer = buildBody(request.body, headers);
-
-    if (bodyBuffer) headers['Content-Length'] = Buffer.byteLength(bodyBuffer);
-    ensureHeader(headers, 'Accept-Encoding', 'gzip, deflate, br');
-
-    // Attach cookies from the jar (unless the request already sets Cookie).
-    // `useCookieJar: false` opts this request out of both reading and writing
-    // the shared jar, without affecting other requests.
-    const useCookieJar = options.useCookieJar !== false;
-    if (useCookieJar && jarRef && jarRef.jar) {
-      const cookieHeader = cookieHeaderFor(jarRef.jar, url.toString());
-      if (cookieHeader && !Object.keys(headers).some((k) => k.toLowerCase() === 'cookie')) {
-        headers['Cookie'] = cookieHeader;
-      }
-    }
-
     // Proxy is chosen per hop so a redirect to a bypassed host goes direct.
     const proxy =
       options.proxy && !shouldBypass(url.hostname, options.proxy.bypass) ? options.proxy : null;
@@ -349,7 +409,7 @@ function performWithRedirects(request, redirectCount, chain, jarRef, options = {
     const transport = url.protocol === 'http:' ? http : https;
     const isHttps = url.protocol === 'https:';
     const requestOptions = {
-      method: (request.method || 'GET').toUpperCase(),
+      method,
       hostname: url.hostname,
       port: url.port || (isHttps ? 443 : 80),
       path: url.pathname + url.search,
@@ -392,6 +452,39 @@ function performWithRedirects(request, redirectCount, chain, jarRef, options = {
           options
         ).then(resolve, reject);
         return;
+      }
+
+      // Digest/NTLM need the server challenge. Retry exactly once with the
+      // challenge response; a second 401 is returned to the caller as-is.
+      if (
+        res.statusCode === 401 &&
+        !authState.retried &&
+        needsChallenge(request.auth?.type) &&
+        res.headers['www-authenticate']
+      ) {
+        let challengeHeaders = [];
+        try {
+          challengeHeaders = buildChallengeResponse(request.auth, res.headers['www-authenticate'], {
+            method,
+            url: url.toString(),
+            body: bodyBuffer,
+            headers,
+          });
+        } catch {
+          challengeHeaders = [];
+        }
+        if (challengeHeaders.length) {
+          settled = true;
+          res.resume();
+          if (useCookieJar && jarRef && jarRef.jar && res.headers['set-cookie']) {
+            jarRef.jar = storeCookies(jarRef.jar, res.headers['set-cookie'], url.toString());
+          }
+          performWithRedirects(request, redirectCount, chain, jarRef, options, {
+            retried: true,
+            headers: challengeHeaders,
+          }).then(resolve, reject);
+          return;
+        }
       }
 
       const chunks = [];

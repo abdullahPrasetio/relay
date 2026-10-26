@@ -1,8 +1,13 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import { sendRequest, fetchOAuth2Token } from './request-engine.js';
+import {
+  authorizeOAuth2,
+  getOAuth2Status,
+  rememberOAuth2Token,
+} from './auth/index.js';
 import { createStore } from './store.js';
 import { writeResponseFile } from './response-file.js';
 import { createSendContext } from './network-runtime.js';
@@ -170,13 +175,15 @@ function registerIpc() {
     runScript({ ...payload, send: scriptSend })
   );
 
-  // OAuth 2.0 token fetch (client_credentials / password grant).
-  ipcMain.handle('oauth2:token', async (_event, cfg) => {
+  // Token requests use a fresh send context per call so the configured proxy,
+  // TLS material and timeout apply without holding a timer across the whole
+  // authorization flow.
+  const tokenFetcher = async (cfg) => {
     let ctx;
     try {
       ctx = createSendContext({
         network: getRuntimeNetwork(),
-        request: { url: cfg?.accessTokenUrl || '' },
+        request: { url: cfg?.accessTokenUrl || cfg?.authUrl || '' },
       });
     } catch (err) {
       return { ok: false, error: err.message };
@@ -186,7 +193,27 @@ function registerIpc() {
     } finally {
       ctx.cleanup();
     }
+  };
+
+  // OAuth 2.0 token fetch (client_credentials / password / refresh_token).
+  ipcMain.handle('oauth2:token', async (_event, cfg) => {
+    const result = await tokenFetcher(cfg);
+    if (result.ok) rememberOAuth2Token(cfg, result);
+    return result;
   });
+
+  // Full authorization-code + PKCE flow. Opens the system browser and listens
+  // on 127.0.0.1 for the redirect. Tokens stay in the main process cache; the
+  // renderer only receives the token result to store what the user chose.
+  ipcMain.handle('oauth2:authorize', async (_event, cfg) =>
+    authorizeOAuth2(cfg, {
+      openBrowser: (url) => shell.openExternal(url),
+      fetcher: tokenFetcher,
+    })
+  );
+
+  // Token status for the UI; never returns the token itself.
+  ipcMain.handle('oauth2:status', async (_event, cfg) => getOAuth2Status(cfg));
 
   // Cookie jar management for the UI.
   ipcMain.handle('cookies:get', async () => store.getCookieJar());
