@@ -25,10 +25,11 @@ mengimpor `electron/*`; semua efek samping lewat IPC.
 | `oauth2:token` | config OAuth2 | `{ ok, accessToken, refreshToken, expiresAt, tokenType, raw, error }` (hasil di-cache) |
 | `oauth2:authorize` | config OAuth2 | Authorization Code + PKCE via loopback + browser; `{ ok, accessToken, … }` |
 | `oauth2:status` | config OAuth2 | `{ hasToken, expiresAt }` — token tidak pernah dikirim balik |
-| `cookies:get` / `cookies:clear` | — | daftar cookie / `[]` |
+| `cookies:get` / `cookies:set` / `cookies:delete` / `cookies:clear` | cookie / identitas | jar terbaru / `[]` |
 | `file:pick` | — | `{ filePath, fileName, size }` atau `null` |
 | `response:save` | `{ suggestedName, base64? \| text? }` | `{ saved, path?, error? }` |
 | `secrets:encrypt` / `secrets:decrypt` / `secrets:decryptMany` | string / ciphertext / list | ciphertext / plaintext / list (safeStorage) |
+| `app:close-requested` (main→renderer) / `app:close-confirmed` | — | handshake quit |
 | `network:get` / `network:set` | settings tersanitasi / edit | settings tersanitasi (rahasia diganti flag) |
 | `store:get` / `store:set` | data workspace | data workspace |
 
@@ -155,6 +156,53 @@ Bentuk saat ini (`SCHEMA_VERSION = 2` di `shared/schema.js`):
   instalasi baru).
 - Baris variabel: `{ key, value, enabled, type: 'default'|'secret', secretEnc? }`.
   Saat ditulis ke disk, baris `secret` selalu `value: ''` + `secretEnc`.
+
+## Runner
+
+`src/lib/runner.js` menjalankan langkah berurutan dengan opsi
+`retries/retryDelayMs`, `stopOnError`, `saveResponses` (snapshot teks ≤128 KB),
+`keepVariableValues`, `shouldStop()` dan `onRequestId(id)`. `shouldStop`
+diperiksa sebelum tiap request dan setelah tiap step, sehingga tombol Stop
+(`RunnerModal`, `[data-testid="runner-stop"]`) membatalkan request aktif lewat
+`http:abort` dan mencegah request berikutnya. Conditional flow
+(`pm.execution.setNextRequest/skipRequest`) dihormati dengan loop guard per
+iterasi.
+
+Report: `src/lib/report.js` menghasilkan JSON, JUnit XML (counts cocok dengan
+child, semua teks diescape) dan HTML mandiri; ditulis lewat
+`response:save`. Konfigurasi terakhir disimpan di localStorage
+`relay-runner-config`.
+
+## Response viewer
+
+Render berada di renderer: Monaco read-only untuk Pretty view, JSON tree
+dengan filter path, pretty XML, redirect chain, dan timing breakdown dari
+`response.timings` (`startMs`, `socketMs`, `dnsMs`, `connectMs`, `tlsMs`,
+`ttfbMs`, `totalMs`; nilai null bila tidak tersedia — IP literal, socket
+reuse, HTTP tanpa TLS). Raw view tetap `<pre class="response-body">` agar
+seleksi teks dan e2e stabil; pencarian menandai `<mark>` dari teks yang sudah
+di-escape.
+
+## Session dan quit handshake
+
+- Sesi tab disimpan di localStorage `relay-session` (versi 1):
+  `{ tabId, requestId, request, dirty, savedCollectionId }` + `activeTabId` +
+  `railView`. Restore memakai collection tree lebih dulu, lalu snapshot;
+  `response`/`testResults` tidak dipersist. Split pane memakai localStorage
+  sendiri.
+- Menutup window tidak membunuh data: main mencegah `close`, mengirim
+  `app:close-requested`; renderer langsung mengizinkan bila tidak ada tab
+  dirty, atau menampilkan dialog Discard/Cancel. `app:close-confirmed` membuat
+  main menutup window dan `app.quit()` (single-window app). Mode browser-dev
+  memakai `beforeunload`.
+
+## History dan cookies
+
+- Cookie jar dikelola main (`cookie-jar.js`: `upsertCookie`, `deleteCookie`,
+  prune) lewat `cookies:set`/`cookies:delete`, dipersist di store.
+- History menyimpan metadata + `sent` (bukan body), dengan filter/search,
+  grouping tanggal, hapus per item, dan retensi 10–1000 di localStorage
+  `relay-history-limit`.
 
 ## Runtime script
 

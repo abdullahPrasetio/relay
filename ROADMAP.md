@@ -231,35 +231,35 @@ Tujuan: alur harian secepat Postman dan hasil run bisa dipakai di CI.
 
 ### 4.1 Runner
 
-- [ ] Tombol Stop; abort request aktif dan hentikan iterasi berikutnya.
-- [ ] Retry N kali dengan delay; status retry di report.
-- [ ] Conditional flow via `pm.execution.setNextRequest`.
-- [ ] Opsi “stop on error”, “save responses”, “keep variable values”.
-- [ ] Export report JSON, JUnit XML, HTML.
-- [ ] Simpan konfigurasi run terakhir (iterations, delay, data file path).
+- [x] Tombol Stop; abort request aktif dan hentikan iterasi berikutnya. — `[data-testid="runner-stop"]` memanggil `abortRequest` untuk request berjalan dan `shouldStop` dicek sebelum tiap request (menang atas jump cycle).
+- [x] Retry N kali dengan delay; status retry di report. — retry pada error transport, `ok:false`, atau 5xx; step mencatat `attempts`/`retried`, summary `retriedRequests`.
+- [x] Conditional flow via `pm.execution.setNextRequest`. — sudah diimplementasikan di Fase 3.2 (jump by id/nama, stop, loop guard).
+- [x] Opsi “stop on error”, “save responses”, “keep variable values”. — `stopOnError` (summary `stoppedReason`), `saveResponses` (snapshot teks ≤128 KB, binary tidak disimpan), `keepVariableValues:false` mengembalikan scope awal.
+- [x] Export report JSON, JUnit XML, HTML. — `src/lib/report.js`; JUnit diescaping dan count cocok dengan child; save lewat dialog native.
+- [x] Simpan konfigurasi run terakhir (iterations, delay, data file path). — localStorage `relay-runner-config`; isi file data tidak ikut disimpan, hanya path/nama.
 
 ### 4.2 Response viewer
 
-- [ ] Monaco read-only untuk JSON/XML/JS/HTML dengan syntax highlight.
-- [ ] JSON tree collapsible + search/filter path.
-- [ ] Pretty XML.
-- [ ] Preview image/PDF/binary + save/download.
-- [ ] Tampilkan redirect chain dan timing breakdown (DNS/TLS/TTFB/total) bila tersedia.
-- [ ] Copy body/headers; cari teks di response.
+- [x] Monaco read-only untuk JSON/XML/JS/HTML dengan syntax highlight. — Pretty view Monaco read-only; Raw `<pre>` tetap default untuk teks biasa agar kontrak e2e stabil.
+- [x] JSON tree collapsible + search/filter path.
+- [x] Pretty XML.
+- [x] Preview image/PDF/binary + save/download. — sudah ada di Fase 1.4; viewer mempertahankannya + copy base64.
+- [x] Tampilkan redirect chain dan timing breakdown (DNS/TLS/TTFB/total) bila tersedia. — engine menambah `timings`; `dnsMs` null untuk IP literal/reused socket, `tlsMs` null pada HTTP, timings mengacu ke hop terakhir.
+- [x] Copy body/headers; cari teks di response. — highlight di-escape sebelum `<mark>` (tidak ada injeksi HTML).
 
 ### 4.3 Cookies dan history
 
-- [ ] Cookie CRUD (add/edit/delete per cookie).
-- [ ] Toggle “use cookie jar” per request/run.
-- [ ] History: search, filter method/status, hapus per item, grouping tanggal, retensi configurable.
-- [ ] Opsional: simpan response history dengan batas ukuran.
+- [x] Cookie CRUD (add/edit/delete per cookie). — IPC `cookies:set`/`cookies:delete` dengan prune + persist; modal CRUD dengan validasi inline.
+- [x] Toggle “use cookie jar” per request/run. — per request sudah ada sejak Fase 1 (`request.settings.useCookieJar`, gate di engine). Belum ada override level-run; runner mengikuti setting tiap request.
+- [x] History: search, filter method/status, hapus per item, grouping tanggal, retensi configurable. — retensi 10–1000 di localStorage `relay-history-limit` (global lintas workspace).
+- [ ] Opsional: simpan response history dengan batas ukuran. — sengaja ditunda (butuh keputusan ukuran/format penyimpanan); history menyimpan metadata + `sent`.
 
 ### 4.4 Session
 
-- [ ] Persist tab terbuka dan request unsaved di localStorage/IndexedDB.
-- [ ] Guard `beforeunload` saat ada tab dirty; prompt simpan/discard.
-- [ ] Shortcut: Cmd/Ctrl+Enter send, Cmd/Ctrl+S save, Cmd/Ctrl+W close tab, Cmd/Ctrl+K search.
-- [ ] Restore split pane dan tab terakhir.
+- [x] Persist tab terbuka dan request unsaved di localStorage/IndexedDB. — `relay-session` v1: `{tabId, requestId, request, dirty, savedCollectionId}`, `activeTabId`, `railView`; response/testResults tidak dipersist; restore pakai collection tree lalu snapshot.
+- [x] Guard `beforeunload` saat ada tab dirty; prompt simpan/discard. — Electron: handshake `app:close-requested` → dialog “Discard and quit”/Cancel (Cancel menahan window); browser-dev tetap `beforeunload`. Tidak ada tombol “save all” (simpan per tab lewat Cmd/Ctrl+S).
+- [x] Shortcut: Cmd/Ctrl+Enter send, Cmd/Ctrl+S save, Cmd/Ctrl+W close tab, Cmd/Ctrl+K search.
+- [x] Restore split pane dan tab terakhir. — split pane sudah dipersist `SplitPane`; tab terakhir lewat `activeTabId` di sesi.
 
 **Acceptance Fase 4:**
 - Run 100 request bisa dihentikan dan tidak ada request baru setelah Stop.
