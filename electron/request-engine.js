@@ -400,6 +400,19 @@ async function performWithRedirects(
     }
   }
 
+  // Connection timings for the final hop, relative to when the request starts.
+  // Values stay null when the corresponding socket event never fires (for
+  // example, DNS lookups for literal IPs or reused keep-alive sockets).
+  const timings = {
+    startMs: Date.now(),
+    socketMs: null,
+    dnsMs: null,
+    connectMs: null,
+    tlsMs: null,
+    ttfbMs: null,
+    totalMs: null,
+  };
+
   return new Promise((resolve, reject) => {
     // Proxy is chosen per hop so a redirect to a bypassed host goes direct.
     const proxy =
@@ -419,6 +432,7 @@ async function performWithRedirects(
     };
 
     const req = transport.request(requestOptions, (res) => {
+      timings.ttfbMs = Date.now() - timings.startMs;
       // Exactly one of resolve/reject wins per hop. Stream errors after that
       // are ignored (they are consequences of our own destroy calls).
       let settled = false;
@@ -518,6 +532,7 @@ async function performWithRedirects(
         if (useCookieJar && jarRef && jarRef.jar && res.headers['set-cookie']) {
           jarRef.jar = storeCookies(jarRef.jar, res.headers['set-cookie'], url.toString());
         }
+        timings.totalMs = Date.now() - timings.startMs;
         resolve({
           status: res.statusCode,
           statusText: res.statusMessage || '',
@@ -531,6 +546,7 @@ async function performWithRedirects(
           contentType,
           finalUrl: url.toString(),
           redirects: chain,
+          timings,
           tlsInsecure: isHttps && options.tls?.rejectUnauthorized === false,
           // Exactly what we sent, for the "Request Sent" diagnostic view.
           // For multipart with files, show a summary instead of raw bytes.
@@ -542,6 +558,24 @@ async function performWithRedirects(
           },
         });
       });
+    });
+
+    // Derive connection timings from the socket lifecycle. A reused socket
+    // never emits lookup/connect/secureConnect, so those stay null.
+    req.on('socket', (socket) => {
+      timings.socketMs = Date.now() - timings.startMs;
+      if (!socket.connecting) return;
+      socket.once('lookup', () => {
+        timings.dnsMs = Date.now() - timings.startMs;
+      });
+      socket.once('connect', () => {
+        timings.connectMs = Date.now() - timings.startMs;
+      });
+      if (isHttps) {
+        socket.once('secureConnect', () => {
+          timings.tlsMs = Date.now() - timings.startMs;
+        });
+      }
     });
 
     req.on('error', (err) => reject(err));

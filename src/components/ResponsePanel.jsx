@@ -1,4 +1,15 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import CodeEditor from './CodeEditor.jsx';
+import JsonTree from './JsonTree.jsx';
+import {
+  detectLanguage,
+  escapeHtml,
+  findMatches,
+  highlightSegments,
+  parseJsonBody,
+  prettyText,
+} from '../lib/responseFormat.js';
+import '../styles/response.css';
 
 export default function ResponsePanel({ response, sending, testResults, onSaveExample, onSetVariable }) {
   const [tab, setTab] = useState('Body');
@@ -91,6 +102,8 @@ export default function ResponsePanel({ response, sending, testResults, onSaveEx
         </div>
       </div>
 
+      <ResponseMeta response={response} />
+
       <div className="tabs">
         {tabs.map((t) => (
           <button
@@ -115,7 +128,7 @@ export default function ResponsePanel({ response, sending, testResults, onSaveEx
         ))}
       </div>
 
-      <div className="tab-content">
+      <div className="tab-content response-tab-content">
         {tab === 'Body' && <ResponseBody response={response} onContextMenu={onBodyContextMenu} />}
         {tab === 'Headers' && <ResponseHeaders headers={response.headers} />}
         {tab === 'Cookies' && <ResponseCookies cookies={response.cookies} />}
@@ -130,17 +143,78 @@ export default function ResponsePanel({ response, sending, testResults, onSaveEx
 function ResponseBody({ response, onContextMenu }) {
   const ct = (response.contentType || '').toLowerCase();
   const isHtml = ct.includes('html');
-  // Default view: pretty for JSON, preview for HTML, raw otherwise.
-  const [view, setView] = useState(isHtml ? 'preview' : 'pretty');
+  const parsedJson = useMemo(
+    () => (response.isBinary ? { ok: false, value: null } : parseJsonBody(response.body)),
+    [response.isBinary, response.body]
+  );
+  const isJson = parsedJson.ok;
 
-  const pretty = useMemo(() => formatBody(response), [response]);
+  // Default view: preview for HTML, Pretty for JSON, Raw otherwise. Raw keeps
+  // the plain `.response-body` text node that existing e2e assertions read.
+  const [view, setView] = useState(isHtml ? 'preview' : isJson ? 'pretty' : 'raw');
+  const [findQuery, setFindQuery] = useState('');
+  const [findIndex, setFindIndex] = useState(0);
+  const copy = useCopy();
 
-  // Binary bodies are never decoded: show a safe preview (image/PDF) or a
-  // size summary, and let the user save the exact bytes.
+  // A new response invalidates both the find results and the chosen view.
+  useEffect(() => {
+    setView(isHtml ? 'preview' : isJson ? 'pretty' : 'raw');
+    setFindQuery('');
+    setFindIndex(0);
+  }, [response, isHtml, isJson]);
+
+  const pretty = useMemo(
+    () => (response.isBinary ? '' : prettyText(response.contentType, response.body)),
+    [response.contentType, response.body, response.isBinary]
+  );
+  const language = useMemo(
+    () => detectLanguage(response.contentType, response.body),
+    [response.contentType, response.body]
+  );
+  const matches = useMemo(
+    () => findMatches(response.body || '', findQuery),
+    [response.body, findQuery]
+  );
+  const segments = useMemo(
+    () => highlightSegments(response.body || '', findQuery, findIndex),
+    [response.body, findQuery, findIndex]
+  );
+
   if (response.isBinary) return <BinaryPreview response={response} />;
 
   const views = ['pretty', 'raw'];
+  if (isJson) views.push('tree');
   if (isHtml) views.push('preview');
+
+  const activeMatch = matches.length
+    ? ((findIndex % matches.length) + matches.length) % matches.length
+    : 0;
+  const canFind = view !== 'preview' && view !== 'tree';
+
+  function step(delta) {
+    if (matches.length === 0) return;
+    setFindIndex((i) => {
+      const next = (i + delta) % matches.length;
+      return next < 0 ? next + matches.length : next;
+    });
+  }
+
+  function onFindChange(value) {
+    setFindQuery(value);
+    setFindIndex(0);
+    // Highlights only exist in the Raw text view; jump there while searching.
+    if (value && view === 'pretty') setView('raw');
+  }
+
+  const rawHtml = segments
+    .map((segment) => {
+      const safe = escapeHtml(segment.text);
+      if (!segment.match) return safe;
+      return segment.current
+        ? `<mark class="find-current">${safe}</mark>`
+        : `<mark class="find-match">${safe}</mark>`;
+    })
+    .join('');
 
   return (
     <div className="response-body-wrap">
@@ -151,10 +225,58 @@ function ResponseBody({ response, onContextMenu }) {
             className={`view-chip ${view === v ? 'active' : ''}`}
             onClick={() => setView(v)}
           >
-            {v === 'pretty' ? 'Pretty' : v === 'raw' ? 'Raw' : 'Preview'}
+            {v === 'pretty' ? 'Pretty' : v === 'raw' ? 'Raw' : v === 'tree' ? 'Tree' : 'Preview'}
           </button>
         ))}
         <span className="body-ct">{response.contentType || 'text/plain'}</span>
+
+        <div className="body-tools">
+          {canFind && (
+            <>
+              <input
+                className="find-input"
+                data-testid="response-find"
+                type="text"
+                value={findQuery}
+                placeholder="Find"
+                aria-label="Find in response"
+                onChange={(e) => onFindChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    step(e.shiftKey ? -1 : 1);
+                  }
+                }}
+              />
+              <span className="find-count" data-testid="response-find-count">
+                {findQuery ? `${matches.length ? activeMatch + 1 : 0}/${matches.length}` : ''}
+              </span>
+              <button
+                className="mini-btn"
+                disabled={matches.length === 0}
+                onClick={() => step(-1)}
+                title="Previous match"
+              >
+                Prev
+              </button>
+              <button
+                className="mini-btn"
+                disabled={matches.length === 0}
+                onClick={() => step(1)}
+                title="Next match"
+              >
+                Next
+              </button>
+            </>
+          )}
+          <button
+            className="mini-btn"
+            data-testid="response-copy-body"
+            onClick={() => copy.copy(response.body || '')}
+          >
+            {copy.copied ? 'Copied' : 'Copy body'}
+          </button>
+        </div>
       </div>
 
       {view === 'preview' && isHtml ? (
@@ -164,20 +286,77 @@ function ResponseBody({ response, onContextMenu }) {
           sandbox=""
           srcDoc={response.body || ''}
         />
-      ) : (
+      ) : view === 'tree' && isJson ? (
+        <JsonTree data={parsedJson.value} />
+      ) : view === 'raw' ? (
         <pre
           className="response-body"
           onContextMenu={onContextMenu}
           title="Tip: select text and right-click to set it as a variable"
-        >
-          {(view === 'raw' ? response.body : pretty) || ''}
-        </pre>
+          dangerouslySetInnerHTML={{ __html: rawHtml }}
+        />
+      ) : (
+        <div className="response-editor">
+          <CodeEditor value={pretty} language={language} readOnly height="100%" />
+        </div>
       )}
     </div>
   );
 }
 
+function ResponseMeta({ response }) {
+  const redirects = response.redirects || [];
+  const t = response.timings || null;
+  const items = t
+    ? [
+        ['Socket', t.socketMs],
+        ['DNS', t.dnsMs],
+        ['Connect', t.connectMs],
+        ['TLS', t.tlsMs],
+        ['TTFB', t.ttfbMs],
+        ['Total', t.totalMs],
+      ].filter(([, value]) => typeof value === 'number' && Number.isFinite(value))
+    : [];
+
+  if (redirects.length === 0 && items.length === 0) return null;
+
+  return (
+    <div className="response-meta">
+      {redirects.length > 0 && (
+        <div className="redirect-chain" data-testid="redirect-chain">
+          <span className="meta-label">Redirects</span>
+          {redirects.map((hop, i) => (
+            <span className="redirect-hop" key={`${hop.from}-${i}`}>
+              <span className={`status-pill ${statusClass(hop.status)}`}>{hop.status}</span>
+              <span className="redirect-target" title={hop.from}>
+                {hop.to}
+              </span>
+              {i < redirects.length - 1 && <span className="redirect-arrow">→</span>}
+            </span>
+          ))}
+        </div>
+      )}
+      {items.length > 0 && (
+        <div className="timing-breakdown" data-testid="timing-breakdown">
+          <span className="meta-label">Timing</span>
+          {items.map(([label, value]) => (
+            <span className="timing-item" key={label}>
+              <span className="timing-label">{label}</span>
+              <span className="timing-value">{formatMs(value)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatMs(value) {
+  return `${Math.max(0, Math.round(value))} ms`;
+}
+
 function BinaryPreview({ response }) {
+  const copy = useCopy();
   const ct = (response.contentType || '').split(';')[0].trim().toLowerCase();
   const size = formatBytes(response.size);
 
@@ -186,6 +365,13 @@ function BinaryPreview({ response }) {
       <div className="response-body-wrap">
         <div className="body-view-switch">
           <span className="body-ct">{response.contentType}</span>
+          <button
+            className="mini-btn"
+            data-testid="response-copy-body"
+            onClick={() => copy.copy(response.bodyBase64 || '')}
+          >
+            {copy.copied ? 'Copied' : 'Copy base64'}
+          </button>
         </div>
         <img
           className="response-image"
@@ -202,6 +388,13 @@ function BinaryPreview({ response }) {
       <div className="response-body-wrap">
         <div className="body-view-switch">
           <span className="body-ct">{response.contentType}</span>
+          <button
+            className="mini-btn"
+            data-testid="response-copy-body"
+            onClick={() => copy.copy(response.bodyBase64 || '')}
+          >
+            {copy.copied ? 'Copied' : 'Copy base64'}
+          </button>
         </div>
         <iframe
           className="response-preview"
@@ -251,17 +444,30 @@ async function saveBody(response) {
 }
 
 function ResponseHeaders({ headers }) {
+  const copy = useCopy();
+  const text = headers.map((h) => `${h.key}: ${h.value}`).join('\n');
   return (
-    <table className="kv readonly">
-      <tbody>
-        {headers.map((h, i) => (
-          <tr key={i}>
-            <td className="h-key">{h.key}</td>
-            <td className="h-val">{h.value}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="headers-view">
+      <div className="body-toolbar">
+        <button
+          className="mini-btn"
+          data-testid="response-copy-headers"
+          onClick={() => copy.copy(text)}
+        >
+          {copy.copied ? 'Copied' : 'Copy all'}
+        </button>
+      </div>
+      <table className="kv readonly">
+        <tbody>
+          {headers.map((h, i) => (
+            <tr key={i}>
+              <td className="h-key">{h.key}</td>
+              <td className="h-val">{h.value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -362,16 +568,48 @@ function TestResults({ results }) {
   );
 }
 
-function formatBody(response) {
-  const ct = (response.contentType || '').toLowerCase();
-  if (ct.includes('json')) {
-    try {
-      return JSON.stringify(JSON.parse(response.body), null, 2);
-    } catch {
-      return response.body;
+// Clipboard helper with an execCommand fallback for environments where the
+// async Clipboard API is unavailable or denied.
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
     }
+  } catch {
+    /* fall through to the textarea fallback */
   }
-  return response.body;
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+function useCopy() {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef(null);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  async function copy(text) {
+    const ok = await copyText(text);
+    if (!ok) return;
+    setCopied(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1400);
+  }
+
+  return { copied, copy };
 }
 
 function statusClass(status) {

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
+import https from 'node:https';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -11,6 +12,8 @@ import {
 const pngBytes = readFileSync(
   path.join(import.meta.dirname, '..', 'fixtures', 'binary', 'pixel.png')
 );
+const tlsDir = path.join(import.meta.dirname, '..', 'fixtures', 'tls');
+const pem = (name) => readFileSync(path.join(tlsDir, name));
 
 const servers = [];
 
@@ -33,6 +36,62 @@ afterEach(async () => {
 async function get(url, options = {}) {
   return sendRequest({ method: 'GET', url, headers: [], params: [] }, options);
 }
+
+function startHttps(handler, tls) {
+  const server = https.createServer(tls, handler);
+  servers.push(server);
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  }).then(() => ({ server, port: server.address().port }));
+}
+
+describe('request timings', () => {
+  it('reports connection timings for a plain HTTP response', async () => {
+    const { port } = await startServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('timed');
+    });
+
+    const res = await get(`http://127.0.0.1:${port}/`);
+    expect(res.ok).toBe(true);
+    expect(res.timings).toBeTruthy();
+
+    const t = res.timings;
+    expect(typeof t.startMs).toBe('number');
+    expect(typeof t.connectMs).toBe('number');
+    expect(t.connectMs).toBeGreaterThanOrEqual(0);
+    expect(typeof t.ttfbMs).toBe('number');
+    expect(t.ttfbMs).toBeGreaterThanOrEqual(0);
+    expect(t.totalMs).toBeGreaterThanOrEqual(t.ttfbMs);
+    // Plain HTTP never performs a TLS handshake.
+    expect(t.tlsMs).toBeNull();
+    // DNS is only observable when the lookup event fires (IPs may skip it).
+    expect(t.dnsMs === null || typeof t.dnsMs === 'number').toBe(true);
+  });
+
+  it('reports a TLS timing for an HTTPS response', async () => {
+    const { port } = await startHttps(
+      (req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('secure');
+      },
+      { key: pem('self-key.pem'), cert: pem('self-cert.pem') }
+    );
+
+    const res = await get(`https://127.0.0.1:${port}/`, {
+      tls: { rejectUnauthorized: false },
+    });
+    expect(res.ok).toBe(true);
+    expect(res.body).toBe('secure');
+
+    const t = res.timings;
+    expect(typeof t.connectMs).toBe('number');
+    expect(typeof t.tlsMs).toBe('number');
+    expect(t.tlsMs).toBeGreaterThanOrEqual(0);
+    expect(t.totalMs).toBeGreaterThanOrEqual(t.ttfbMs);
+  });
+});
 
 describe('charset and content-type helpers', () => {
   it('parses charsets and rejects unsupported encodings', () => {

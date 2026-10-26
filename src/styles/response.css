@@ -1,0 +1,213 @@
+/* Response viewer additions (Fase 4.2). Imported by ResponsePanel/JsonTree so
+   the shared stylesheet stays untouched. */
+
+.response-tab-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.response-editor {
+  flex: 1;
+  min-height: 240px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* View toolbar */
+.body-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+}
+.find-input {
+  width: 150px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
+.find-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.find-count {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-width: 38px;
+  text-align: center;
+}
+.response-body mark.find-match {
+  background: rgba(255, 196, 0, 0.32);
+  color: inherit;
+  border-radius: 2px;
+}
+.response-body mark.find-current {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 2px;
+}
+
+/* Redirect chain + timings */
+.response-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+}
+.meta-label {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  margin-right: 6px;
+}
+.redirect-chain,
+.timing-breakdown {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.redirect-hop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.redirect-hop .status-pill {
+  padding: 1px 6px;
+  font-size: 10px;
+}
+.redirect-target {
+  color: var(--blue);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.redirect-arrow {
+  color: var(--text-dim);
+}
+.timing-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 7px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.timing-label {
+  color: var(--text-dim);
+}
+.timing-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* JSON tree */
+.json-tree {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.json-tree-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.json-tree-filter {
+  width: 240px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.json-tree-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.json-tree-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.json-node-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.json-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+}
+.json-toggle:hover,
+.json-toggle:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+.json-toggle-spacer {
+  width: 13px;
+  display: inline-block;
+}
+.json-key {
+  color: #6ba9ff;
+}
+.json-colon {
+  color: var(--text-dim);
+}
+.json-summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+.json-brace {
+  color: var(--text-dim);
+}
+.json-count {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.json-children {
+  display: flex;
+  flex-direction: column;
+}
+.json-empty-row {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.json-string { color: #4caf50; }
+.json-number { color: #e0a53b; }
+.json-boolean { color: #a371f7; }
+.json-null { color: var(--text-dim); font-style: italic; }
+.json-primitive { color: var(--text); }
