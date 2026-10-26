@@ -18,6 +18,7 @@ import ActivityRail from './components/ActivityRail.jsx';
 import AppHeader from './components/AppHeader.jsx';
 import SetVariableModal from './components/SetVariableModal.jsx';
 import CookiesModal from './components/CookiesModal.jsx';
+import MockServerModal from './components/MockServerModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import RequestSettingsModal from './components/RequestSettingsModal.jsx';
 import { VarContext } from './components/VarContext.jsx';
@@ -223,6 +224,7 @@ export default function App() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [setVarModal, setSetVarModal] = useState(null); // { value }
   const [cookiesOpen, setCookiesOpen] = useState(false);
+  const [mockOpen, setMockOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [requestSettingsOpen, setRequestSettingsOpen] = useState(false);
 
@@ -1701,6 +1703,7 @@ export default function App() {
         searchQuery={globalSearch}
         onSearch={setGlobalSearch}
         onOpenCookies={() => setCookiesOpen(true)}
+        onOpenMock={() => setMockOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
@@ -1878,6 +1881,8 @@ export default function App() {
       )}
 
       {cookiesOpen && <CookiesModal onClose={() => setCookiesOpen(false)} />}
+
+      {mockOpen && <MockServerModal store={store} onClose={() => setMockOpen(false)} />}
 
       {requestSettingsOpen && (
         <RequestSettingsModal
