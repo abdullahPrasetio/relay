@@ -62,9 +62,8 @@ test('imports an Insomnia export with its environment', async () => {
   await expect(page.locator('.collection-name', { hasText: 'Demo Workspace' })).toBeVisible({
     timeout: 5000,
   });
-  await expect(
-    page.locator('.env-select option', { hasText: 'Development' })
-  ).toHaveCount(1);
+  await page.getByTestId('env-trigger').click();
+  await expect(page.locator('.env-menu-item', { hasText: 'Development' })).toHaveCount(1);
 });
 
 test('still imports a Postman collection', async () => {

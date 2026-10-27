@@ -34,36 +34,6 @@ export default function AppHeader({
       </div>
 
       <div className="topbar-right">
-        <button
-          className="mini-btn icon-only"
-          onClick={onOpenAppearance}
-          title="Appearance"
-          aria-label="Appearance"
-          data-testid="appearance-open"
-        >
-          <Icon name="palette" size={14} />
-        </button>
-        <button
-          className="mini-btn icon-only"
-          onClick={onOpenSettings}
-          title="Network settings"
-          aria-label="Network settings"
-          data-testid="settings-open"
-        >
-          <Icon name="gear" size={14} />
-        </button>
-        <button className="mini-btn icon-text" onClick={onOpenCookies} title="View stored cookies">
-          <Icon name="cookie" size={14} /> Cookies
-        </button>
-        <button
-          className="mini-btn icon-text"
-          onClick={onOpenMock}
-          title="Mock server"
-          aria-label="Mock server"
-          data-testid="mock-open"
-        >
-          <Icon name="globe" size={14} /> Mock
-        </button>
         <EnvBar
           environments={store.environments}
           activeEnvId={store.activeEnvId}
@@ -72,6 +42,43 @@ export default function AppHeader({
           globals={store.globals}
           onChangeGlobals={store.setGlobals}
         />
+        <span className="topbar-divider" aria-hidden="true" />
+        <button
+          className="mini-btn icon-only"
+          onClick={onOpenCookies}
+          title="Cookies"
+          aria-label="Cookies"
+          data-testid="cookies-open"
+        >
+          <Icon name="cookie" size={15} />
+        </button>
+        <button
+          className="mini-btn icon-only"
+          onClick={onOpenMock}
+          title="Mock server"
+          aria-label="Mock server"
+          data-testid="mock-open"
+        >
+          <Icon name="globe" size={15} />
+        </button>
+        <button
+          className="mini-btn icon-only"
+          onClick={onOpenAppearance}
+          title="Appearance"
+          aria-label="Appearance"
+          data-testid="appearance-open"
+        >
+          <Icon name="palette" size={15} />
+        </button>
+        <button
+          className="mini-btn icon-only"
+          onClick={onOpenSettings}
+          title="Network settings"
+          aria-label="Network settings"
+          data-testid="settings-open"
+        >
+          <Icon name="gear" size={15} />
+        </button>
       </div>
     </header>
   );

@@ -1,16 +1,36 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { newEnvironment } from '../lib/factory.js';
 import KeyValueEditor from './KeyValueEditor.jsx';
 import Icon from './Icon.jsx';
 import { useDialogs } from './Dialogs.jsx';
 
-// Environment selector + a popover editor for the active environment's
-// variables. Variables are referenced in requests as {{name}}.
+// Compact environment switcher: one pill in the header opens a menu with the
+// environment list plus management actions. Editing still happens in the
+// inline popover so the header stays uncluttered (Postman keeps these actions
+// in a dropdown for the same reason).
 export default function EnvBar({ environments, activeEnvId, onSelect, onChange, globals, onChangeGlobals }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editingGlobals, setEditingGlobals] = useState(false);
+  const rootRef = useRef(null);
   const dialogs = useDialogs();
   const active = environments.find((e) => e.id === activeEnvId) || null;
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onPointerDown = (event) => {
+      if (rootRef.current && !rootRef.current.contains(event.target)) setMenuOpen(false);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
 
   async function addEnv() {
     const name = await dialogs.prompt('Environment name', 'New Environment', {
@@ -45,44 +65,90 @@ export default function EnvBar({ environments, activeEnvId, onSelect, onChange, 
   }
 
   return (
-    <div className="envbar">
-      <select
-        className="env-select"
-        value={activeEnvId || ''}
-        onChange={(e) => onSelect(e.target.value || null)}
-      >
-        <option value="">No Environment</option>
-        {environments.map((e) => (
-          <option key={e.id} value={e.id}>
-            {e.name}
-          </option>
-        ))}
-      </select>
-      <button className="mini-btn" onClick={addEnv} title="New environment">
-        + New
-      </button>
-      {active && (
-        <button
-          className="mini-btn icon-text"
-          onClick={() => {
-            setEditingGlobals(false);
-            setEditing((v) => !v);
-          }}
-          title="Edit environment variables"
-        >
-          <Icon name="gear" size={13} /> Edit
-        </button>
-      )}
+    <div className="envbar" ref={rootRef}>
       <button
-        className="mini-btn icon-text"
-        onClick={() => {
-          setEditing(false);
-          setEditingGlobals((v) => !v);
-        }}
-        title="Edit global variables"
+        type="button"
+        className="env-trigger"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        title="Select or manage environments"
+        data-testid="env-trigger"
       >
-        <Icon name="globe" size={13} /> Globals
+        <Icon name="globe" size={13} />
+        <span className="env-trigger-label">{active ? active.name : 'No Environment'}</span>
+        <Icon name="chevronDown" size={12} />
       </button>
+
+      {menuOpen && (
+        <div className="env-menu" role="menu" data-testid="env-menu">
+          <button
+            type="button"
+            role="menuitem"
+            className={`env-menu-item ${!activeEnvId ? 'active' : ''}`}
+            onClick={() => {
+              onSelect(null);
+              setMenuOpen(false);
+            }}
+          >
+            <span className="env-menu-name">No Environment</span>
+            {!activeEnvId && <Icon name="check" size={13} />}
+          </button>
+          {environments.map((env) => (
+            <button
+              key={env.id}
+              type="button"
+              role="menuitem"
+              className={`env-menu-item ${env.id === activeEnvId ? 'active' : ''}`}
+              onClick={() => {
+                onSelect(env.id);
+                setMenuOpen(false);
+              }}
+            >
+              <span className="env-menu-name">{env.name}</span>
+              {env.id === activeEnvId && <Icon name="check" size={13} />}
+            </button>
+          ))}
+          <div className="env-menu-sep" />
+          <button
+            type="button"
+            role="menuitem"
+            className="env-menu-item"
+            onClick={() => {
+              setMenuOpen(false);
+              addEnv();
+            }}
+          >
+            New environment…
+          </button>
+          {active && (
+            <button
+              type="button"
+              role="menuitem"
+              className="env-menu-item"
+              onClick={() => {
+                setMenuOpen(false);
+                setEditingGlobals(false);
+                setEditing(true);
+              }}
+            >
+              Edit variables
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            className="env-menu-item"
+            onClick={() => {
+              setMenuOpen(false);
+              setEditing(false);
+              setEditingGlobals(true);
+            }}
+          >
+            Global variables
+          </button>
+        </div>
+      )}
 
       {editingGlobals && (
         <div className="env-popover">

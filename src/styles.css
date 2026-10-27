@@ -635,23 +635,91 @@ body {
   gap: 6px;
   position: relative;
 }
-.env-select {
+.env-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 220px;
   background: var(--bg-3);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 5px 8px;
-  border-radius: 4px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.env-trigger:hover {
+  border-color: var(--border-strong);
+}
+.env-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.env-trigger > .icon:last-child {
+  color: var(--text-dim);
+}
+.env-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 250px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+}
+.env-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.env-menu-item:hover {
+  background: var(--hover);
+}
+.env-menu-item.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+.env-menu-item > .icon {
+  margin-left: auto;
+}
+.env-menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.env-menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
 }
 .env-popover {
   position: absolute;
   top: 38px;
   right: 0;
   width: 420px;
-  background: var(--bg-2);
+  background: var(--bg-elev);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow);
   z-index: 50;
 }
 .env-popover-head {
@@ -2391,9 +2459,12 @@ body {
   outline-offset: 2px;
 }
 
-/* Header: flat surface + hairline instead of a baked gradient. */
+/* Header: flat surface + hairline instead of a baked gradient. It also needs
+   its own stacking context so header dropdowns (environments, workspace) paint
+   above the request panel; without it the pane's URL input showed through. */
 .topbar {
-  backdrop-filter: saturate(140%) blur(8px);
+  position: relative;
+  z-index: 20;
 }
 .topbar .brand {
   letter-spacing: -0.3px;
@@ -2404,6 +2475,23 @@ body {
 }
 .mini-btn:hover {
   border-color: var(--border-strong);
+}
+.topbar-right {
+  gap: 8px;
+}
+.topbar-divider {
+  flex: none;
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+}
+.mini-btn.icon-only {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+.icon-only > .icon {
+  pointer-events: none;
 }
 
 /* Tabs: soft accent tint on the active tab, hover feedback on the rest. */
