@@ -35,6 +35,18 @@ export default defineConfig({
       {
         // Main process: owns windows + the HTTP request engine.
         entry: 'electron/main.js',
+        vite: {
+          define: {
+            // ws optionally requires the native addons `bufferutil` and
+            // `utf-8-validate` inside try/catch. When bundled, Vite replaces
+            // those require()s with a generated shim that throws at module
+            // load, so the dev build crashed before ws could fall back.
+            // These are the switches ws documents for bundlers: they remove
+            // the optional requires entirely (the JS implementations are used).
+            'process.env.WS_NO_BUFFER_UTIL': '"true"',
+            'process.env.WS_NO_UTF_8_VALIDATE': '"true"',
+          },
+        },
       },
     ]),
     renderer(),
