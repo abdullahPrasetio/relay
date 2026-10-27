@@ -135,8 +135,19 @@ export default function CodeEditor({
 
   function handleMount(editor, monacoApi) {
     monacoRef.current = monacoApi;
-    defineTheme(monacoApi);
-    monacoApi.editor.setTheme('rest-tamer-dark');
+    defineMonacoThemes(monacoApi);
+    monacoApi.editor.setTheme(monacoThemeName());
+    // Follow the app theme: switching mode/accent re-defines the Monaco theme
+    // from the live CSS tokens, so the editor matches the rest of the UI.
+    const themeObserver = new MutationObserver(() => {
+      defineMonacoThemes(monacoApi);
+      monacoApi.editor.setTheme(monacoThemeName());
+    });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'data-accent'],
+    });
+    editor.onDidDispose(() => themeObserver.disconnect());
     registerVarHover(monacoApi);
     applyVarDecorations(editor, monacoApi);
     editor.onDidChangeModelContent(() => applyVarDecorations(editor, monacoApi));
@@ -167,11 +178,20 @@ export default function CodeEditor({
   );
 }
 
-let themeDefined = false;
-function defineTheme(monacoApi) {
-  if (themeDefined) return;
-  themeDefined = true;
-  monacoApi.editor.defineTheme('rest-tamer-dark', {
+function resolvedToken(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function monacoThemeName() {
+  return document.documentElement.dataset.theme === 'light' ? 'relay-light' : 'relay-dark';
+}
+
+// Both themes are derived from the live CSS tokens so the editor follows the
+// appearance setting instead of being permanently dark.
+function defineMonacoThemes(monacoApi) {
+  const accent = resolvedToken('--accent', '#ff6c37');
+  monacoApi.editor.defineTheme('relay-dark', {
     base: 'vs-dark',
     inherit: true,
     rules: [
@@ -181,11 +201,28 @@ function defineTheme(monacoApi) {
       { token: 'keyword', foreground: 'a371f7' },
     ],
     colors: {
-      'editor.background': '#1b1d1f',
+      'editor.background': resolvedToken('--bg-2', '#161a21'),
       'editorLineNumber.foreground': '#5a6166',
       'editorLineNumber.activeForeground': '#9aa3aa',
-      'editor.lineHighlightBackground': '#23262a',
-      'editorCursor.foreground': '#ff6c37',
+      'editor.lineHighlightBackground': resolvedToken('--bg-3', '#1e2430'),
+      'editorCursor.foreground': accent,
+    },
+  });
+  monacoApi.editor.defineTheme('relay-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [
+      { token: 'string.key.json', foreground: '2b6cb0' },
+      { token: 'string.value.json', foreground: '15803d' },
+      { token: 'number', foreground: 'b45309' },
+      { token: 'keyword', foreground: '7c3aed' },
+    ],
+    colors: {
+      'editor.background': resolvedToken('--bg-2', '#ffffff'),
+      'editorLineNumber.foreground': '#9aa3b2',
+      'editorLineNumber.activeForeground': '#4b5563',
+      'editor.lineHighlightBackground': resolvedToken('--bg-3', '#f0f2f7'),
+      'editorCursor.foreground': accent,
     },
   });
 }

@@ -5,7 +5,15 @@ import Icon from './Icon.jsx';
 
 // Top application bar: brand, a centered (decorative) search field, and the
 // environment selector on the right -- echoing Postman's header layout.
-export default function AppHeader({ store, searchQuery, onSearch, onOpenCookies, onOpenMock, onOpenSettings }) {
+export default function AppHeader({
+  store,
+  searchQuery,
+  onSearch,
+  onOpenCookies,
+  onOpenMock,
+  onOpenSettings,
+  onOpenAppearance,
+}) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -26,6 +34,15 @@ export default function AppHeader({ store, searchQuery, onSearch, onOpenCookies,
       </div>
 
       <div className="topbar-right">
+        <button
+          className="mini-btn icon-only"
+          onClick={onOpenAppearance}
+          title="Appearance"
+          aria-label="Appearance"
+          data-testid="appearance-open"
+        >
+          <Icon name="palette" size={14} />
+        </button>
         <button
           className="mini-btn icon-only"
           onClick={onOpenSettings}

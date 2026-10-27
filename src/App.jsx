@@ -20,11 +20,13 @@ import SetVariableModal from './components/SetVariableModal.jsx';
 import CookiesModal from './components/CookiesModal.jsx';
 import MockServerModal from './components/MockServerModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
+import AppearanceModal from './components/AppearanceModal.jsx';
 import RequestSettingsModal from './components/RequestSettingsModal.jsx';
 import { VarContext } from './components/VarContext.jsx';
 import { useDialogs } from './components/Dialogs.jsx';
 import { useStore } from './lib/useStore.js';
 import { useNetworkSettings } from './lib/useNetworkSettings.js';
+import { useAppearance } from './lib/useAppearance.js';
 import { newRequest, normalizeRequest, uid } from './lib/factory.js';
 import { isWebSocket, isMqtt, isSocketIo, isGrpc, isGrpcTls } from './lib/protocol.js';
 import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from './lib/variables.js';
@@ -211,6 +213,7 @@ function isPristineTab(tab) {
 export default function App() {
   const store = useStore();
   const network = useNetworkSettings();
+  const appearance = useAppearance();
   const dialogs = useDialogs();
   const [tabs, setTabs] = useState(() => [newTab()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0].tabId);
@@ -226,6 +229,7 @@ export default function App() {
   const [cookiesOpen, setCookiesOpen] = useState(false);
   const [mockOpen, setMockOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [requestSettingsOpen, setRequestSettingsOpen] = useState(false);
 
   // Session restore waits for the store: tab requests that live in a
@@ -1705,6 +1709,7 @@ export default function App() {
         onOpenCookies={() => setCookiesOpen(true)}
         onOpenMock={() => setMockOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenAppearance={() => setAppearanceOpen(true)}
       />
 
       {store.saveError && (
@@ -1890,6 +1895,14 @@ export default function App() {
           networkSettings={network.settings}
           onChange={(settings) => setActiveRequest({ ...activeTab.request, settings })}
           onClose={() => setRequestSettingsOpen(false)}
+        />
+      )}
+
+      {appearanceOpen && (
+        <AppearanceModal
+          appearance={appearance.appearance}
+          onChange={appearance.update}
+          onClose={() => setAppearanceOpen(false)}
         />
       )}
 

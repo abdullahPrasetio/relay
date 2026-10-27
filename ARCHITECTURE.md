@@ -286,6 +286,33 @@ entitlements macOS; tanpa secrets build tetap unsigned dan auto-update macOS
 tidak bisa dipasang (Squirrel.Mac butuh app bertanda tangan). Runbook:
 `RELEASING.md`.
 
+## Tema dan preferensi tampilan
+
+Renderer memakai satu set token semantik di `src/styles.css`: `:root` adalah
+palet gelap, `[data-theme='light']` menimpa token yang sama, dan
+`[data-accent='<id>']` hanya mengganti tiga variabel aksen (`--accent`,
+`--accent-2`, `--accent-rgb`). Tidak ada komponen yang menyimpan warna sendiri.
+
+- `src/lib/theme.js` — model preferensi (`mode`: system/light/dark, `accent`),
+  normalisasi, resolusi mode sistem, dan penerapan ke `<html>`.
+- `src/lib/useAppearance.js` — hook yang menyimpan pilihan ke
+  `localStorage['relay-appearance']` dan mengikuti perubahan OS saat mode
+  `system`.
+- `src/components/AppearanceModal.jsx` — dialog Appearance (segmented mode +
+  swatch 8 aksen); swatch memakai `data-accent` sehingga mempreview palet nyata
+  tanpa menduplikasi warna.
+- `public/theme-boot.js` — skrip klasik yang dijalankan sebelum paint untuk
+  memasang `data-theme`/`data-accent` (menghindari flash). Sesuai CSP
+  `script-src 'self'`; warna tetap hanya ada di CSS.
+- Monaco tidak lagi hardcoded gelap: `CodeEditor` mendefinisikan tema
+  `relay-dark`/`relay-light` dari token CSS yang sedang aktif dan beralih lewat
+  `MutationObserver` pada `data-theme`/`data-accent`.
+
+Layout panel juga diperbaiki di lapisan CSS: `.split-top`/`.split-bottom`
+adalah flex column dan anaknya `flex: 1`, sehingga panel response mengisi
+pane; rantai `.response-tab-content` → `.response-body-wrap` → `.response-editor`
+memakai `flex: 1; min-height: 0` agar editor tidak kolaps.
+
 ## Runtime script
 
 Script pre-request/test dijalankan di main, di dalam sandbox
