@@ -20,10 +20,20 @@ Status: **draft disetujui, belum ada kode backend**. Dokumen ini adalah rencana 
 | D2 | Sinkronisasi per **entity** (`rev`, `entity_changes.seq`), bukan satu dokumen workspace | Konflik bisa diselesaikan per request/folder |
 | D3 | Tanpa CRDT/OT; konflik per field + banner “diubah anggota lain” | Biaya perawatan besar, nilai kecil untuk API client |
 | D4 | Secret tidak disinkronkan di v1 (per-device); opsional E2E workspace key di fase 4 | Konsisten dengan ADR-3 dan export Git yang sudah ada |
-| D5 | Auth memakai yang sudah ada di wapgo: JWT access 15 m + refresh, bcrypt, Google OAuth | Hemat waktu; refresh disimpan di Postgres, bukan hanya Redis |
+| D5 | Auth memakai yang sudah ada di wapgo: JWT access 15 m + refresh rotasi dengan grace 120 dtk, bcrypt, Google OAuth | Refresh disimpan di Postgres, bukan Redis. Grace mencegah lockout saat respons refresh hilang di jaringan buruk |
 | D6 | Monitor dijalankan worker Node berbasis `packages/core`, dikelola queue Postgres | Semantik proxy/TLS/cookie identik dengan app |
 | D7 | Realtime: SSE + `LISTEN/NOTIFY` untuk sinyal perubahan; presence lewat tabel heartbeat | Tanpa Redis/WebSocket untuk v1 |
 | D8 | Otorisasi di layer query (join `workspace_members`), bukan middleware role global | Mencegah IDOR antar workspace |
+| D9 | Login **tidak wajib**; app selalu bisa dipakai lokal. Backend mati = mode offline, bukan logout | Server/DB down tidak boleh memblokir pekerjaan |
+| D10 | Push bersifat idempoten lewat `opId` (dedupe di server) | Retry setelah timeout tidak menghasilkan konflik palsu |
+
+### 1.1 Infra minimal (tanpa Redis)
+
+Deployment v1 cukup **Go API + Postgres**; S3 hanya jika artefak monitor ingin disimpan di object storage (alternatif: disk lokal/volume). Tidak ada Redis, Kafka, RabbitMQ.
+
+- `REDIS_URL` opsional: tanpa itu, rate limit berjalan in-memory per instance dan cache di-skip.
+- `LISTEN/NOTIFY`, advisory lock, queue River, sesi, dan presence semuanya di Postgres.
+- Konsekuensi: rate limit tidak akurat lintas instance. Selama v1 berjalan satu instance (atau limit login ditaruh di edge), ini aman.
 
 ---
 
@@ -57,6 +67,8 @@ create table sessions (
   user_id uuid not null references users(id) on delete cascade,
   device_label text not null default '',
   refresh_hash text not null unique,  -- sha256(refresh token)
+  prev_hash text,                     -- grace: token sebelumnya
+  prev_expires_at timestamptz,        -- grace berakhir
   expires_at timestamptz not null,
   revoked_at timestamptz,
   created_at timestamptz not null default now(),
@@ -102,6 +114,17 @@ create table entity_changes (
   deleted boolean not null
 );
 create index entity_changes_pull on entity_changes (workspace_id, seq);
+
+-- Idempotensi push: retry dengan opId sama tidak diterapkan dua kali.
+create table entity_ops (
+  workspace_id uuid not null references workspaces(id) on delete cascade,
+  op_id text not null,                -- uuid dari klien
+  entity_id text not null,
+  rev bigint not null,
+  result jsonb not null,              -- {applied:true} / {conflict:true, server:{...}}
+  created_at timestamptz not null default now(),
+  primary key (workspace_id, op_id)
+);
 
 create table invites (
   id uuid primary key,
@@ -171,7 +194,7 @@ Base path: `/api/v1`. Semua endpoint workspace wajib memvalidasi membership + ro
 | Method | Path | Body / query | Response |
 |---|---|---|---|
 | POST | `/auth/login` | `{email, password, deviceLabel}` | `{accessToken, refreshToken, user}` |
-| POST | `/auth/refresh` | `{refreshToken, deviceLabel}` | pair baru (rotasi; reuse → 401) |
+| POST | `/auth/refresh` | `{refreshToken, deviceLabel}` | pair baru (rotasi). Token lama diterima sekali dalam grace 120 dtk dan mengembalikan pasangan yang sama; reuse setelah grace → 401 + revoke family |
 | POST | `/auth/logout` | `{refreshToken}` | `204` |
 | GET | `/auth/devices` | — | daftar sesi aktif |
 | DELETE | `/auth/devices/{id}` | — | `204` (revoke) |
@@ -186,7 +209,7 @@ Base path: `/api/v1`. Semua endpoint workspace wajib memvalidasi membership + ro
 | PATCH | `/workspaces/{id}/members/{userId}` | `{role}` | anggota |
 | DELETE | `/workspaces/{id}/members/{userId}` | — | `204` |
 | GET | `/workspaces/{id}/changes` | `?since=<seq>&limit=500` | `{changes: [{id,kind,rev,deleted,payload,parentId,orderKey}], nextSeq, hasMore}` |
-| POST | `/workspaces/{id}/changes` | `{changes: [{id,kind,baseRev,payload,parentId,orderKey,deleted}]}` | `{applied[], conflicts[], serverSeq}` |
+| POST | `/workspaces/{id}/changes` | `{changes: [{opId, id, kind, baseRev, payload, parentId, orderKey, deleted}]}` | `{results: [{opId, applied, conflict?, server?}], serverSeq}` |
 | GET | `/workspaces/{id}/stream` | SSE; `Last-Event-ID` = seq | event `{seq}` per perubahan |
 | POST | `/workspaces/{id}/presence` | `{entityId}` | `204` |
 | GET | `/workspaces/{id}/audit` | `?before=` | daftar audit (admin+) |
@@ -196,6 +219,7 @@ Base path: `/api/v1`. Semua endpoint workspace wajib memvalidasi membership + ro
 
 Semantik konflik `POST /changes`:
 
+- `opId` disimpan di `entity_ops`. Jika `opId` sudah ada, server mengembalikan hasil tersimpan tanpa menerapkan ulang; ini membuat retry setelah timeout aman.
 - `baseRev === entities.rev` → apply, `rev+1`, append `entity_changes`.
 - `baseRev !== rev` → server mengembalikan `{id, server: {rev, payload}, conflict: true}`; client melakukan merge per field atau menampilkan dialog.
 - `deleted: true` dengan `baseRev` cocok → tombstone.
@@ -203,7 +227,36 @@ Semantik konflik `POST /changes`:
 
 ---
 
-## 5. Langkah kerja per fase
+## 5. Perilaku saat backend tidak tersedia
+
+Login hanya diperlukan untuk fitur cloud. Tanpa login, app tetap menjadi API client lokal penuh; server mati tidak boleh memblokir pekerjaan.
+
+| Kejadian | Perilaku app | Data/token |
+|---|---|---|
+| Belum pernah login | Semua fitur lokal berjalan | File lokal |
+| Server mati saat startup | Load lokal, banner “Offline”, tanpa modal blokir | File lokal |
+| Edit saat offline | Simpan lokal, masukkan queue (`entity`, `baseRev`, `opId`) | Queue persisten |
+| Access token kedaluwarsa saat offline | Tetap offline tanpa loop refresh; retry backoff 1 dtk → 60 dtk + jitter | Token tidak dihapus |
+| Refresh gagal karena jaringan | Dianggap offline, **bukan** logout | Token dipertahankan |
+| Refresh 401 `invalid_grant`/revoked | Minta login ulang; queue tetap | Data lokal utuh |
+| Server kembali | Flush queue berurutan, lalu pull delta, selesaikan konflik | Queue kosong |
+| Respons push hilang setelah server commit | Retry `opId` sama → hasil tersimpan, tidak dobel | — |
+| Respons refresh hilang setelah rotasi | Token lama diterima dalam grace 120 dtk dan mengembalikan pasangan yang sama | Tidak logout |
+| 403 akses workspace dicabut | Sync berhenti; lokal jadi read-only + banner; export tetap jalan | Data lokal tidak dihapus |
+| 5xx | Retry backoff; tidak menandai gagal permanen | — |
+| 4xx validasi | Tandai item gagal beserta alasan; data lokal tetap | — |
+| Monitor | Tidak berjalan saat server mati (server-side); run tertinggal dieksekusi setelah hidup | — |
+
+Aturan implementasi:
+
+- Error jaringan **tidak boleh** menghapus token atau data lokal; hanya 401 `invalid_grant`/revoked yang memicu login ulang.
+- Refresh **single-flight**: satu refresh berjalan, request lain menunggu, agar rotasi tidak balapan.
+- Queue dipersist memakai atomic write yang sudah ada (`electron/store.js`).
+- Indikator status: `Local only`, `Synced`, `Offline (N pending)`, `Conflict`, `Signed out`.
+
+---
+
+## 6. Langkah kerja per fase
 
 Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
 
@@ -230,12 +283,12 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
   - Test: unit usecase (mock repo) + integration Postgres (testcontainers/compose) untuk insert/update/rev.
 - [ ] **1.3** Endpoint workspace CRUD + attach workspace lokal (id mapping).
   - Test: buat workspace → owner otomatis member role owner; IDOR: workspace orang lain → 404.
-- [ ] **1.4** Delta push/pull (`/changes`) + transaksi `entity_changes`.
-  - Test: push batch campuran create/update/delete; pull cursor konsisten; `baseRev` salah → conflict.
-- [ ] **1.5** Klien desktop: `src/lib/cloudSync.js` (queue, retry, cursor persist di store), tombol “Connect to cloud” di WorkspaceSwitcher.
-  - Test: unit queue (offline → reconnect), e2e dua instance app dengan userData berbeda + satu server.
-- [ ] **1.6** Auth klien: login browser PKCE loopback, token di `safeStorage`, kelola perangkat.
-  - Test: e2e login/logout; refresh rotation; revoke device membuat request 401.
+- [ ] **1.4** Delta push/pull (`/changes`, `entity_ops` dedupe) + transaksi `entity_changes`.
+  - Test: push batch campuran create/update/delete; pull cursor konsisten; `baseRev` salah → conflict; retry `opId` sama tidak menerapkan dua kali.
+- [ ] **1.5** Klien desktop: `src/lib/cloudSync.js` (queue persisten, retry backoff, cursor), tombol “Connect to cloud” di WorkspaceSwitcher, indikator status sync.
+  - Test: unit queue (offline → reconnect); server dimatikan setelah login → edit tetap tersimpan dan terkirim saat server hidup; e2e dua instance app dengan userData berbeda + satu server.
+- [ ] **1.6** Auth klien: login browser PKCE loopback, token di `safeStorage`, refresh single-flight + grace, kelola perangkat.
+  - Test: e2e login/logout; rotasi refresh; refresh saat jaringan putus tidak menghapus token; revoke device membuat request 401.
 - [ ] **1.7** Migrasi data lokal → cloud (workspace attach) idempoten.
   - Test: attach dua kali tidak menduplikasi entity; payload round-trip sama dengan export Git.
 
@@ -282,7 +335,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 
 ---
 
-## 6. Checklist status keseluruhan
+## 7. Checklist status keseluruhan
 
 ### Sudah dikerjakan dan teruji (app, bukan backend)
 
@@ -310,32 +363,33 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 
 ---
 
-## 7. Test matrix
+## 8. Test matrix
 
 | Lapisan | Perintah | Cakupan |
 |---|---|---|
 | Backend unit | `go test ./...` | usecase/handler/repo (mock) |
-| Backend integrasi | `go test -tags=integration ./internal/integration/...` | Postgres + Redis via compose |
+| Backend integrasi | `go test -tags=integration ./internal/integration/...` | Postgres (tanpa Redis) + Redis opsional via compose |
 | Backend statis | `golangci-lint run`, `gosec -severity medium -confidence medium ./...` | lint + security |
-| App unit | `npm test` | 568 test |
+| App unit | `npm test` | 568 test; tambah queue sync, backoff, single-flight refresh |
 | App e2e | `npx playwright test` | 19 test; tambah sync 2 instance, invite, konflik, presence |
+| Degraded mode | e2e dengan server dimatikan/dihidupkan | offline edit→reconnect, retry `opId`, refresh grace, 403 workspace dicabut |
 | Build | `npm run dist` / `dist:win` / `dist:linux` | installer 3 OS |
 
 Aturan: setiap langkah di atas wajib menambah test yang gagal sebelum implementasi dan lulus sesudahnya. Test wiring/echo mock tidak dihitung.
 
 ---
 
-## 8. Definition of done per fase
+## 9. Definition of done per fase
 
-**Fase 1:** dua instance app (user sama, device berbeda) berbagi workspace; edit di A muncul di B setelah reconnect; tidak ada duplikasi entity saat attach; token bisa direvoke.
+**Fase 1:** dua instance app (user sama, device berbeda) berbagi workspace; edit di A muncul di B setelah reconnect; tidak ada duplikasi entity saat attach; token bisa direvoke; **server dimatikan setelah login → app tetap penuh, edit masuk queue, dan tersinkron saat server hidup tanpa konflik palsu**; refresh gagal jaringan tidak membuat logout.
 
-**Fase 2:** user B menerima invite dan mengedit; user C (viewer) tidak bisa mengubah; perubahan A tampil di B < 2 dtk; konflik field sama memunculkan dialog; audit mencatat semua aksi sensitif; tidak ada kebocoran data antar workspace.
+**Fase 2:** user B menerima invite dan mengedit; user C (viewer) tidak bisa mengubah; perubahan A tampil di B < 2 dtk; konflik field sama memunculkan dialog; audit mencatat semua aksi sensitif; tidak ada kebocoran data antar workspace; workspace yang aksesnya dicabut menjadi read-only lokal tanpa menghapus data.
 
 **Fase 3:** monitor berjalan sesuai cron, riwayat tersimpan, alert terkirim sekali per transisi, worker restart tidak menggandakan run.
 
 ---
 
-## 9. Risiko
+## 10. Risiko
 
 | Risiko | Mitigasi |
 |---|---|
@@ -348,7 +402,7 @@ Aturan: setiap langkah di atas wajib menambah test yang gagal sebelum implementa
 
 ---
 
-## 10. Cara mulai
+## 11. Cara mulai
 
 ```bash
 # backend
