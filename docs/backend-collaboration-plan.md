@@ -35,6 +35,28 @@ Deployment v1 cukup **Go API + Postgres**; S3 hanya jika artefak monitor ingin d
 - `LISTEN/NOTIFY`, advisory lock, queue River, sesi, dan presence semuanya di Postgres.
 - Konsekuensi: rate limit tidak akurat lintas instance. Selama v1 berjalan satu instance (atau limit login ditaruh di edge), ini aman.
 
+### 1.2 Topologi repo
+
+| Repo | Isi | Artefak rilis |
+|---|---|---|
+| `relay` (repo ini) | Electron + React, engine JS lokal, installer | Artifact/release 3 OS |
+| `wapgo` | Scaffold Go (root + CLI + skeleton) | Tag release CLI |
+| `relay-api` (**baru**) | Service Go: auth, workspace, sync, monitor worker | Image OCI + job `make migrate` |
+| Kontrak | `relay-api/openapi.yaml` + fixture workspace JSON dari app | — |
+
+Alasan dipisah: toolchain berbeda (Node vs Go), siklus rilis berbeda (installer vs image), CI berbeda (Playwright vs `go test`), dan repo backend bisa private tanpa mengunci app.
+
+**Penting:** `wapgo new` menyalin `cli/generator/templates/skeleton`, bukan root repo. Perbaikan Fase 0 di root (migrasi, SSRF) **tidak** otomatis ikut ke proyek baru. Dua jalur yang sah:
+
+1. Clone root `wapgo` pada commit yang sudah diperbaiki → repo `relay-api`, lalu trim `examples/`, `cli/`, `docs/` yang tidak dipakai.
+2. Port perbaikan ke skeleton (langkah 0.7), lalu `wapgo new relay-api --module github.com/.../relay-api`.
+
+Kontrak lintas repo:
+
+- OpenAPI dihasilkan backend (`swag init`) dan dipakai app sebagai acuan; perubahan breaking menaikkan `/api/v1` → `/api/v2`.
+- Bentuk entity workspace memakai JSON yang sudah ada; fixture hasil `gitWorkspace` export app disimpan di `relay-api/testdata/` dan dipakai test backend.
+- Migrasi, auth, sync, dan monitor **hanya** ada di `relay-api`; `wapgo` hanya berisi perbaikan scaffold generik.
+
 ---
 
 ## 2. Arsitektur target
@@ -262,11 +284,11 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
 
 ### Fase 0 — Perbaikan upstream wapgo (prasyarat)
 
-- [ ] **0.1** Implementasi runner migrasi nyata: `cmd/migrate` atau subcommand `migrate` (goose/golang-migrate), baca folder `migrations/`, advisory lock.
+- [x] **0.1** Implementasi runner migrasi nyata: `cmd/migrate` (golang-migrate) dengan SQL di-embed, advisory lock, dan target Makefile. *Selesai 2026-10-29; gate up/down lulus di Postgres 14.*
   - Test: `go run ./cmd/migrate up` menerapkan file di DB kosong; `down` mengembalikan; dijalankan dua kali tidak error.
-- [ ] **0.2** Matikan `AutoMigrate` default; `auto_migrate` hanya untuk dev.
+- [x] **0.2** `AutoMigrate` hanya untuk dev: default config `false`, API menolak `DB_AUTO_MIGRATE=true` saat `APP_ENV=production`. *Selesai 2026-10-29; start dengan auto-migrate off tidak membuat tabel.*
   - Test: start dengan `DB_AUTO_MIGRATE=false` tidak membuat tabel; migrasi eksplisit yang membuat.
-- [ ] **0.3** SSRF: validasi IP hasil resolusi di `net.Dialer.Control` + opsi `AllowPrivate` untuk self-host.
+- [x] **0.3** SSRF: resolusi DNS divalidasi lalu IP yang sama di-dial langsung (anti DNS rebinding) + opsi `AllowPrivate` untuk self-host. *Selesai 2026-10-29; test loopback/mixed-IP/resolver-once lulus.*
   - Test: hostname yang resolve ke `127.0.0.1` ditolak; `AllowPrivate=true` mengizinkan; redirect ke IP privat ditolak.
 - [ ] **0.4** Redis opsional: interface `Blacklist` + no-op, cache optional; sesi/refresh disimpan di Postgres.
   - Test: service start tanpa `REDIS_URL`; logout tetap merevoke token.
@@ -274,10 +296,12 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
   - Test: worker mengambil job `SKIP LOCKED`, retry tercatat, graceful shutdown.
 - [ ] **0.6** Rate limiter bersama (opsional Redis) + dokumentasi keterbatasan in-memory.
   - Test: dua instance berbagi kuota saat Redis aktif.
+- [x] **0.7** Port runner migrasi + SSRF dialer ke `cli/generator/templates/skeleton` (termasuk Makefile, go.mod, `.env.example`), agar `wapgo new` mewarisi perbaikan tanpa copy manual. *Selesai 2026-10-29; proyek hasil generate lulus build/test dan migrate up/down di Postgres.*
+  - Test: generate proyek baru di direktori sementara, `make migrate` berjalan, dan dial ke `127.0.0.1` diblokir secara default.
 
 ### Fase 1 — Auth + cloud sync per user (3–4 minggu)
 
-- [ ] **1.1** Scaffold service: `wapgo new relay-api --module github.com/abdullahPrasetio/relay-api`; trim Kafka/RabbitMQ/Filebeat.
+- [x] **1.1** Buat repo `relay-api` sesuai topologi 1.2; `wapgo new` dengan semua add-on off (tanpa Kafka/RabbitMQ/Filebeat). *Selesai 2026-10-29: `github.com/abdullahPrasetio/relay-api` @ `ae219fc`.*
   - Test: `go test ./...` hijau; `/health` 200; Docker image jalan sebagai nonroot.
 - [ ] **1.2** Domain `workspace`, `member`, `entity` + repository GORM; query sync memakai raw SQL.
   - Test: unit usecase (mock repo) + integration Postgres (testcontainers/compose) untuk insert/update/rev.
@@ -352,7 +376,11 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 
 ### Belum dikerjakan
 
-- [ ] Fase 0: perbaikan upstream wapgo (migrasi, SSRF, Redis opsional, scheduler, rate limit).
+- [ ] Fase 0 (sisa): Redis opsional, scheduler, rate limit.
+- [x] Fase 0.1–0.2 wapgo: runner migrasi SQL (`cmd/migrate`) + guard `AutoMigrate` (uji up/down Postgres 14).
+- [x] Fase 0.3 wapgo: SSRF cek IP hasil DNS di dialer + `AllowPrivate`.
+- [x] Fase 0.7 wapgo: perbaikan di-port ke skeleton; proyek hasil generate terverifikasi.
+- [x] Fase 1.1: repo `relay-api` dibuat dari scaffold (public, `main`).
 - [ ] Fase 1: auth + cloud sync per user.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
 - [ ] Fase 3: monitor terjadwal.
