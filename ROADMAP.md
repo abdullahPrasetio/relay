@@ -417,3 +417,8 @@ Aturan: setiap bug P0 yang diperbaiki harus menambah regression test; fixture im
 | Runner/report | `src/lib/runner.js`, `src/components/RunnerModal.jsx` |
 | Cookies/history/session | `electron/cookie-jar.js`, `src/components/CookiesModal.jsx`, `src/lib/useStore.js`, `src/App.jsx` |
 | Packaging/CI | `package.json`, `.github/workflows/`, `electron-builder` config |
+
+## Rencana backend + collaboration
+
+Pekerjaan backend (cloud sync, team workspace, monitor) tidak termasuk fase roadmap di atas dan dikerjakan setelah app stabil. Rencana langkah-demi-langkah, skema, kontrak API, dan checklist status ada di [`docs/backend-collaboration-plan.md`](docs/backend-collaboration-plan.md).
+

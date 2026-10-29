@@ -1,0 +1,362 @@
+# Backend + Collaboration — Implementation Plan
+
+Status: **draft disetujui, belum ada kode backend**. Dokumen ini adalah rencana eksekusi fase backend: cloud sync, team workspace, dan monitor. Referensi keputusan: `Relay/Backend plan (wapgo).md` dan `Relay/Keputusan desain.md` di vault Obsidian.
+
+| Item | Nilai |
+|---|---|
+| Repo app | `relay` (Electron + React) |
+| Repo backend | `github.com/abdullahPrasetio/wapgo` (scaffold Go, milik sendiri) |
+| Target v1 backend | Team workspace (L2): sync multi-device + invite + role + presence, bukan CRDT |
+| Infra | Postgres + S3-compatible; Redis opsional; tanpa Kafka/RabbitMQ |
+| Engine | JS (`packages/core`) tetap sumber eksekusi; Go hanya API/orchestrator |
+
+---
+
+## 1. Keputusan arsitektur
+
+| # | Keputusan | Alasan |
+|---|---|---|
+| D1 | Local-first dipertahankan; cloud adalah sinkronisasi, bukan sumber kebenaran tunggal | App tetap bisa dipakai offline |
+| D2 | Sinkronisasi per **entity** (`rev`, `entity_changes.seq`), bukan satu dokumen workspace | Konflik bisa diselesaikan per request/folder |
+| D3 | Tanpa CRDT/OT; konflik per field + banner “diubah anggota lain” | Biaya perawatan besar, nilai kecil untuk API client |
+| D4 | Secret tidak disinkronkan di v1 (per-device); opsional E2E workspace key di fase 4 | Konsisten dengan ADR-3 dan export Git yang sudah ada |
+| D5 | Auth memakai yang sudah ada di wapgo: JWT access 15 m + refresh, bcrypt, Google OAuth | Hemat waktu; refresh disimpan di Postgres, bukan hanya Redis |
+| D6 | Monitor dijalankan worker Node berbasis `packages/core`, dikelola queue Postgres | Semantik proxy/TLS/cookie identik dengan app |
+| D7 | Realtime: SSE + `LISTEN/NOTIFY` untuk sinyal perubahan; presence lewat tabel heartbeat | Tanpa Redis/WebSocket untuk v1 |
+| D8 | Otorisasi di layer query (join `workspace_members`), bukan middleware role global | Mencegah IDOR antar workspace |
+
+---
+
+## 2. Arsitektur target
+
+```mermaid
+flowchart LR
+  A["Relay desktop<br/>local-first"] -->|"REST delta sync + SSE"| B["Go API (wapgo)"]
+  B --> C[("Postgres")]
+  C -->|"LISTEN/NOTIFY"| B
+  B --> D["S3-compatible<br/>report/artefak"]
+  W["Worker monitor (Node)<br/>packages/core"] --> C
+  W --> E["Webhook / email alert"]
+```
+
+---
+
+## 3. Skema data inti
+
+```sql
+create table users (
+  id uuid primary key,
+  email text not null unique,
+  password_hash text,                 -- bcrypt; null untuk OAuth-only
+  display_name text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create table sessions (
+  id uuid primary key,
+  user_id uuid not null references users(id) on delete cascade,
+  device_label text not null default '',
+  refresh_hash text not null unique,  -- sha256(refresh token)
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz
+);
+
+create table workspaces (
+  id uuid primary key,
+  name text not null,
+  owner_id uuid not null references users(id),
+  created_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+create table workspace_members (
+  workspace_id uuid not null references workspaces(id) on delete cascade,
+  user_id uuid not null references users(id) on delete cascade,
+  role text not null check (role in ('owner','admin','editor','viewer')),
+  invited_by uuid references users(id),
+  created_at timestamptz not null default now(),
+  primary key (workspace_id, user_id)
+);
+
+create table entities (
+  workspace_id uuid not null references workspaces(id) on delete cascade,
+  id text not null,                   -- id lokal dari app (ws_/col_/req_/env_)
+  kind text not null check (kind in ('collection','request','environment','globals')),
+  parent_id text,
+  order_key text,                     -- fractional index untuk reorder
+  rev bigint not null default 1,
+  payload jsonb not null,
+  deleted_at timestamptz,
+  updated_by uuid not null,
+  updated_at timestamptz not null default now(),
+  primary key (workspace_id, id)
+);
+
+create table entity_changes (
+  seq bigint generated always as identity primary key,
+  workspace_id uuid not null references workspaces(id) on delete cascade,
+  entity_id text not null,
+  rev bigint not null,
+  deleted boolean not null
+);
+create index entity_changes_pull on entity_changes (workspace_id, seq);
+
+create table invites (
+  id uuid primary key,
+  workspace_id uuid not null references workspaces(id) on delete cascade,
+  role text not null check (role in ('admin','editor','viewer')),
+  token_hash text not null unique,
+  created_by uuid not null references users(id),
+  expires_at timestamptz not null,
+  accepted_at timestamptz,
+  accepted_by uuid references users(id)
+);
+
+create table presence (
+  workspace_id uuid not null,
+  user_id uuid not null,
+  entity_id text,
+  last_seen timestamptz not null,
+  primary key (workspace_id, user_id)
+);
+
+create table monitors (
+  id uuid primary key,
+  workspace_id uuid not null references workspaces(id) on delete cascade,
+  name text not null,
+  request_id text not null,           -- entity request yang dijalankan
+  cron text not null,                 -- mis. "*/5 * * * *"
+  enabled boolean not null default true,
+  alert_webhook text,
+  alert_email text,
+  next_run_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table monitor_runs (
+  id uuid primary key,
+  monitor_id uuid not null references monitors(id) on delete cascade,
+  started_at timestamptz not null,
+  finished_at timestamptz,
+  ok boolean,
+  status_code int,
+  duration_ms int,
+  error text,
+  assertion_failures int not null default 0,
+  artifact_url text
+);
+create index monitor_runs_lookup on monitor_runs (monitor_id, started_at desc);
+
+create table audit_events (
+  id bigint generated always as identity primary key,
+  workspace_id uuid not null,
+  actor_id uuid not null,
+  action text not null,
+  target text,
+  meta jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+```
+
+Catatan: `entities.payload` memakai bentuk node yang sudah ada di app (`src/lib/factory.js`), sehingga sync tidak memerlukan format baru.
+
+---
+
+## 4. Kontrak API
+
+Base path: `/api/v1`. Semua endpoint workspace wajib memvalidasi membership + role.
+
+| Method | Path | Body / query | Response |
+|---|---|---|---|
+| POST | `/auth/login` | `{email, password, deviceLabel}` | `{accessToken, refreshToken, user}` |
+| POST | `/auth/refresh` | `{refreshToken, deviceLabel}` | pair baru (rotasi; reuse → 401) |
+| POST | `/auth/logout` | `{refreshToken}` | `204` |
+| GET | `/auth/devices` | — | daftar sesi aktif |
+| DELETE | `/auth/devices/{id}` | — | `204` (revoke) |
+| POST | `/auth/oauth/google` | `{code, redirectUri, deviceLabel}` | pair token |
+| GET | `/workspaces` | — | daftar workspace + role |
+| POST | `/workspaces` | `{name}` | workspace baru |
+| PATCH | `/workspaces/{id}` | `{name}` | workspace |
+| DELETE | `/workspaces/{id}` | — | `204` (owner only) |
+| GET | `/workspaces/{id}/members` | — | daftar anggota |
+| POST | `/workspaces/{id}/invites` | `{role, expiresInHours}` | `{inviteUrl}` |
+| POST | `/invites/{token}/accept` | — | `{workspace, role}` |
+| PATCH | `/workspaces/{id}/members/{userId}` | `{role}` | anggota |
+| DELETE | `/workspaces/{id}/members/{userId}` | — | `204` |
+| GET | `/workspaces/{id}/changes` | `?since=<seq>&limit=500` | `{changes: [{id,kind,rev,deleted,payload,parentId,orderKey}], nextSeq, hasMore}` |
+| POST | `/workspaces/{id}/changes` | `{changes: [{id,kind,baseRev,payload,parentId,orderKey,deleted}]}` | `{applied[], conflicts[], serverSeq}` |
+| GET | `/workspaces/{id}/stream` | SSE; `Last-Event-ID` = seq | event `{seq}` per perubahan |
+| POST | `/workspaces/{id}/presence` | `{entityId}` | `204` |
+| GET | `/workspaces/{id}/audit` | `?before=` | daftar audit (admin+) |
+| CRUD | `/workspaces/{id}/monitors` | monitor payload | monitor |
+| GET | `/monitors/{id}/runs` | `?limit=50` | riwayat run |
+| POST | `/workspaces/{id}/artifacts/presign` | `{name, contentType}` | `{uploadUrl, artifactUrl}` |
+
+Semantik konflik `POST /changes`:
+
+- `baseRev === entities.rev` → apply, `rev+1`, append `entity_changes`.
+- `baseRev !== rev` → server mengembalikan `{id, server: {rev, payload}, conflict: true}`; client melakukan merge per field atau menampilkan dialog.
+- `deleted: true` dengan `baseRev` cocok → tombstone.
+- Semua dalam satu transaksi per batch (atau per entity dengan partial success yang eksplisit).
+
+---
+
+## 5. Langkah kerja per fase
+
+Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
+
+### Fase 0 — Perbaikan upstream wapgo (prasyarat)
+
+- [ ] **0.1** Implementasi runner migrasi nyata: `cmd/migrate` atau subcommand `migrate` (goose/golang-migrate), baca folder `migrations/`, advisory lock.
+  - Test: `go run ./cmd/migrate up` menerapkan file di DB kosong; `down` mengembalikan; dijalankan dua kali tidak error.
+- [ ] **0.2** Matikan `AutoMigrate` default; `auto_migrate` hanya untuk dev.
+  - Test: start dengan `DB_AUTO_MIGRATE=false` tidak membuat tabel; migrasi eksplisit yang membuat.
+- [ ] **0.3** SSRF: validasi IP hasil resolusi di `net.Dialer.Control` + opsi `AllowPrivate` untuk self-host.
+  - Test: hostname yang resolve ke `127.0.0.1` ditolak; `AllowPrivate=true` mengizinkan; redirect ke IP privat ditolak.
+- [ ] **0.4** Redis opsional: interface `Blacklist` + no-op, cache optional; sesi/refresh disimpan di Postgres.
+  - Test: service start tanpa `REDIS_URL`; logout tetap merevoke token.
+- [ ] **0.5** Template worker scheduler (River) di `wapgo make:worker`.
+  - Test: worker mengambil job `SKIP LOCKED`, retry tercatat, graceful shutdown.
+- [ ] **0.6** Rate limiter bersama (opsional Redis) + dokumentasi keterbatasan in-memory.
+  - Test: dua instance berbagi kuota saat Redis aktif.
+
+### Fase 1 — Auth + cloud sync per user (3–4 minggu)
+
+- [ ] **1.1** Scaffold service: `wapgo new relay-api --module github.com/abdullahPrasetio/relay-api`; trim Kafka/RabbitMQ/Filebeat.
+  - Test: `go test ./...` hijau; `/health` 200; Docker image jalan sebagai nonroot.
+- [ ] **1.2** Domain `workspace`, `member`, `entity` + repository GORM; query sync memakai raw SQL.
+  - Test: unit usecase (mock repo) + integration Postgres (testcontainers/compose) untuk insert/update/rev.
+- [ ] **1.3** Endpoint workspace CRUD + attach workspace lokal (id mapping).
+  - Test: buat workspace → owner otomatis member role owner; IDOR: workspace orang lain → 404.
+- [ ] **1.4** Delta push/pull (`/changes`) + transaksi `entity_changes`.
+  - Test: push batch campuran create/update/delete; pull cursor konsisten; `baseRev` salah → conflict.
+- [ ] **1.5** Klien desktop: `src/lib/cloudSync.js` (queue, retry, cursor persist di store), tombol “Connect to cloud” di WorkspaceSwitcher.
+  - Test: unit queue (offline → reconnect), e2e dua instance app dengan userData berbeda + satu server.
+- [ ] **1.6** Auth klien: login browser PKCE loopback, token di `safeStorage`, kelola perangkat.
+  - Test: e2e login/logout; refresh rotation; revoke device membuat request 401.
+- [ ] **1.7** Migrasi data lokal → cloud (workspace attach) idempoten.
+  - Test: attach dua kali tidak menduplikasi entity; payload round-trip sama dengan export Git.
+
+Gate fase: `go test ./...`, integration Postgres, `npm test`, `npx playwright test`, e2e sync 2 instance.
+
+### Fase 2 — Team workspace (3–4 minggu)
+
+- [ ] **2.1** Invite link (token hash, expiry, single-use) + accept flow.
+  - Test: token kadaluarsa/terpakai ditolak; role sesuai; audit tercatat.
+- [ ] **2.2** Matriks izin + test IDOR untuk setiap endpoint.
+  - Test: viewer tidak bisa PATCH entity, editor tidak bisa invite, admin tidak bisa hapus workspace.
+- [ ] **2.3** UI anggota: daftar anggota, ubah role, hapus anggota; tab “Members” di modal workspace.
+  - Test: e2e invite → accept (instance kedua) → muncul di daftar.
+- [ ] **2.4** SSE stream + klien reconnect (`Last-Event-ID`), presence heartbeat 15 dtk.
+  - Test: edit di instance A → instance B menerima event dan menarik delta < 2 dtk; presence hilang setelah TTL.
+- [ ] **2.5** UI konflik: banner + dialog pilih local/server/patch manual.
+  - Test: dua edit field sama → dialog muncul; pilih server menimpa local; audit mencatat.
+- [ ] **2.6** Audit log (admin+) + UI sederhana.
+  - Test: invite/role/delete tercatat dengan actor dan target.
+
+Gate fase: seluruh matriks izin lulus, e2e invite + sync + presence, tidak ada data leak antar workspace (test dua workspace berbeda user).
+
+### Fase 3 — Monitor terjadwal (2–3 minggu)
+
+- [ ] **3.1** CRUD monitor + validasi cron + `next_run_at`.
+  - Test: cron invalid ditolak; perhitungan `next_run_at` diuji.
+- [ ] **3.2** Worker Node: ambil job dari Postgres (`FOR UPDATE SKIP LOCKED`), jalankan `packages/core`, tulis `monitor_runs`.
+  - Test: job sukses/gagal/retry; timeout; graceful shutdown; dua worker tidak double-run.
+- [ ] **3.3** Assertion hasil test script + klasifikasi ok/fail.
+  - Test: collection dengan test gagal → run `ok=false`, `assertion_failures>0`.
+- [ ] **3.4** Alert webhook + email (opsional), retry dengan backoff, dedupe.
+  - Test: webhook 500 → retry; alert hanya sekali per transisi status.
+- [ ] **3.5** UI monitor: daftar, toggle, riwayat run, grafik durasi sederhana.
+  - Test: e2e start monitor interval 1 menit (dengan clock inject) → run muncul.
+
+Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network internal (kecuali `AllowPrivate`).
+
+### Fase 4 — Opsional (3+ minggu)
+
+- [ ] **4.1** E2E secret sharing: kunci publik per device (X25519), data key workspace dibungkus per anggota, rotasi saat anggota keluar.
+  - Test: server tidak bisa dekripsi; anggota baru membuka secret setelah envelope dibagikan; anggota keluar kehilangan akses.
+- [ ] **4.2** Komentar/activity feed per request (thread, mention).
+- [ ] **4.3** (Evaluasi) live editing per field — hanya jika data menunjukkan kebutuhan.
+
+---
+
+## 6. Checklist status keseluruhan
+
+### Sudah dikerjakan dan teruji (app, bukan backend)
+
+- [x] Fase 0–6 roadmap app: network engine, auth, runtime sandbox, workflow, protokol, mock/docs/git workspace, signing pipeline.
+- [x] Unit test: 568 lulus / 41 file (`npm test`).
+- [x] E2E: 19 lulus (`npx playwright test`), termasuk sync sesi, quit handshake, tema, environment menu.
+- [x] Lint: 0 error; build produksi sukses.
+- [x] CI GitHub Actions 3 OS (`.github/workflows/build.yml`) hijau; artifact mac/win/linux terunggah.
+- [x] Tema System/Light/Dark + 8 aksen; Monaco mengikuti tema.
+- [x] Header ringkas: satu pill environment + menu, 4 tombol ikon.
+- [x] Perbaikan layout response pane (editor tidak kolaps) dan stacking dropdown header.
+- [x] Dev crash `bufferutil` diperbaiki (`WS_NO_BUFFER_UTIL`/`WS_NO_UTF_8_VALIDATE`).
+- [x] Evaluasi scaffold wapgo + rencana adaptasi (dokumen vault).
+
+### Belum dikerjakan
+
+- [ ] Fase 0: perbaikan upstream wapgo (migrasi, SSRF, Redis opsional, scheduler, rate limit).
+- [ ] Fase 1: auth + cloud sync per user.
+- [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
+- [ ] Fase 3: monitor terjadwal.
+- [ ] Fase 4: E2E secret sharing, komentar.
+- [ ] Rilis v1.0 app: merge PR stack + signed release + auto-update.
+- [ ] Hardening app Fase 8: token cache persisten, ekstraksi `packages/core` nyata, cookie jar per-run.
+- [ ] Cleanup chunk lama `dist-electron/`.
+
+---
+
+## 7. Test matrix
+
+| Lapisan | Perintah | Cakupan |
+|---|---|---|
+| Backend unit | `go test ./...` | usecase/handler/repo (mock) |
+| Backend integrasi | `go test -tags=integration ./internal/integration/...` | Postgres + Redis via compose |
+| Backend statis | `golangci-lint run`, `gosec -severity medium -confidence medium ./...` | lint + security |
+| App unit | `npm test` | 568 test |
+| App e2e | `npx playwright test` | 19 test; tambah sync 2 instance, invite, konflik, presence |
+| Build | `npm run dist` / `dist:win` / `dist:linux` | installer 3 OS |
+
+Aturan: setiap langkah di atas wajib menambah test yang gagal sebelum implementasi dan lulus sesudahnya. Test wiring/echo mock tidak dihitung.
+
+---
+
+## 8. Definition of done per fase
+
+**Fase 1:** dua instance app (user sama, device berbeda) berbagi workspace; edit di A muncul di B setelah reconnect; tidak ada duplikasi entity saat attach; token bisa direvoke.
+
+**Fase 2:** user B menerima invite dan mengedit; user C (viewer) tidak bisa mengubah; perubahan A tampil di B < 2 dtk; konflik field sama memunculkan dialog; audit mencatat semua aksi sensitif; tidak ada kebocoran data antar workspace.
+
+**Fase 3:** monitor berjalan sesuai cron, riwayat tersimpan, alert terkirim sekali per transisi, worker restart tidak menggandakan run.
+
+---
+
+## 9. Risiko
+
+| Risiko | Mitigasi |
+|---|---|
+| Kompleksitas konflik melebihi perkiraan | Batasi ke konflik per field untuk entity request; sisanya tombstone + dialog |
+| Kebocoran antar workspace (IDOR) | Test matriks izin per endpoint; query selalu join membership |
+| SSRF monitor | Dial-time IP check + allowlist/allow-private eksplisit |
+| Engine drift (Go vs JS) | Monitor memakai worker Node `packages/core`; conformance fixture bila kelak ada engine Go |
+| Biaya infra | Postgres managed kecil + S3; Redis opsional |
+| wapgo bug memblokir | Fase 0 diselesaikan lebih dulu, dengan test |
+
+---
+
+## 10. Cara mulai
+
+```bash
+# backend
+git clone https://github.com/abdullahPrasetio/wapgo
+cd wapgo && go run ./cmd/migrate up      # setelah Fase 0.1 selesai
+wapgo new relay-api --module github.com/abdullahPrasetio/relay-api
+
+# app
+cd /Users/temancode/Project/learn/postman-rea
+git checkout -b feat/backend-cloud-sync
+```
