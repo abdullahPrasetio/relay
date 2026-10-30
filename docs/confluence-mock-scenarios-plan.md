@@ -58,14 +58,17 @@ flowchart LR
 
 1. **Workspace → Confluence settings** (dari `WorkspaceSwitcher`):
    base URL, auth method (`Cloud` = email + API token, `Data Center` = PAT),
-   email, token (write-only), space key, parent page opsional, allow
-   self-signed TLS (default off, warning), tombol **Test connection**.
+   email, token (write-only), allow self-signed TLS (default off, warning),
+   tombol **Test connection**.
 2. **Collection kebab → Sync to Confluence**:
    - belum dikonfigurasi → arahkan ke settings;
    - sudah punya `confluencePageId` → tampilkan link dan status sync, opsi
      include examples, tombol **Update page**;
-   - belum punya page ID → field space key + parent page (opsional), tombol
-     **Create page**;
+   - belum punya page ID → mode **Update-only** tetap default: user paste
+     page ID halaman existing. **Create page** hanya aktif jika user mengisi
+     space key + parent page ID secara eksplisit;
+   - field **Page title** per collection (default nama collection), bisa
+     diubah; dicek unik dalam space sebelum publish;
    - hasil sukses menulis `confluencePageId`, `confluencePageUrl`,
      `confluenceSyncedAt` ke collection (non-secret) dan menampilkan link.
 3. **Conflict 409**: dialog “Page changed since last sync” dengan pilihan
@@ -82,8 +85,6 @@ confluenceByWorkspace: {
     baseUrl: 'https://org.atlassian.net/wiki',
     authMethod: 'cloud',        // 'cloud' | 'pat'
     email: 'dev@org.com',
-    spaceKey: 'DOCS',
-    parentPageId: '',
     allowInsecureTls: false,
     tokenEnc: '<safeStorage base64>',
     updatedAt: '...'
@@ -95,12 +96,17 @@ confluenceByWorkspace: {
   `confluence:get-config` mengembalikan `hasToken` saja.
 - `setAll()` mempertahankan `confluenceByWorkspace` seperti `cookieJar`/`network`.
 - `safeStorage` tidak tersedia → tolak simpan token, jangan plaintext.
-- Collection (workspace JSON, boleh ikut cloud/Git):
+- Collection (workspace JSON, boleh ikut cloud/Git). Semua field tujuan
+  halaman ada di collection, bukan workspace:
 
 ```js
 confluencePageId: '',
 confluencePageUrl: '',
-confluenceSyncedAt: null
+confluenceTitle: '',          // kosong = pakai nama collection
+confluenceSpaceKey: '',       // wajib untuk create
+confluenceParentPageId: '',   // wajib untuk create
+confluenceSyncedAt: null,
+confluenceVersion: null       // versi terakhir yang kita tulis (informasi)
 ```
 
 Normalisasi yang **wajib** disentuh agar field tidak hilang:
@@ -117,8 +123,8 @@ memanggil Confluence langsung; token hanya berada di mesin user.
 | Data | Lokasi | Ikut cloud/Git/backup? |
 |---|---|---|
 | Token/PAT | main store, `safeStorage` ciphertext | Tidak |
-| Base URL, email, auth method, space, parent | main store (non-secret) | Tidak |
-| `confluencePageId/Url/SyncedAt` | workspace JSON | Ya |
+| Base URL, email, auth method | main store (non-secret) | Tidak |
+| Page ID/URL, title, space, parent, timestamp | workspace JSON | Ya |
 
 Aturan implementasi:
 
@@ -141,15 +147,52 @@ Alur create/update:
 
 | Kondisi | Aksi |
 |---|---|
-| Belum ada `pageId`, ada space key + izin create | `POST /rest/api/content`; simpan page ID/URL hasil |
+| Belum ada `pageId`, space + parent diisi, title unik | `POST /rest/api/content` dengan `ancestors`; simpan page ID/URL/title |
 | Sudah ada `pageId` | `GET` versi → `PUT` versi+1 |
-| Tidak punya izin create | user paste page ID halaman existing → mode update |
+| Tidak punya izin create / ragu root | user paste page ID halaman existing → mode update |
+| Title sudah dipakai page lain di space | `title_conflict`; user pilih link page existing / ubah title / batal |
 | 409 saat update | dialog overwrite eksplisit, bukan retry otomatis |
 | Token hilang/tidak valid | error jelas; arahkan ke settings, jangan hapus page metadata |
 
 Team sharing: setiap anggota memakai token Atlassian masing-masing; tidak ada
 token bersama yang disebar. Jika nanti dibutuhkan service account/backend
 broker, itu keputusan arsitektur berbeda (bukan local-first murni).
+
+### 3.2.2 Root halaman dan keunikan title
+
+Confluence tidak punya folder bebas. Page tanpa `ancestors` akan dibuat di
+bawah **space homepage** (top-level). Karena itu create tidak boleh implicit:
+
+- **Create hanya aktif** jika `confluenceSpaceKey` dan
+  `confluenceParentPageId` diisi. Tidak ada opsi “create di root space”
+  di v1; user harus membuat container page dulu di Confluence (misalnya
+  “API Docs”) lalu paste ID/URL-nya.
+- Parent divalidasi sebelum POST:
+  `GET /rest/api/content/{parentId}?expand=space,version`; harus
+  `type:'page'` dan `space.key` sama dengan space tujuan. Gagal →
+  `parent_invalid`, tidak ada request create.
+- `POST` selalu mengirim `ancestors:[{id: parentPageId}]`, jadi halaman tidak
+  bisa “nyasar” ke tempat lain.
+- **Update-only tetap default.** User yang tidak ingin mengatur root cukup
+  paste page ID halaman yang sudah ada; create tidak pernah dipaksa.
+
+Title:
+
+- Title efektif = `confluenceTitle` (jika diisi) atau nama collection.
+- Confluence umumnya menolak title duplikat dalam satu space. Jangan
+  mengandalkan error 400; lakukan preflight:
+  `GET /rest/api/content?spaceKey=<space>&title=<title>&expand=version&limit=1`.
+- Jika hasilnya ada dan `id != pageId` target → `title_conflict` dengan
+  `existingId`/URL. UI memberi pilihan: **Link/update page existing**,
+  **Ubah title**, atau **Batal**. Tidak menimpa page yang tidak dikenal.
+- Update yang mengubah title juga menjalani preflight yang sama.
+- Dua collection di workspace yang sama tidak boleh memakai `pageId` yang
+  sama; validasi sebelum publish dan tampilkan error jelas.
+- Setelah create, simpan `pageId`, URL, title, space, parent, dan versi.
+  Rename collection tidak otomatis mengganti title; user mengubah field title
+  lalu sync (dengan preflight).
+- Tidak ada auto-suffix di v1. Suffix seperti `— Relay docs` bisa menjadi
+  opsi nanti jika banyak benturan dengan halaman manusia.
 
 ### 3.3 Base URL, auth, transport
 
@@ -205,26 +248,45 @@ window.api.confluenceSetConfig({ workspaceId, baseUrl, authMethod, email,
 window.api.confluenceTest(workspaceId)
 window.api.confluencePublish({
   workspaceId, pageId: string | '', title, content,
+  spaceKey, parentPageId,
 })
 ```
 
 `confluencePublish` di main:
 
-1. Baca config + decrypt token; validasi base URL/space key bila create.
-2. `pageId` ada:
-   - `GET /rest/api/content/{id}?expand=version,space`; 200 → versi `n`;
+1. Validasi input: `title` non-empty setelah trim; `pageId`/`spaceKey`/
+   `parentPageId` hanya string; tolak URL/ID aneh. Baca config + decrypt
+   token.
+2. **Cek pageId ganda**: pastikan tidak ada collection lain di workspace yang
+   memakai pageId sama; jika ada → `page_in_use` tanpa request jaringan.
+3. `pageId` ada:
+   - `GET /rest/api/content/{id}?expand=version,space`; 200 → versi `n`,
+     title/space saat ini;
+   - jika `spaceKey` diisi dan tidak sama dengan `space.key` halaman →
+     `space_mismatch` (jangan edit halaman di space lain);
+   - jika title berubah → preflight title (langkah 4);
    - `PUT /rest/api/content/{id}` body
      `{id,type:'page',title,body:{storage:{value,representation:'storage'}},version:{number:n+1}}`;
    - 409 → `{ok:false, code:'conflict', currentVersion}` (UI tanya overwrite);
    - 404 → `{ok:false, code:'page_not_found'}`.
-3. `pageId` kosong:
+4. **Preflight title** (create atau title berubah):
+   `GET /rest/api/content?spaceKey=<space>&title=<title>&expand=version&limit=1`;
+   jika ada hasil dengan `id != pageId` → `{ok:false, code:'title_conflict',
+   existingId, existingUrl}`. UI: link/update existing, ubah title, atau batal.
+   Tidak ada auto-suffix dan tidak ada overwrite page asing.
+5. `pageId` kosong:
+   - wajib `spaceKey` + `parentPageId`; jika tidak → `parent_required`;
+   - `GET /rest/api/content/{parentId}?expand=space,version`; harus
+     `type:'page'` dan `space.key` sama → jika gagal `parent_invalid`;
    - `POST /rest/api/content` body
-     `{type:'page',title,space:{key:spaceKey},ancestors:[{id:parentPageId}]?,body:{storage:...}}`;
-   - 400 duplicate title → `code:'title_exists'` + saran isi page ID.
-4. Sukses → `{ok:true, pageId, version, url, created}`.
+     `{type:'page',title,space:{key:spaceKey},ancestors:[{id:parentPageId}],body:{storage:...}}`;
+   - 400 duplicate title → `code:'title_exists'` (fallback bila preflight
+     kalah balapan) + saran isi page ID.
+6. Sukses → `{ok:true, pageId, version, url, created, title, spaceKey,
+   parentPageId}`.
    URL dari `_links.base + _links.webui`; fallback
    `<base>/pages/viewpage.action?pageId=<id>`.
-5. `confluenceTest` → `GET /rest/api/user/current`, kembalikan display name;
+7. `confluenceTest` → `GET /rest/api/user/current`, kembalikan display name;
    HTML response (SSO) dideteksi dan dilaporkan sebagai error.
 
 ### 3.6 File yang disentuh
@@ -256,21 +318,26 @@ Unit:
   mode, examples on/off, secret tidak pernah muncul, collection kosong.
 - `confluenceClient`: API root derivation (Cloud/DC/`/wiki`), auth header,
   timeout, redirect ditolak, HTML SSO, 409/404/400 mapping, create body,
-  update version+1, URL extraction.
-- normalisasi: page metadata bertahan lewat
+  update version+1, URL extraction, **parent validation**, **title preflight
+  conflict**, **space mismatch**, **duplicate pageId**.
+- normalisasi: page metadata (termasuk title/space/parent) bertahan lewat
   `normalizeCollection` → Git export → backup round-trip; cloud payload
   memuatnya; token tidak ada di workspace JSON.
 
 E2E opt-in `RELAY_CONFLUENCE_E2E=1` dengan fake Confluence HTTP server:
 - isi settings via UI, test connection;
-- sync pertama → POST create, page ID tersimpan, body storage benar;
-- sync kedua → PUT versi 2;
+- update-only: paste page ID → PUT versi 2;
+- create mode tanpa parent → tombol/aksi ditolak, tidak ada POST;
+- create dengan parent → POST memuat `ancestors:[parent]`, page ID tersimpan;
+- title sudah dipakai page lain → dialog `title_conflict`, tidak overwrite;
 - fake server balas 409 → dialog conflict muncul, overwrite mengirim versi
   terbaru;
 - data file tidak memuat token plaintext.
 
 Acceptance:
-- user bisa create/update page dari collection tanpa membuka browser;
+- user bisa update page yang sudah ada tanpa mengatur root;
+- create hanya terjadi di bawah parent yang eksplisit dan tervalidasi;
+- title duplikat tidak pernah membuat page baru/menimpa page asing;
 - konflik tidak pernah ditimpa diam-diam;
 - token tidak pernah dikirim ke renderer atau tersimpan plaintext;
 - `npm test`, lint, build, e2e Confluence hijau.
@@ -439,7 +506,7 @@ Acceptance:
 |---|---|---|
 | M1 | Shared schema + normalisasi (`SCHEMA_VERSION=3`), `confluenceDocs` + test | 1–2 hari |
 | M2 | Confluence client/IPC/store + settings modal + test connection | 2 hari |
-| M3 | Sync modal update + create + conflict + link + e2e fake server | 2–3 hari |
+| M3 | Sync modal update + create opt-in (parent wajib) + title preflight + conflict + link + e2e fake server | 3 hari |
 | M4 | `shared/mockScenarios` + engine + IPC + unit test | 3 hari |
 | M5 | Tab Mock + MockServerModal + e2e + Git/backup/cloud round-trip | 3–4 hari |
 
@@ -453,6 +520,8 @@ diparalelkan setelah kesepakatan model data.
 | Token Confluence bocor lewat renderer/redirect | token hanya di main; sanitized config; redirect 3xx ditolak |
 | Cloud vs Data Center beda base URL | derivasi `/wiki` + test connection; fake server untuk kedua bentuk |
 | Konflik halaman menimpa edit orang | 409 → dialog overwrite eksplisit; tidak auto-retry |
+| Create nyasar ke root space | create hanya dengan parent eksplisit + validasi space/type |
+| Title duplikat di space | preflight title + `title_conflict`; tidak auto-suffix/overwrite |
 | Field baru hilang saat normalisasi/export | update factory + normalizer + Git/backup + test round-trip |
 | Route mock bertabrakan | precedence tetap + warning duplikat di UI |
 | Body mock besar/ReDoS | cap 1 MB; regex tidak ada di v1 |
@@ -469,10 +538,12 @@ diparalelkan setelah kesepakatan model data.
 
 ## 8. Keputusan yang perlu dikonfirmasi
 
-1. Confluence: create page otomatis (butuh space key) atau update-only seperti
-   Wapify? Rekomendasi: create + update.
+1. Confluence: update-only default + create opt-in dengan parent wajib?
+   Rekomendasi: ya, karena root space tidak deterministic.
 2. Kredensial Confluence per workspace atau satu koneksi global? Rekomendasi:
    per workspace (main-owned, encrypted).
-3. Mock skenario: per request (rekomendasi) atau entitas endpoint terpisah?
-4. Regex condition: tunda (rekomendasi) atau perlu di v1?
-5. Mock response binary/file: tunda (rekomendasi) atau perlu?
+3. Title: field per collection + preflight, tanpa auto-suffix? Rekomendasi:
+   ya; suffix bisa ditambah nanti.
+4. Mock skenario: per request (rekomendasi) atau entitas endpoint terpisah?
+5. Regex condition: tunda (rekomendasi) atau perlu di v1?
+6. Mock response binary/file: tunda (rekomendasi) atau perlu?
