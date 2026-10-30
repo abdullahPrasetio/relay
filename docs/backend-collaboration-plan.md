@@ -390,6 +390,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Fase 3 inti: `packages/core` + CLI, monitor CRUD, worker terjadwal, assertions, alert webhook; e2e monitor sukses/gagal via core bundle nyata.
 - [x] Fase 3 UI: modal Monitors (create/run/history/delete) di app; e2e Electron lulus.
 - [x] Fase 4 fondasi: crypto X25519/AES-GCM + registry device/workspace key; komentar per request full-stack dengan e2e.
+- [x] Pengaman sementara: variabel secret tidak pernah dikirim ke server (value/secretEnc dihapus) dan secret lokal dipertahankan saat pull; enkripsi E2E penuh menyusul.
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
 - [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
