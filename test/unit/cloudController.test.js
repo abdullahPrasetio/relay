@@ -95,6 +95,10 @@ function harness({ signedIn = true, cryptoReady = true } = {}) {
         ),
       },
     })),
+    rotateWorkspaceKey: vi.fn(async () => ({
+      ok: true,
+      data: { ready: true, version: 2 },
+    })),
   };
 
   const controller = createCloudController({
@@ -864,5 +868,139 @@ describe('cloud durability', () => {
     expect(saved.cloud.conflicts).toHaveLength(1);
     expect(saved.cloud.conflicts[0]).toMatchObject({ id: 'col1', server: { rev: 4 } });
     expect(h.controller.status(h.workspace.id).status).toBe('conflict');
+  });
+});
+
+describe('reencryptSecrets (key rotation)', () => {
+  async function attachWithSecret(h) {
+    addSecret(h, { key: 'token', value: 's3cr3t' });
+    await h.controller.attach(h.workspace.id);
+    h.calls.length = 0;
+    return h.table.get(h.workspace.id);
+  }
+
+  function useRotatingKey(h) {
+    let key = 1;
+    h.cloud.rotateWorkspaceKey.mockImplementation(async () => {
+      key += 1;
+      return { ok: true, data: { ready: true, version: key } };
+    });
+    h.cloud.encryptSecrets.mockImplementation(async ({ values }) => ({
+      ok: true,
+      data: { envelopes: (values || []).map((value) => `k${key}:${encodeSecret(value)}`) },
+    }));
+    h.cloud.encryptSecrets.mockClear();
+    return () => key;
+  }
+
+  it('rotates the key and pushes every secret re-encrypted with the new one', async () => {
+    const h = harness();
+    const attached = await attachWithSecret(h);
+    // A revision learned from an earlier push is the base the update must use.
+    h.table.set(h.workspace.id, {
+      ...attached,
+      cloud: { ...attached.cloud, revs: { ...attached.cloud.revs, env1: 4 } },
+    });
+    const keyOf = useRotatingKey(h);
+
+    const res = await h.controller.reencryptSecrets(h.workspace.id);
+    expect(res).toMatchObject({
+      ok: true,
+      version: 2,
+      pushed: 1,
+      conflicts: 0,
+      data: { ready: true, version: 2, pushed: 1, conflicts: 0 },
+    });
+    expect(h.cloud.rotateWorkspaceKey).toHaveBeenCalledWith({ workspaceId: 'remote-1' });
+    expect(keyOf()).toBe(2);
+
+    // One batched call carrying only the new-key envelopes.
+    expect(h.cloud.encryptSecrets).toHaveBeenCalledTimes(1);
+    expect(h.cloud.encryptSecrets.mock.calls[0][0]).toEqual({
+      workspaceId: 'remote-1',
+      values: ['s3cr3t'],
+    });
+
+    expect(h.calls.map((entry) => entry.method)).toEqual(['push']);
+    const push = h.calls[0].payload;
+    expect(push.changes).toHaveLength(1);
+    const env = push.changes[0];
+    expect(env).toMatchObject({ id: 'env1', kind: 'environment', baseRev: 4 });
+    const token = env.payload.variables.find((row) => row.key === 'token');
+    expect(token.secretCloud).toBe(`k2:${encodeSecret('s3cr3t')}`);
+    expect(token.value).toBe('');
+    expect(token).not.toHaveProperty('secretEnc');
+    expect(JSON.stringify(push)).not.toContain('s3cr3t');
+
+    const saved = h.table.get(h.workspace.id);
+    expect(saved.cloud.state).toBe('synced');
+    expect(saved.cloud.queueSnapshot.items).toHaveLength(0);
+    expect(saved.cloud.revs.env1).toBe(4);
+    // The local copy keeps the plaintext so the app remains usable.
+    expect(saved.environments[0].variables.find((row) => row.key === 'token').value).toBe('s3cr3t');
+  });
+
+  it('leaves the queue, revisions and workspace untouched when rotation fails', async () => {
+    const h = harness();
+    await attachWithSecret(h);
+    h.cloud.rotateWorkspaceKey.mockResolvedValue({
+      ok: false,
+      error: { code: 'forbidden', message: 'Only owners can rotate the key', status: 403 },
+    });
+    h.cloud.encryptSecrets.mockClear();
+    const before = JSON.stringify(h.table.get(h.workspace.id));
+
+    const res = await h.controller.reencryptSecrets(h.workspace.id);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatchObject({ code: 'forbidden' });
+    expect(h.calls).toHaveLength(0);
+    expect(h.cloud.encryptSecrets).not.toHaveBeenCalled();
+    expect(JSON.stringify(h.table.get(h.workspace.id))).toBe(before);
+  });
+
+  it('still rotates the key when this device holds no secrets', async () => {
+    const h = harness();
+    await h.controller.attach(h.workspace.id);
+    h.calls.length = 0;
+
+    const res = await h.controller.reencryptSecrets(h.workspace.id);
+    expect(res).toMatchObject({
+      ok: true,
+      version: 2,
+      pushed: 0,
+      conflicts: 0,
+      data: { ready: true, version: 2, pushed: 0 },
+    });
+    expect(h.cloud.rotateWorkspaceKey).toHaveBeenCalledTimes(1);
+    expect(h.cloud.encryptSecrets).not.toHaveBeenCalled();
+    expect(h.calls).toHaveLength(0);
+    expect(h.table.get(h.workspace.id).cloud.queueSnapshot.items).toHaveLength(0);
+  });
+
+  it('reports a push conflict without losing the local workspace data', async () => {
+    const h = harness();
+    await attachWithSecret(h);
+    h.cloud.push.mockImplementation(async (payload) => ({
+      ok: true,
+      data: {
+        results: payload.changes.map((change) => ({
+          opId: change.opId,
+          id: change.id,
+          kind: change.kind,
+          conflict: true,
+          server: { rev: 9, payload: { id: change.id, name: 'Prod', variables: [] } },
+        })),
+        serverSeq: 21,
+      },
+    }));
+
+    const res = await h.controller.reencryptSecrets(h.workspace.id);
+    expect(res.ok).toBe(true);
+    expect(res.data).toMatchObject({ pushed: 0, conflicts: 1 });
+
+    const saved = h.table.get(h.workspace.id);
+    expect(saved.cloud.conflicts).toHaveLength(1);
+    expect(saved.environments[0].variables.find((row) => row.key === 'token').value).toBe('s3cr3t');
+    expect(saved.cloud.queueSnapshot.items).toHaveLength(0);
   });
 });

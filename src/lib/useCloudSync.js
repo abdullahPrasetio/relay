@@ -363,6 +363,25 @@ export function useCloudSync(store) {
     [syncWorkspace]
   );
 
+  // Called after a member is removed: rotate the workspace key and re-encrypt
+  // the local secrets with it. Shares the busy/error surface with sync so the
+  // UI can show one in-flight indicator at a time.
+  const reencryptSecrets = useCallback(
+    (workspaceId) => {
+      const id = workspaceId || storeRef.current.activeWorkspaceId || null;
+      if (!id) {
+        const res = {
+          ok: false,
+          error: { code: 'not_found', message: 'No workspace selected.', status: 0 },
+        };
+        setError(res.error);
+        return Promise.resolve(res);
+      }
+      return run(() => controller.reencryptSecrets(id));
+    },
+    [controller, run]
+  );
+
   const resolveConflicts = useCallback(
     (workspaceId, ids, choice = 'local') => {
       const id = workspaceId || storeRef.current.activeWorkspaceId;
@@ -407,6 +426,7 @@ export function useCloudSync(store) {
     attach,
     detach,
     syncNow,
+    reencryptSecrets,
     resolveConflicts,
     dismissConflicts,
     nextSyncDelay: controller.nextSyncDelay,

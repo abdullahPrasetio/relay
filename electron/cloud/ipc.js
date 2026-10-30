@@ -44,6 +44,7 @@ export const CLOUD_CHANNELS = [
   'cloud:crypto-status',
   'cloud:encrypt-secrets',
   'cloud:decrypt-secrets',
+  'cloud:rotate-workspace-key',
 ];
 
 function wireError(err) {
@@ -248,6 +249,16 @@ export function registerCloudIpc({ ipcMain, client, stream = null, workspaceKeys
     wrap(async (payload) => {
       const values = await keyManager().decrypt(payload.workspaceId, payload.envelopes);
       return { values };
+    })
+  );
+  // Rotation only answers with the resulting version. A manager that is not
+  // ready rejects with a typed WorkspaceKeyError, which `wireError` reports as
+  // `{ ok: false, error: { code: 'waiting_key', ... } }`.
+  ipcMain.handle(
+    'cloud:rotate-workspace-key',
+    wrap(async (payload) => {
+      const state = await keyManager().rotate(payload.workspaceId);
+      return { ready: Boolean(state?.ready), version: state?.version ?? null };
     })
   );
 

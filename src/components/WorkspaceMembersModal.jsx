@@ -63,6 +63,7 @@ export default function WorkspaceMembersModal({
   workspace,
   currentUserId = null,
   cloud: cloudBridge = null,
+  reencryptSecrets = null,
   onClose,
 }) {
   const dialogs = useDialogs();
@@ -78,6 +79,8 @@ export default function WorkspaceMembersModal({
   const [error, setError] = useState('');
   const [savingUserId, setSavingUserId] = useState(null);
   const [removingUserId, setRemovingUserId] = useState(null);
+  const [rotating, setRotating] = useState(false);
+  const [rotationError, setRotationError] = useState('');
   const [inviteRole, setInviteRole] = useState('editor');
   const [expiryHours, setExpiryHours] = useState(72);
   const [invite, setInvite] = useState(null);
@@ -207,6 +210,8 @@ export default function WorkspaceMembersModal({
     if (!ok) return;
     setRemovingUserId(member.userId);
     setError('');
+    setRotationError('');
+    let removed = false;
     try {
       const res = await api.removeMember({ workspaceId: remoteId, userId: member.userId });
       if (!res?.ok) {
@@ -214,10 +219,32 @@ export default function WorkspaceMembersModal({
         return;
       }
       setMembers((previous) => previous.filter((entry) => entry.userId !== member.userId));
+      removed = true;
     } catch (err) {
       setError(err?.message || 'Could not remove this member.');
     } finally {
       setRemovingUserId(null);
+    }
+    if (!removed) return;
+
+    // The removed device still holds the old key, so managers rotate it right
+    // away. A rotation failure must not invalidate the removal that already
+    // succeeded: it is reported inline for a later retry.
+    if (!isManagerRole(callerRole) || typeof reencryptSecrets !== 'function') return;
+    setRotating(true);
+    try {
+      const rotated = await reencryptSecrets(workspace?.id);
+      if (!rotated?.ok) {
+        setRotationError(
+          rotated?.error?.message || 'Could not rotate the workspace key after removing this member.'
+        );
+      }
+    } catch (err) {
+      setRotationError(
+        err?.message || 'Could not rotate the workspace key after removing this member.'
+      );
+    } finally {
+      setRotating(false);
     }
   }
 
@@ -288,6 +315,16 @@ export default function WorkspaceMembersModal({
         {error && (
           <div className="cloud-error team-error" role="alert">
             {error}
+          </div>
+        )}
+        {rotating && (
+          <div className="team-empty" role="status" data-testid="workspace-rotation-busy">
+            Rotating workspace key…
+          </div>
+        )}
+        {!rotating && rotationError && (
+          <div className="cloud-error team-error" role="alert" data-testid="workspace-rotation-error">
+            {rotationError}
           </div>
         )}
 

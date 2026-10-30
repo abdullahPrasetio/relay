@@ -373,6 +373,138 @@ describe('createWorkspaceKeyManager', () => {
     expect(secondState.key.equals(shared.key)).toBe(true);
   });
 
+  it('rotates to the next version with a fresh key wrapped for current member devices only', async () => {
+    const me = crypto.generateDeviceKeyPair();
+    const teammate = crypto.generateDeviceKeyPair();
+    const removed = crypto.generateDeviceKeyPair();
+    const client = createFakeClient({
+      role: 'owner',
+      deviceKeyList: [
+        { id: 'dk_self', userId: 'u1', publicKey: me.publicKey, label: 'mac' },
+        { id: 'dk_teammate', userId: 'u2', publicKey: teammate.publicKey, label: 'linux' },
+        { id: 'dk_removed', userId: 'u3', publicKey: removed.publicKey, label: 'removed' },
+      ],
+    });
+    const manager = createWorkspaceKeyManager({
+      client,
+      deviceKeys: deviceKeysFor(me),
+      crypto,
+    });
+
+    const first = await manager.ensure('ws_1');
+    expect(first.ready).toBe(true);
+    expect(first.version).toBe(1);
+
+    // The removed member no longer appears in the active device-key list.
+    client.deviceKeyList = client.deviceKeyList.filter((entry) => entry.id !== 'dk_removed');
+
+    const rotated = await manager.rotate('ws_1');
+    expect(rotated).toMatchObject({ ready: true, version: 2 });
+    expect(rotated.key).toHaveLength(32);
+    expect(rotated.key.equals(first.key)).toBe(false);
+
+    const put = client.calls.put[client.calls.put.length - 1];
+    expect(put.workspaceId).toBe('ws_1');
+    expect(put.version).toBe(2);
+    expect(put.entries.map((entry) => entry.deviceKeyId).sort()).toEqual([
+      'dk_self',
+      'dk_teammate',
+    ]);
+
+    const selfEntry = put.entries.find((entry) => entry.deviceKeyId === 'dk_self');
+    const teammateEntry = put.entries.find((entry) => entry.deviceKeyId === 'dk_teammate');
+    expect(
+      crypto
+        .unwrapWorkspaceKey({ wrappedKey: selfEntry.wrappedKey, privateKey: me.privateKey })
+        .equals(rotated.key)
+    ).toBe(true);
+    expect(
+      crypto
+        .unwrapWorkspaceKey({
+          wrappedKey: teammateEntry.wrappedKey,
+          privateKey: teammate.privateKey,
+        })
+        .equals(rotated.key)
+    ).toBe(true);
+
+    // The removed device has no entry anywhere in the stored set.
+    expect(client.keys.get('ws_1').some((entry) => entry.deviceKeyId === 'dk_removed')).toBe(
+      false
+    );
+
+    // The cached fast path serves the rotated key, never the previous one.
+    const after = await manager.ensure('ws_1');
+    expect(after.version).toBe(2);
+    expect(after.key.equals(rotated.key)).toBe(true);
+    expect(after.key.equals(first.key)).toBe(false);
+  });
+
+  it('adopts a newer version after an admin rotation once the recheck interval elapses', async () => {
+    vi.useFakeTimers();
+    try {
+      const me = crypto.generateDeviceKeyPair();
+      const client = createFakeClient({
+        role: 'owner',
+        deviceKeyList: [{ id: 'dk_self', userId: 'u1', publicKey: me.publicKey, label: 'mac' }],
+      });
+      const admin = createWorkspaceKeyManager({
+        client,
+        deviceKeys: deviceKeysFor(me),
+        crypto,
+      });
+      const before = await admin.ensure('ws_1');
+      expect(before.version).toBe(1);
+
+      // A second instance (fresh process) caches the same version.
+      const stale = createWorkspaceKeyManager({
+        client,
+        deviceKeys: deviceKeysFor(me),
+        crypto,
+      });
+      const cached = await stale.ensure('ws_1');
+      expect(cached.version).toBe(1);
+      expect(cached.key.equals(before.key)).toBe(true);
+
+      const rotated = await admin.rotate('ws_1');
+      expect(rotated.version).toBe(2);
+
+      // Within the recheck interval the cached key is served as-is.
+      const stillCached = await stale.ensure('ws_1');
+      expect(stillCached.version).toBe(1);
+      expect(stillCached.key.equals(before.key)).toBe(true);
+
+      vi.setSystemTime(Date.now() + 60_000);
+
+      const adopted = await stale.ensure('ws_1');
+      expect(adopted.version).toBe(2);
+      expect(adopted.key.equals(rotated.key)).toBe(true);
+      expect(adopted.key.equals(before.key)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('refuses to rotate before this device has a ready key', async () => {
+    const me = crypto.generateDeviceKeyPair();
+    const client = createFakeClient({ role: 'viewer' });
+    const manager = createWorkspaceKeyManager({
+      client,
+      deviceKeys: deviceKeysFor(me),
+      crypto,
+    });
+
+    await expect(manager.ensure('ws_1')).resolves.toEqual({
+      ready: false,
+      version: null,
+      reason: 'waiting_key',
+    });
+
+    const error = await manager.rotate('ws_1').catch((err) => err);
+    expect(error).toBeInstanceOf(WorkspaceKeyError);
+    expect(error.code).toBe('waiting_key');
+    expect(client.calls.put).toHaveLength(0);
+  });
+
   it('reports waiting_key for a non-admin without a key and refuses to encrypt', async () => {
     const me = crypto.generateDeviceKeyPair();
     const client = createFakeClient({ role: 'viewer' });
@@ -513,6 +645,9 @@ describe('cloud crypto IPC contract', () => {
       async decrypt() {
         return { token: 'plaintext', broken: null };
       },
+      async rotate() {
+        return { ready: true, version: 4, key: Buffer.alloc(32, 7) };
+      },
       reset: vi.fn(),
     };
 
@@ -523,6 +658,7 @@ describe('cloud crypto IPC contract', () => {
         'cloud:crypto-status',
         'cloud:encrypt-secrets',
         'cloud:decrypt-secrets',
+        'cloud:rotate-workspace-key',
       ])
     );
 
@@ -548,10 +684,33 @@ describe('cloud crypto IPC contract', () => {
       data: { values: { token: 'plaintext', broken: null } },
     });
 
+    const rotated = await handlers.get('cloud:rotate-workspace-key')(
+      {},
+      { workspaceId: 'ws_1' }
+    );
+    expect(rotated).toEqual({ ok: true, data: { ready: true, version: 4 } });
+    expect(JSON.stringify(rotated)).not.toContain('key');
+
     // Without a key manager the channels still answer, with a stable error.
     registerCloudIpc({ ipcMain, client: {}, workspaceKeys: null });
     const unavailable = await handlers.get('cloud:crypto-status')({}, { workspaceId: 'ws_1' });
     expect(unavailable.ok).toBe(false);
     expect(unavailable.error.code).toBe('unavailable');
+
+    // Rotation before a ready key surfaces the typed reason through IPC.
+    registerCloudIpc({
+      ipcMain,
+      client: {},
+      workspaceKeys: {
+        async rotate() {
+          throw new WorkspaceKeyError('waiting_key', 'Workspace key is not available');
+        },
+      },
+    });
+    const refused = await handlers.get('cloud:rotate-workspace-key')(
+      {},
+      { workspaceId: 'ws_1' }
+    );
+    expect(refused).toMatchObject({ ok: false, error: { code: 'waiting_key' } });
   });
 });
