@@ -103,6 +103,17 @@ contextBridge.exposeInMainWorld('api', {
     monitorRuns: (id, options = {}) =>
       ipcRenderer.invoke('cloud:monitor-runs', { id, limit: options?.limit }),
     runMonitor: (id) => ipcRenderer.invoke('cloud:run-monitor', { id }),
+    comments: (workspaceId, options = {}) =>
+      ipcRenderer.invoke('cloud:comments', {
+        workspaceId,
+        entityId: options?.entityId,
+        before: options?.before,
+        limit: options?.limit,
+      }),
+    createComment: (workspaceId, payload) =>
+      ipcRenderer.invoke('cloud:create-comment', { workspaceId, comment: payload }),
+    updateComment: (id, patch) => ipcRenderer.invoke('cloud:update-comment', { id, patch }),
+    deleteComment: (id) => ipcRenderer.invoke('cloud:delete-comment', { id }),
     startStream: (workspaceId) => ipcRenderer.invoke('cloud:stream-start', { workspaceId }),
     stopStream: () => ipcRenderer.invoke('cloud:stream-stop'),
     setPresence: (payload) => ipcRenderer.invoke('cloud:presence', payload),

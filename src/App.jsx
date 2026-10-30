@@ -25,6 +25,7 @@ import RequestSettingsModal from './components/RequestSettingsModal.jsx';
 import CloudAuthModal from './components/CloudAuthModal.jsx';
 import CloudDevicesModal from './components/CloudDevicesModal.jsx';
 import ConflictResolveModal from './components/ConflictResolveModal.jsx';
+import CommentsModal from './components/CommentsModal.jsx';
 import { VarContext } from './components/VarContext.jsx';
 import { useDialogs } from './components/Dialogs.jsx';
 import { useStore } from './lib/useStore.js';
@@ -240,6 +241,7 @@ export default function App() {
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [requestSettingsOpen, setRequestSettingsOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
 
   // Session restore waits for the store: tab requests that live in a
   // collection must be rebuilt from the freshly loaded tree.
@@ -1820,6 +1822,15 @@ export default function App() {
               onShowCode={showCode}
               onSetVariable={openSetVariable}
               onOpenSettings={() => setRequestSettingsOpen(true)}
+              onOpenComments={() => setCommentsOpen(true)}
+              commentsAvailable={Boolean(
+                cloud.signedIn && remoteWorkspaceId && activeTab.request.id
+              )}
+              commentsHint={
+                cloud.signedIn
+                  ? 'Link this workspace to Relay Cloud to use comments'
+                  : 'Sign in to Relay Cloud to use comments'
+              }
               onAbort={abort}
               sending={activeTab.sending}
               dirty={activeTab.dirty}
@@ -1977,6 +1988,15 @@ export default function App() {
           networkSettings={network.settings}
           onChange={(settings) => setActiveRequest({ ...activeTab.request, settings })}
           onClose={() => setRequestSettingsOpen(false)}
+        />
+      )}
+
+      {commentsOpen && (
+        <CommentsModal
+          workspace={store.activeWorkspace}
+          request={activeTab.request}
+          currentUserId={cloud.user?.id || null}
+          onClose={() => setCommentsOpen(false)}
         />
       )}
 

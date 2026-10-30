@@ -56,6 +56,17 @@ function requireId(value) {
   return encodeURIComponent(value);
 }
 
+const COMMENT_MAX_LENGTH = 4000;
+
+/** Validated comment text: trimmed, 1..COMMENT_MAX_LENGTH characters. */
+function commentBody(value) {
+  const body = requiredString(value, 'body').trim();
+  if (body.length > COMMENT_MAX_LENGTH) {
+    throw new TypeError(`body must be at most ${COMMENT_MAX_LENGTH} characters`);
+  }
+  return body;
+}
+
 const WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'viewer'];
 
 function requireRole(value) {
@@ -539,6 +550,54 @@ export function createCloudClient({
     async runMonitor(id) {
       const data = await call(`/monitors/${requireId(id)}/run`, { method: 'POST' });
       return data ?? null;
+    },
+
+    /**
+     * Newest-first comment page for one synced entity. `before` is the opaque
+     * cursor from a previous page's `nextBefore`; null means there is no more.
+     */
+    async comments(workspaceId, { entityId, before, limit } = {}) {
+      const params = new URLSearchParams();
+      params.set('entityId', requiredString(entityId, 'entityId'));
+      params.set('limit', String(requirePositiveInt(limit, 'limit', 50)));
+      if (before !== undefined && before !== null && before !== '') {
+        params.set('before', String(before));
+      }
+      const data = await call(`/workspaces/${requireId(workspaceId)}/comments?${params}`);
+      return {
+        comments: Array.isArray(data?.comments) ? data.comments : [],
+        nextBefore: data?.nextBefore ?? null,
+      };
+    },
+
+    async createComment(workspaceId, { entityId, body } = {}) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/comments`, {
+        method: 'POST',
+        body: { entityId: requiredString(entityId, 'entityId'), body: commentBody(body) },
+      });
+      return data ?? null;
+    },
+
+    /** Patch a comment's text and/or resolved state. */
+    async updateComment(id, { body, resolved } = {}) {
+      const patch = {};
+      if (body !== undefined) patch.body = commentBody(body);
+      if (resolved !== undefined) {
+        if (typeof resolved !== 'boolean') {
+          throw new TypeError('resolved must be a boolean');
+        }
+        patch.resolved = resolved;
+      }
+      if (Object.keys(patch).length === 0) {
+        throw new TypeError('updateComment requires body or resolved');
+      }
+      const data = await call(`/comments/${requireId(id)}`, { method: 'PATCH', body: patch });
+      return data ?? null;
+    },
+
+    async deleteComment(id) {
+      await call(`/comments/${requireId(id)}`, { method: 'DELETE' });
+      return null;
     },
 
     async status() {

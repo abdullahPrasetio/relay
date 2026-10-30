@@ -24,6 +24,9 @@ export default function RequestPanel({
   onShowCode,
   onSetVariable,
   onOpenSettings,
+  onOpenComments,
+  commentsAvailable = false,
+  commentsHint = '',
   onAbort,
   sending,
   dirty,
@@ -119,6 +122,20 @@ export default function RequestPanel({
         </button>
         <button className="save-btn icon-only" onClick={onShowCode} title="Generate code">
           <Icon name="code" size={16} />
+        </button>
+        <button
+          className="save-btn icon-only comments-btn"
+          onClick={onOpenComments}
+          title={
+            commentsAvailable
+              ? 'Comments on this request'
+              : commentsHint || 'Link this workspace to Relay Cloud to use comments'
+          }
+          aria-label="Comments"
+          data-testid="comments-open"
+          disabled={!commentsAvailable}
+        >
+          <Icon name="comment" size={16} />
         </button>
       </div>
 

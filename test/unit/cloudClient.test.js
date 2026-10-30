@@ -346,6 +346,95 @@ describe('createCloudClient', () => {
     expect(err.status).toBe(403);
     expect(err.envelope).toMatchObject({ code: 'forbidden' });
   });
+
+  it('lists, creates, updates, and deletes comments', async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, init });
+      const { pathname } = new URL(url);
+      if (pathname.endsWith('/auth/login')) {
+        return envelope({ accessToken: 'access-1', refreshToken: 'refresh-1', user: { id: 'u1' } });
+      }
+      if (pathname.endsWith('/workspaces/ws_1/comments') && init?.method !== 'POST') {
+        return envelope({
+          comments: [{ id: 'cmt_2', entityId: 'req_1', body: 'second' }],
+          nextBefore: 'cmt_2',
+        });
+      }
+      if (pathname.endsWith('/workspaces/ws_1/comments')) {
+        return envelope({ id: 'cmt_3', entityId: 'req_1', body: 'hi' }, 201);
+      }
+      if (pathname.endsWith('/comments/cmt_2')) {
+        if (init?.method === 'DELETE') return noContent();
+        return envelope({ id: 'cmt_2', resolvedAt: '2026-10-30T12:00:00Z' });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+
+    const client = createCloudClient({
+      baseUrl: 'http://relay.test',
+      fetchImpl,
+      tokenStore: fakeTokenStore(),
+    });
+    await client.login({ email: 'dev@relay.test', password: 'pw' });
+    calls.length = 0;
+
+    const page = await client.comments('ws_1', { entityId: 'req_1', before: 'cmt_9', limit: 2 });
+    expect(page).toEqual({
+      comments: [{ id: 'cmt_2', entityId: 'req_1', body: 'second' }],
+      nextBefore: 'cmt_2',
+    });
+    const listUrl = new URL(calls[0].url);
+    expect(listUrl.pathname).toBe('/api/v1/workspaces/ws_1/comments');
+    expect(listUrl.searchParams.get('entityId')).toBe('req_1');
+    expect(listUrl.searchParams.get('before')).toBe('cmt_9');
+    expect(listUrl.searchParams.get('limit')).toBe('2');
+    expect(calls[0].init.headers.authorization).toBe('Bearer access-1');
+
+    await client.createComment('ws_1', { entityId: 'req_1', body: '  hi  ' });
+    expect(parseBody(calls[1].init)).toEqual({ entityId: 'req_1', body: 'hi' });
+
+    const updated = await client.updateComment('cmt_2', { resolved: true });
+    expect(parseBody(calls[2].init)).toEqual({ resolved: true });
+    expect(updated).toMatchObject({ id: 'cmt_2', resolvedAt: '2026-10-30T12:00:00Z' });
+
+    await expect(client.deleteComment('cmt_2')).resolves.toBeNull();
+    expect(calls[3].init.method).toBe('DELETE');
+  });
+
+  it('validates comment payloads before calling the API', async () => {
+    let called = 0;
+    const fetchImpl = async (url) => {
+      const pathname = new URL(url).pathname;
+      if (pathname.endsWith('/auth/login')) {
+        return envelope({ accessToken: 'access-1', refreshToken: 'refresh-1', user: { id: 'u1' } });
+      }
+      called += 1;
+      return envelope({});
+    };
+    const client = createCloudClient({
+      baseUrl: 'http://relay.test',
+      fetchImpl,
+      tokenStore: fakeTokenStore(),
+    });
+    await client.login({ email: 'dev@relay.test', password: 'pw' });
+
+    await expect(client.createComment('ws_1', { entityId: 'req_1', body: '   ' })).rejects.toThrow(
+      /body is required/
+    );
+    await expect(
+      client.createComment('ws_1', { entityId: 'req_1', body: 'a'.repeat(4001) })
+    ).rejects.toThrow(/at most 4000/);
+    await expect(client.createComment('ws_1', { body: 'hi' })).rejects.toThrow(
+      /entityId is required/
+    );
+    await expect(client.updateComment('cmt_1', {})).rejects.toThrow(/body or resolved/);
+    await expect(client.updateComment('cmt_1', { resolved: 'yes' })).rejects.toThrow(
+      /resolved must be a boolean/
+    );
+    await expect(client.comments('ws_1', {})).rejects.toThrow(/entityId is required/);
+    expect(called).toBe(0);
+  });
 });
 
 describe('createTokenStore', () => {

@@ -33,6 +33,10 @@ export const CLOUD_CHANNELS = [
   'cloud:delete-monitor',
   'cloud:monitor-runs',
   'cloud:run-monitor',
+  'cloud:comments',
+  'cloud:create-comment',
+  'cloud:update-comment',
+  'cloud:delete-comment',
   'cloud:stream-start',
   'cloud:stream-stop',
   'cloud:presence',
@@ -148,6 +152,28 @@ export function registerCloudIpc({ ipcMain, client, stream = null }) {
     wrap((payload) => client.monitorRuns(payload.id, { limit: payload.limit }))
   );
   ipcMain.handle('cloud:run-monitor', wrap((payload) => client.runMonitor(payload.id)));
+
+  // Per-request comments. The entity id is the synced request id; pages are
+  // cursor-based, and the server re-checks membership and authorship.
+  ipcMain.handle(
+    'cloud:comments',
+    wrap((payload) =>
+      client.comments(payload.workspaceId, {
+        entityId: payload.entityId,
+        before: payload.before,
+        limit: payload.limit,
+      })
+    )
+  );
+  ipcMain.handle(
+    'cloud:create-comment',
+    wrap((payload) => client.createComment(payload.workspaceId, payload.comment))
+  );
+  ipcMain.handle(
+    'cloud:update-comment',
+    wrap((payload) => client.updateComment(payload.id, payload.patch))
+  );
+  ipcMain.handle('cloud:delete-comment', wrap((payload) => client.deleteComment(payload.id)));
 
   ipcMain.handle('cloud:stream-start', async (event, payload) => {
     if (!stream) {
