@@ -311,7 +311,7 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
   - Test: push batch campuran create/update/delete; pull cursor konsisten; `baseRev` salah → conflict; retry `opId` sama tidak menerapkan dua kali.
 - [x] **1.5** Klien desktop: `cloudSync.js`, controller + queue persisten, attach, indikator status, baseline rev persisten, `captureOfflineEdits`, auto-retry backoff. *Selesai 2026-10-30.*
   - Test: unit queue (offline → reconnect); server dimatikan setelah login → edit tetap tersimpan dan terkirim saat server hidup; e2e dua instance app dengan userData berbeda + satu server.
-- [ ] **1.6** Auth klien: PKCE loopback + kelola perangkat. *Kelola perangkat selesai 2026-10-30 (modal, revoke, e2e). PKCE belum: butuh endpoint OAuth Google di backend + kredensial client.*
+- [ ] **1.6** Auth klien: PKCE loopback + kelola perangkat. *Kelola perangkat selesai 2026-10-30 (modal, revoke, e2e). Login Google via PKCE ditunda atas keputusan 2026-10-30: butuh OAuth client ID (Desktop) + consent screen; login email/password tetap jalur utama dan tidak ada kode setengah jadi.*
   - Test: e2e login/logout; rotasi refresh; refresh saat jaringan putus tidak menghapus token; revoke device membuat request 401.
 - [x] **1.7** Attach workspace idempoten. *Selesai 2026-10-30: attach kedua tidak memanggil backend dan tidak mereset queue (unit test).*
   - Test: attach dua kali tidak menduplikasi entity; payload round-trip sama dengan export Git.
@@ -396,7 +396,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Rotasi workspace key saat anggota dihapus + re-enkripsi secret; verifikasi live v2 hanya membungkus device tersisa.
 - [x] Mention pada komentar + feed “mentions me” (backend + UI, e2e Electron).
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
-- [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
+- [ ] Fase 1 (sisa): login Google via PKCE (ditunda, menunggu kredensial), auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
 - [ ] Fase 3: monitor terjadwal.
 - [ ] Fase 4: E2E secret sharing, komentar.
