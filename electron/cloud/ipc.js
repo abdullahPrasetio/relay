@@ -38,6 +38,7 @@ export const CLOUD_CHANNELS = [
   'cloud:create-comment',
   'cloud:update-comment',
   'cloud:delete-comment',
+  'cloud:mentions',
   'cloud:stream-start',
   'cloud:stream-stop',
   'cloud:presence',
@@ -187,6 +188,17 @@ export function registerCloudIpc({ ipcMain, client, stream = null, workspaceKeys
     wrap((payload) => client.updateComment(payload.id, payload.patch))
   );
   ipcMain.handle('cloud:delete-comment', wrap((payload) => client.deleteComment(payload.id)));
+  // Workspace-wide "mentions me" feed. Cursor-based like comments; the server
+  // resolves the caller from the session, so no user id crosses this boundary.
+  ipcMain.handle(
+    'cloud:mentions',
+    wrap((payload) =>
+      client.mentions(payload.workspaceId, {
+        before: payload.before,
+        limit: payload.limit,
+      })
+    )
+  );
 
   ipcMain.handle('cloud:stream-start', async (event, payload) => {
     if (!stream) {

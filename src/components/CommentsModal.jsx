@@ -4,17 +4,25 @@ import Icon from './Icon.jsx';
 import { useDialogs } from './Dialogs.jsx';
 import {
   COMMENT_MAX_LENGTH,
-  authorLabel,
+  authorDisplayName,
+  buildMentionChips,
   canModifyComment,
   commentCountLabel,
   commentDateTime,
+  commentMentions,
   commentTime,
   hasMoreComments,
+  insertMentionDraft,
   isResolved,
+  mentionBadgeLabel,
+  mentionNames,
+  mentionOptions,
+  mentionsUser,
   mergeComments,
   normalizeCommentsPayload,
   resolveActionLabel,
   resolveLabel,
+  splitMentionSegments,
   validateCommentBody,
 } from '../lib/commentUi.js';
 
@@ -51,6 +59,10 @@ export default function CommentsModal({
   const [validation, setValidation] = useState('');
   const [posting, setPosting] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [mentionError, setMentionError] = useState('');
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [selectedMentions, setSelectedMentions] = useState([]);
   const requestSeq = useRef(0);
 
   const load = useCallback(async () => {
@@ -104,6 +116,69 @@ export default function CommentsModal({
     load();
   }, [load]);
 
+  // Mention picker data. A failure here never blocks reading or posting a
+  // comment: the composer simply offers no names and says why.
+  useEffect(() => {
+    if (!remoteId || !api || typeof api.members !== 'function') {
+      setMembers([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.members({ workspaceId: remoteId });
+        if (cancelled) return;
+        if (!res?.ok) {
+          setMembers([]);
+          setMentionError(errorMessage(res, 'Could not load workspace members.'));
+          return;
+        }
+        setMembers(Array.isArray(res.data) ? res.data : []);
+        setMentionError('');
+      } catch (err) {
+        if (!cancelled) {
+          setMembers([]);
+          setMentionError(err?.message || 'Could not load workspace members.');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, remoteId]);
+
+  const options = useMemo(
+    () => mentionOptions(members, currentUserId),
+    [members, currentUserId]
+  );
+  const chips = useMemo(
+    () => buildMentionChips(members, selectedMentions),
+    [members, selectedMentions]
+  );
+  const knownNames = useMemo(() => mentionNames(members), [members]);
+
+  function toggleMention(option) {
+    if (selectedMentions.includes(option.userId)) {
+      setSelectedMentions((prev) => prev.filter((id) => id !== option.userId));
+      return;
+    }
+    setSelectedMentions((prev) =>
+      prev.includes(option.userId) ? prev : [...prev, option.userId]
+    );
+    // Selecting inserts an editable token; removing a chip leaves the text
+    // alone so the author can fix the sentence themselves.
+    setDraft((prev) => insertMentionDraft(prev, option.name || option.label));
+  }
+
+  function removeMention(chip) {
+    setSelectedMentions((prev) => prev.filter((id) => id !== chip.userId));
+  }
+
+  function bodySegments(entry) {
+    const names = [...commentMentions(entry).map((mention) => mention.name), ...knownNames];
+    return splitMentionSegments(entry.body, names);
+  }
+
   async function loadMore() {
     if (!nextBefore || loadingMore || !api || typeof api.comments !== 'function') return;
     setLoadingMore(true);
@@ -140,7 +215,8 @@ export default function CommentsModal({
     setValidation('');
     setError('');
     try {
-      const res = await api.createComment(remoteId, { entityId, body: check.value });
+      const mentions = selectedMentions.length ? selectedMentions : undefined;
+      const res = await api.createComment(remoteId, { entityId, body: check.value, mentions });
       if (!res?.ok) {
         setValidation(errorMessage(res, 'Could not post this comment.'));
         return;
@@ -151,11 +227,14 @@ export default function CommentsModal({
         // A bridge without the created row still posted it; re-read the page
         // rather than inventing a row that cannot be resolved or deleted.
         setDraft('');
+        setSelectedMentions([]);
         await load();
         return;
       }
       setComments((prev) => mergeComments(prev, [created]));
       setDraft('');
+      setSelectedMentions([]);
+      setMentionOpen(false);
     } catch (err) {
       setValidation(err?.message || 'Could not post this comment.');
     } finally {
@@ -259,6 +338,7 @@ export default function CommentsModal({
                   const resolved = isResolved(entry);
                   const canModify = canModifyComment(entry, currentUserId);
                   const busy = busyId === entry.id;
+                  const badge = mentionBadgeLabel(entry, currentUserId);
                   return (
                     <li
                       key={entry.id || `${entry.createdAt}-${entry.body}`}
@@ -267,7 +347,7 @@ export default function CommentsModal({
                     >
                       <div className="comment-head">
                         <code className="comment-author" title={entry.userId || ''}>
-                          {authorLabel(entry.userId)}
+                          {authorDisplayName(entry, members)}
                         </code>
                         <span
                           className="comment-time"
@@ -275,6 +355,16 @@ export default function CommentsModal({
                         >
                           {commentTime(entry.createdAt)}
                         </span>
+                        {badge && (
+                          <span
+                            className={`comment-mention-badge ${
+                              mentionsUser(entry, currentUserId) ? 'you' : ''
+                            }`}
+                            data-testid="comment-mention-badge"
+                          >
+                            {badge}
+                          </span>
+                        )}
                         <span
                           className={`comment-state ${resolved ? 'resolved' : 'open'}`}
                           data-testid="comment-state"
@@ -282,7 +372,21 @@ export default function CommentsModal({
                           {resolveLabel(entry)}
                         </span>
                       </div>
-                      <p className="comment-body">{entry.body}</p>
+                      <p className="comment-body">
+                        {bodySegments(entry).map((segment, index) =>
+                          segment.type === 'mention' ? (
+                            <span
+                              key={`mention-${index}`}
+                              className="comment-mention"
+                              data-testid="comment-mention-token"
+                            >
+                              {segment.text}
+                            </span>
+                          ) : (
+                            <React.Fragment key={`text-${index}`}>{segment.text}</React.Fragment>
+                          )
+                        )}
+                      </p>
                       {canModify && (
                         <div className="comment-actions">
                           <button
@@ -327,12 +431,96 @@ export default function CommentsModal({
             )}
 
             <form className="comment-composer" onSubmit={post}>
+              <div className="comment-tools">
+                <button
+                  type="button"
+                  className={`mini-btn comment-mention-toggle ${mentionOpen ? 'open' : ''}`}
+                  onClick={() => setMentionOpen((value) => !value)}
+                  aria-expanded={mentionOpen}
+                  aria-haspopup="true"
+                  disabled={posting}
+                  data-testid="comment-mention-toggle"
+                >
+                  <Icon name="comment" size={12} />
+                  <span>
+                    {selectedMentions.length
+                      ? `Mentions (${selectedMentions.length})`
+                      : 'Mention'}
+                  </span>
+                </button>
+                <span className="comment-hint">@ mentions notify workspace members</span>
+              </div>
+
+              {mentionOpen && (
+                <div className="mention-picker" data-testid="comment-mention-picker">
+                  {mentionError ? (
+                    <div className="mention-note" data-testid="comment-mention-error">
+                      {mentionError}
+                    </div>
+                  ) : options.length === 0 ? (
+                    <div className="mention-note">No other workspace members to mention.</div>
+                  ) : (
+                    <ul className="mention-options">
+                      {options.map((option) => {
+                        const checked = selectedMentions.includes(option.userId);
+                        return (
+                          <li key={option.userId}>
+                            <label className="mention-option">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={posting}
+                                onChange={() => toggleMention(option)}
+                                data-testid={`comment-mention-option-${option.userId}`}
+                              />
+                              <span className="mention-option-name">
+                                {option.name || option.email || option.label}
+                              </span>
+                              {option.name && option.email && (
+                                <span className="mention-option-email">{option.email}</span>
+                              )}
+                              {option.role && (
+                                <span className="mention-option-role">{option.role}</span>
+                              )}
+                            </label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {chips.length > 0 && (
+                <div className="mention-chips" data-testid="comment-mention-chips">
+                  {chips.map((chip) => (
+                    <span
+                      key={chip.userId}
+                      className="mention-chip"
+                      data-testid={`comment-mention-chip-${chip.userId}`}
+                    >
+                      @{chip.name || chip.label}
+                      <button
+                        type="button"
+                        className="mention-chip-remove"
+                        onClick={() => removeMention(chip)}
+                        title={`Remove mention ${chip.name || chip.label}`}
+                        aria-label={`Remove mention ${chip.name || chip.label}`}
+                        disabled={posting}
+                      >
+                        <Icon name="close" size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <textarea
                 className="comment-input"
                 rows={3}
                 value={draft}
                 maxLength={COMMENT_MAX_LENGTH}
-                placeholder="Write a comment…"
+                placeholder="Write a comment… Use @Name to mention a teammate."
                 onChange={(event) => {
                   setDraft(event.target.value);
                   if (validation) setValidation('');

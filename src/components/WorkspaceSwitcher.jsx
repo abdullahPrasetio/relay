@@ -4,6 +4,7 @@ import Icon from './Icon.jsx';
 import WorkspaceMembersModal from './WorkspaceMembersModal.jsx';
 import WorkspaceAuditModal from './WorkspaceAuditModal.jsx';
 import MonitorsModal from './MonitorsModal.jsx';
+import MentionsModal from './MentionsModal.jsx';
 import { filesToWorkspace, slugify, workspaceToFiles } from '../lib/gitWorkspace.js';
 
 function hasExportBridge() {
@@ -53,6 +54,7 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
   const [teamWorkspace, setTeamWorkspace] = useState(null);
   const [auditWorkspace, setAuditWorkspace] = useState(null);
   const [monitorsWorkspace, setMonitorsWorkspace] = useState(null);
+  const [mentionsWorkspace, setMentionsWorkspace] = useState(null);
   const dialogs = useDialogs();
   const active = store.activeWorkspace;
   const cloudBridge = typeof window !== 'undefined' ? window.api?.cloud : null;
@@ -70,6 +72,11 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
   function openMonitors(ws) {
     setOpen(false);
     setMonitorsWorkspace(ws);
+  }
+
+  function openMentions(ws) {
+    setOpen(false);
+    setMentionsWorkspace(ws);
   }
 
   async function create() {
@@ -284,6 +291,15 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
                     </button>
                     <button
                       className="icon-btn ws-team"
+                      title="Mentions"
+                      aria-label={`Comments mentioning you in ${ws.name}`}
+                      onClick={() => openMentions(ws)}
+                      data-testid={`ws-mentions-${ws.id}`}
+                    >
+                      <Icon name="comment" size={13} />
+                    </button>
+                    <button
+                      className="icon-btn ws-team"
                       title="Scheduled monitors"
                       aria-label={`Scheduled monitors for ${ws.name}`}
                       onClick={() => openMonitors(ws)}
@@ -332,6 +348,13 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
           currentUserId={cloud?.user?.id || null}
           cloud={cloudBridge}
           onClose={() => setMonitorsWorkspace(null)}
+        />
+      )}
+      {mentionsWorkspace && (
+        <MentionsModal
+          workspace={mentionsWorkspace}
+          cloud={cloudBridge}
+          onClose={() => setMentionsWorkspace(null)}
         />
       )}
     </div>

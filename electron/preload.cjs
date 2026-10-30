@@ -114,6 +114,12 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('cloud:create-comment', { workspaceId, comment: payload }),
     updateComment: (id, patch) => ipcRenderer.invoke('cloud:update-comment', { id, patch }),
     deleteComment: (id) => ipcRenderer.invoke('cloud:delete-comment', { id }),
+    mentions: (workspaceId, options = {}) =>
+      ipcRenderer.invoke('cloud:mentions', {
+        workspaceId,
+        before: options?.before,
+        limit: options?.limit,
+      }),
     // End-to-end secrets: only envelope strings and decrypted values cross
     // this bridge. Keys never do. One payload object per call, matching the
     // renderer's call(method, payload) adapter.
