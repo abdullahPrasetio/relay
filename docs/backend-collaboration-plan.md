@@ -311,7 +311,7 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
   - Test: push batch campuran create/update/delete; pull cursor konsisten; `baseRev` salah → conflict; retry `opId` sama tidak menerapkan dua kali.
 - [x] **1.5** Klien desktop: `cloudSync.js`, controller + queue persisten, attach, indikator status, baseline rev persisten, `captureOfflineEdits`, auto-retry backoff. *Selesai 2026-10-30.*
   - Test: unit queue (offline → reconnect); server dimatikan setelah login → edit tetap tersimpan dan terkirim saat server hidup; e2e dua instance app dengan userData berbeda + satu server.
-- [ ] **1.6** Auth klien: login browser PKCE loopback, token di `safeStorage`, refresh single-flight + grace, kelola perangkat.
+- [ ] **1.6** Auth klien: PKCE loopback + kelola perangkat. *Kelola perangkat selesai 2026-10-30 (modal, revoke, e2e). PKCE belum: butuh endpoint OAuth Google di backend + kredensial client.*
   - Test: e2e login/logout; rotasi refresh; refresh saat jaringan putus tidak menghapus token; revoke device membuat request 401.
 - [x] **1.7** Attach workspace idempoten. *Selesai 2026-10-30: attach kedua tidak memanggil backend dan tidak mereset queue (unit test).*
   - Test: attach dua kali tidak menduplikasi entity; payload round-trip sama dengan export Git.
