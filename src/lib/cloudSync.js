@@ -614,3 +614,64 @@ export function createSyncQueue({ persist, now, newId, initial } = {}) {
     attemptFor,
   };
 }
+
+// ─── Secret redaction ────────────────────────────────────────────────────────
+//
+// Secret variable rows are safeStorage-encrypted per device and must never be
+// uploaded. Until workspace-key encryption is wired, outgoing payloads drop
+// the value/ciphertext, and pulls merge the local secret back in so a synced
+// environment cannot wipe a locally stored secret.
+
+const SECRET_KINDS = new Set([KIND.environment, KIND.globals]);
+
+function mapVariableRows(payload, fn) {
+  if (Array.isArray(payload)) return payload.map((row) => (row && typeof row === 'object' ? fn(row) : row));
+  if (payload && typeof payload === 'object' && Array.isArray(payload.variables)) {
+    return { ...payload, variables: payload.variables.map((row) => (row && typeof row === 'object' ? fn(row) : row)) };
+  }
+  return payload;
+}
+
+function stripSecretRow(row) {
+  if (row.type !== 'secret') return row;
+  const next = { ...row, value: '' };
+  delete next.secretEnc;
+  return next;
+}
+
+function keepLocalSecretRow(localRow) {
+  return localRow ? { ...localRow } : null;
+}
+
+/** Remove secret values/ciphertext from an entity payload before it is sent. */
+export function stripSecretsFromPayload(kind, payload) {
+  if (!SECRET_KINDS.has(kind) || payload == null) return payload;
+  return mapVariableRows(payload, stripSecretRow);
+}
+
+/** Strip secrets from a batch of outgoing changes. */
+export function sanitizeChanges(changes) {
+  if (!Array.isArray(changes)) return [];
+  return changes.map((change) => {
+    if (!change || change.deleted) return change;
+    return { ...change, payload: stripSecretsFromPayload(change.kind, change.payload) };
+  });
+}
+
+/** Keep local secret rows when applying a pulled environment/globals payload. */
+export function mergeLocalSecrets(kind, incomingPayload, localPayload) {
+  if (!SECRET_KINDS.has(kind) || incomingPayload == null) return incomingPayload;
+  const localRows = Array.isArray(localPayload)
+    ? localPayload
+    : Array.isArray(localPayload?.variables)
+      ? localPayload.variables
+      : [];
+  const byKey = new Map(
+    localRows.filter((row) => row && row.key != null).map((row) => [String(row.key), row])
+  );
+  return mapVariableRows(incomingPayload, (row) => {
+    if (row.type !== 'secret') return row;
+    const local = byKey.get(String(row.key));
+    return local && local.type === 'secret' ? keepLocalSecretRow(local) : stripSecretRow(row);
+  });
+}

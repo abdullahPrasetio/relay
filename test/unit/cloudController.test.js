@@ -122,6 +122,59 @@ function editCollectionName(h, name) {
 }
 
 describe('createCloudController', () => {
+
+  it('never uploads secret variable values and merges them back after a pull', async () => {
+    const h = harness();
+    const ws = h.table.get(h.workspace.id);
+    ws.environments[0].variables.push({
+      key: 'token',
+      value: 's3cr3t',
+      type: 'secret',
+      secretEnc: 'local-ciphertext',
+      enabled: true,
+    });
+    await h.controller.attach(h.workspace.id);
+
+    const push = h.calls.find((c) => c.method === 'push');
+    const envChange = push.payload.changes.find((c) => c.kind === 'environment');
+    const token = envChange.payload.variables.find((v) => v.key === 'token');
+    expect(token.value).toBe('');
+    expect(token).not.toHaveProperty('secretEnc');
+    expect(JSON.stringify(push.payload)).not.toContain('s3cr3t');
+
+    // A pull returns the server copy (secret already stripped): the local
+    // secret must survive the merge instead of being blanked.
+    h.cloud.pull.mockImplementationOnce(async (payload) => ({
+      ok: true,
+      data: {
+        changes: [
+          {
+            seq: 11,
+            id: 'env1',
+            kind: 'environment',
+            rev: 2,
+            deleted: false,
+            payload: {
+              id: 'env1',
+              name: 'Prod',
+              variables: [
+                { key: 'baseUrl', value: 'https://api.test', enabled: true },
+                { key: 'token', value: '', type: 'secret', enabled: true },
+              ],
+            },
+          },
+        ],
+        nextSeq: 11,
+        hasMore: false,
+      },
+    }));
+    const sync = await h.controller.sync(h.workspace.id);
+    expect(sync.ok).toBe(true);
+
+    const after = h.table.get(h.workspace.id).environments[0].variables.find((v) => v.key === 'token');
+    expect(after.value).toBe('s3cr3t');
+    expect(after.secretEnc).toBe('local-ciphertext');
+  });
   it('requires a session before attaching', async () => {
     const h = harness({ signedIn: false });
     const res = await h.controller.attach(h.workspace.id);

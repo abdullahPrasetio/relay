@@ -19,6 +19,8 @@
 // `error` is always { code, message, status }.
 
 import {
+  mergeLocalSecrets,
+  sanitizeChanges,
   applyPulledChanges,
   createSyncQueue,
   diffEntities,
@@ -239,7 +241,7 @@ export function createCloudController({
     // The queue now holds these changes, so later diffs must build on their
     // optimistic revisions. A push response may refine them with server revs.
     cfg.revs = { ...diff.revs };
-    return diff.changes;
+    return sanitizeChanges(diff.changes);
   }
 
   // Push the whole pending queue. On a network/transport failure nothing is
@@ -441,7 +443,7 @@ export function createCloudController({
     setBaseline(workspaceId, { ...flat, revs: baseline.revs, persisted: true });
 
     const queue = queueFor(workspaceId, cfg);
-    queue.enqueue(baseline.changes);
+    queue.enqueue(sanitizeChanges(baseline.changes));
 
     const pushed = await pushQueue(workspaceId, cfg, queue);
     if (!pushed.ok) {
@@ -565,7 +567,12 @@ export function createCloudController({
 
       if (applicable.length) {
         const revs = { ...cfg.revs };
-        const nextWorkspace = applyPulledChanges(current, applicable, revs);
+        const localById = flattenWorkspace(current).byId;
+        const withSecrets = applicable.map((change) => ({
+          ...change,
+          payload: mergeLocalSecrets(change.kind, change.payload, localById[change.id]?.payload),
+        }));
+        const nextWorkspace = applyPulledChanges(current, withSecrets, revs);
         cfg.revs = revs;
         save(workspaceId, cfg, {
           collections: nextWorkspace.collections,

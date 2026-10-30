@@ -7,8 +7,10 @@ import {
   GLOBALS_ID,
   KIND,
   MAX_BACKOFF_MS,
+  mergeLocalSecrets,
   nextBackoff,
   reconcilePushResults,
+  sanitizeChanges,
   UNFILED_COLLECTION_ID,
 } from '../../src/lib/cloudSync.js';
 
@@ -659,5 +661,43 @@ describe('createSyncQueue', () => {
     const pending = queue.pending();
     pending[0].id = 'changed';
     expect(queue.pending()[0].id).toBe('a');
+  });
+});
+
+describe('secret redaction', () => {
+  it('strips secret values from environment and globals payloads', () => {
+    const env = {
+      id: 'env1',
+      name: 'Prod',
+      variables: [
+        { key: 'plain', value: 'ok', enabled: true },
+        { key: 'token', value: 's3cr3t', type: 'secret', secretEnc: 'cipher', enabled: true },
+      ],
+    };
+    const globals = [{ key: 'g', value: 'hidden', type: 'secret', enabled: true }];
+    const changes = sanitizeChanges([
+      { opId: '1', id: 'env1', kind: 'environment', payload: env },
+      { opId: '2', id: 'globals', kind: 'globals', payload: globals },
+    ]);
+    const envToken = changes[0].payload.variables.find((v) => v.key === 'token');
+    expect(envToken.value).toBe('');
+    expect(envToken).not.toHaveProperty('secretEnc');
+    expect(changes[1].payload[0].value).toBe('');
+    expect(JSON.stringify(changes)).not.toContain('s3cr3t');
+    expect(JSON.stringify(changes)).not.toContain('hidden');
+  });
+
+  it('keeps local secrets when applying a pulled payload', () => {
+    const local = {
+      id: 'env1',
+      variables: [{ key: 'token', value: 's3cr3t', type: 'secret', secretEnc: 'cipher', enabled: true }],
+    };
+    const incoming = {
+      id: 'env1',
+      variables: [{ key: 'token', value: '', type: 'secret', enabled: true }],
+    };
+    const merged = mergeLocalSecrets('environment', incoming, local);
+    expect(merged.variables[0].value).toBe('s3cr3t');
+    expect(merged.variables[0].secretEnc).toBe('cipher');
   });
 });
