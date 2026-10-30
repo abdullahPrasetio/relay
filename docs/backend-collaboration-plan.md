@@ -117,7 +117,7 @@ create table workspace_members (
 create table entities (
   workspace_id uuid not null references workspaces(id) on delete cascade,
   id text not null,                   -- id lokal dari app (ws_/col_/req_/env_)
-  kind text not null check (kind in ('collection','request','environment','globals')),
+  kind text not null check (kind in ('collection','folder','request','environment','globals')),
   parent_id text,
   order_key text,                     -- fractional index untuk reorder
   rev bigint not null default 1,
@@ -290,11 +290,11 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
   - Test: start dengan `DB_AUTO_MIGRATE=false` tidak membuat tabel; migrasi eksplisit yang membuat.
 - [x] **0.3** SSRF: resolusi DNS divalidasi lalu IP yang sama di-dial langsung (anti DNS rebinding) + opsi `AllowPrivate` untuk self-host. *Selesai 2026-10-29; test loopback/mixed-IP/resolver-once lulus.*
   - Test: hostname yang resolve ke `127.0.0.1` ditolak; `AllowPrivate=true` mengizinkan; redirect ke IP privat ditolak.
-- [ ] **0.4** Redis opsional: interface `Blacklist` + no-op, cache optional; sesi/refresh disimpan di Postgres.
+- [x] **0.4** Redis opsional: cache + blacklist punya implementasi Redis dan in-memory; API berjalan dengan `REDIS_URL` kosong. *Selesai 2026-10-29; login/logout/refresh tetap jalan tanpa Redis (revocation instance-local). Sesi refresh di Postgres diimplementasikan di relay-api.*
   - Test: service start tanpa `REDIS_URL`; logout tetap merevoke token.
-- [ ] **0.5** Template worker scheduler (River) di `wapgo make:worker`.
+- [x] **0.5** Template worker scheduler di skeleton (`run-worker`/`build-worker`). *Selesai 2026-10-29, deviasi dari rencana: queue Postgres `FOR UPDATE SKIP LOCKED` + retry/backoff, bukan River, agar tanpa dependency baru.*
   - Test: worker mengambil job `SKIP LOCKED`, retry tercatat, graceful shutdown.
-- [ ] **0.6** Rate limiter bersama (opsional Redis) + dokumentasi keterbatasan in-memory.
+- [x] **0.6** Rate limiter bersama: `RATE_LIMIT_BACKEND=memory|redis`, RedisLimiter atomik, header `Retry-After`/`X-RateLimit-Remaining`, keterbatasan in-memory didokumentasikan. *Selesai 2026-10-29; test miniredis lulus.*
   - Test: dua instance berbagi kuota saat Redis aktif.
 - [x] **0.7** Port runner migrasi + SSRF dialer ke `cli/generator/templates/skeleton` (termasuk Makefile, go.mod, `.env.example`), agar `wapgo new` mewarisi perbaikan tanpa copy manual. *Selesai 2026-10-29; proyek hasil generate lulus build/test dan migrate up/down di Postgres.*
   - Test: generate proyek baru di direktori sementara, `make migrate` berjalan, dan dial ke `127.0.0.1` diblokir secara default.
@@ -303,13 +303,13 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
 
 - [x] **1.1** Buat repo `relay-api` sesuai topologi 1.2; `wapgo new` dengan semua add-on off (tanpa Kafka/RabbitMQ/Filebeat). *Selesai 2026-10-29: `github.com/abdullahPrasetio/relay-api` @ `ae219fc`.*
   - Test: `go test ./...` hijau; `/health` 200; Docker image jalan sebagai nonroot.
-- [ ] **1.2** Domain `workspace`, `member`, `entity` + repository GORM; query sync memakai raw SQL.
+- [x] **1.2** Domain `workspace`, `member`, `entity` + repository; query sync pakai raw SQL dalam satu transaksi (advisory lock per workspace). *Selesai 2026-10-29; test integrasi Postgres lulus.*
   - Test: unit usecase (mock repo) + integration Postgres (testcontainers/compose) untuk insert/update/rev.
-- [ ] **1.3** Endpoint workspace CRUD + attach workspace lokal (id mapping).
+- [x] **1.3** Endpoint workspace CRUD + attach workspace lokal (id mapping). *Selesai 2026-10-30; e2e Electron: signup → attach → status `Synced`, backend menerima baseline collection+globals.*
   - Test: buat workspace → owner otomatis member role owner; IDOR: workspace orang lain → 404.
-- [ ] **1.4** Delta push/pull (`/changes`, `entity_ops` dedupe) + transaksi `entity_changes`.
+- [x] **1.4** Delta push/pull (`/changes`, `entity_ops` dedupe) + transaksi `entity_changes`, beserta HTTP handler dan otorisasi role. *Selesai 2026-10-29; e2e viewer/editor/konflik/dedupe lulus.*
   - Test: push batch campuran create/update/delete; pull cursor konsisten; `baseRev` salah → conflict; retry `opId` sama tidak menerapkan dua kali.
-- [ ] **1.5** Klien desktop: `src/lib/cloudSync.js` (queue persisten, retry backoff, cursor), tombol “Connect to cloud” di WorkspaceSwitcher, indikator status sync.
+- [x] **1.5** Klien desktop: `cloudSync.js` (flatten/diff/apply), controller + queue persisten, tombol attach di WorkspaceSwitcher, indikator status. *Selesai 2026-10-30; retry masih manual (`nextSyncDelay` tersedia), baseline rev in-memory.*
   - Test: unit queue (offline → reconnect); server dimatikan setelah login → edit tetap tersimpan dan terkirim saat server hidup; e2e dua instance app dengan userData berbeda + satu server.
 - [ ] **1.6** Auth klien: login browser PKCE loopback, token di `safeStorage`, refresh single-flight + grace, kelola perangkat.
   - Test: e2e login/logout; rotasi refresh; refresh saat jaringan putus tidak menghapus token; revoke device membuat request 401.
@@ -364,7 +364,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 ### Sudah dikerjakan dan teruji (app, bukan backend)
 
 - [x] Fase 0–6 roadmap app: network engine, auth, runtime sandbox, workflow, protokol, mock/docs/git workspace, signing pipeline.
-- [x] Unit test: 568 lulus / 41 file (`npm test`).
+- [x] Unit test: 613 lulus / 45 file (`npm test`, setelah Fase 1 client).
 - [x] E2E: 19 lulus (`npx playwright test`), termasuk sync sesi, quit handshake, tema, environment menu.
 - [x] Lint: 0 error; build produksi sukses.
 - [x] CI GitHub Actions 3 OS (`.github/workflows/build.yml`) hijau; artifact mac/win/linux terunggah.
@@ -376,12 +376,15 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 
 ### Belum dikerjakan
 
-- [ ] Fase 0 (sisa): Redis opsional, scheduler, rate limit.
+- [x] Fase 0 (sisa): Redis opsional, scheduler, rate limit.
 - [x] Fase 0.1–0.2 wapgo: runner migrasi SQL (`cmd/migrate`) + guard `AutoMigrate` (uji up/down Postgres 14).
 - [x] Fase 0.3 wapgo: SSRF cek IP hasil DNS di dialer + `AllowPrivate`.
 - [x] Fase 0.7 wapgo: perbaikan di-port ke skeleton; proyek hasil generate terverifikasi.
+- [x] Fase 0.4–0.6 wapgo: Redis opsional, rate limiter memory/redis, worker Postgres di skeleton; generate+build+migrate terverifikasi.
 - [x] Fase 1.1: repo `relay-api` dibuat dari scaffold (public, `main`).
-- [ ] Fase 1: auth + cloud sync per user.
+- [x] Fase 1 server: auth foundation (sessions, refresh rotation+grace, devices) dan workspace API (CRUD, members, changes) teruji e2e dengan Postgres.
+- [x] Fase 1 client: cloud client main-process (single-flight refresh, token aman), engine sync, UI login/attach/status/konflik; e2e Electron lulus terhadap relay-api nyata.
+- [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
 - [ ] Fase 3: monitor terjadwal.
 - [ ] Fase 4: E2E secret sharing, komentar.
