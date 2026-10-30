@@ -428,12 +428,181 @@ describe('createCloudClient', () => {
     await expect(client.createComment('ws_1', { body: 'hi' })).rejects.toThrow(
       /entityId is required/
     );
-    await expect(client.updateComment('cmt_1', {})).rejects.toThrow(/body or resolved/);
+    await expect(client.updateComment('cmt_1', {})).rejects.toThrow(
+      /body, resolved, or mentions/
+    );
     await expect(client.updateComment('cmt_1', { resolved: 'yes' })).rejects.toThrow(
       /resolved must be a boolean/
     );
     await expect(client.comments('ws_1', {})).rejects.toThrow(/entityId is required/);
     expect(called).toBe(0);
+  });
+
+  it('passes deduplicated mentions on create and update', async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, init });
+      const { pathname } = new URL(url);
+      if (pathname.endsWith('/auth/login')) {
+        return envelope({ accessToken: 'access-1', refreshToken: 'refresh-1', user: { id: 'u1' } });
+      }
+      if (pathname.endsWith('/workspaces/ws_1/comments')) {
+        return envelope(
+          {
+            id: 'cmt_1',
+            entityId: 'req_1',
+            body: 'hi @Grace',
+            authorName: 'Ada',
+            mentions: [{ userId: 'u2', name: 'Grace Hopper' }],
+          },
+          201
+        );
+      }
+      return envelope({ id: 'cmt_1', mentions: [] });
+    };
+    const client = createCloudClient({
+      baseUrl: 'http://relay.test',
+      fetchImpl,
+      tokenStore: fakeTokenStore(),
+    });
+    await client.login({ email: 'dev@relay.test', password: 'pw' });
+    calls.length = 0;
+
+    const created = await client.createComment('ws_1', {
+      entityId: 'req_1',
+      body: '  hi @Grace  ',
+      mentions: ['u2', 'u2'],
+    });
+    expect(parseBody(calls[0].init)).toEqual({
+      entityId: 'req_1',
+      body: 'hi @Grace',
+      mentions: ['u2'],
+    });
+    expect(created).toMatchObject({
+      authorName: 'Ada',
+      mentions: [{ userId: 'u2', name: 'Grace Hopper' }],
+    });
+
+    // An explicit empty array clears the mention set on PATCH.
+    await client.updateComment('cmt_1', { mentions: [] });
+    expect(parseBody(calls[1].init)).toEqual({ mentions: [] });
+
+    await client.updateComment('cmt_1', { body: 'x', mentions: ['u3', 'u2', 'u3'] });
+    expect(parseBody(calls[2].init)).toEqual({ body: 'x', mentions: ['u3', 'u2'] });
+  });
+
+  it('validates mention ids before calling the API', async () => {
+    let called = 0;
+    const fetchImpl = async (url) => {
+      const pathname = new URL(url).pathname;
+      if (pathname.endsWith('/auth/login')) {
+        return envelope({ accessToken: 'access-1', refreshToken: 'refresh-1', user: { id: 'u1' } });
+      }
+      called += 1;
+      return envelope({});
+    };
+    const client = createCloudClient({
+      baseUrl: 'http://relay.test',
+      fetchImpl,
+      tokenStore: fakeTokenStore(),
+    });
+    await client.login({ email: 'dev@relay.test', password: 'pw' });
+
+    await expect(
+      client.createComment('ws_1', { entityId: 'req_1', body: 'hi', mentions: 'u2' })
+    ).rejects.toThrow(/mentions must be an array/);
+    await expect(
+      client.createComment('ws_1', { entityId: 'req_1', body: 'hi', mentions: ['u2', null] })
+    ).rejects.toThrow(/mention id is required/);
+    await expect(client.updateComment('cmt_1', { mentions: [42] })).rejects.toThrow(
+      /mention id is required/
+    );
+    expect(called).toBe(0);
+  });
+
+  it('lists the mentions feed with a cursor and normalises the page', async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, init });
+      const { pathname } = new URL(url);
+      if (pathname.endsWith('/auth/login')) {
+        return envelope({ accessToken: 'access-1', refreshToken: 'refresh-1', user: { id: 'u1' } });
+      }
+      if (pathname.endsWith('/workspaces/ws_1/mentions')) {
+        const before = new URL(url).searchParams.get('before');
+        return envelope({
+          comments: [
+            {
+              id: 'cmt_2',
+              entityId: 'req_1',
+              body: '@Ada ping',
+              authorName: 'Grace Hopper',
+              mentions: [{ userId: 'u1', name: 'Ada' }],
+            },
+          ],
+          nextBefore: before ? 'cmt_2' : '',
+        });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+    const client = createCloudClient({
+      baseUrl: 'http://relay.test',
+      fetchImpl,
+      tokenStore: fakeTokenStore(),
+    });
+    await client.login({ email: 'dev@relay.test', password: 'pw' });
+    calls.length = 0;
+
+    const page = await client.mentions('ws_1', { before: 'cmt_9', limit: 2 });
+    expect(page.comments).toHaveLength(1);
+    expect(page.nextBefore).toBe('cmt_2');
+
+    const url = new URL(calls[0].url);
+    expect(url.pathname).toBe('/api/v1/workspaces/ws_1/mentions');
+    expect(url.searchParams.get('before')).toBe('cmt_9');
+    expect(url.searchParams.get('limit')).toBe('2');
+    expect(calls[0].init.headers.authorization).toBe('Bearer access-1');
+
+    // The backend sends an empty string for the last page; expose null.
+    const last = await client.mentions('ws_1', { limit: 2 });
+    expect(last.nextBefore).toBe(null);
+  });
+
+  it('keeps member names and emails from the members endpoint', async () => {
+    const fetchImpl = async (url) => {
+      const { pathname } = new URL(url);
+      if (pathname.endsWith('/auth/login')) {
+        return envelope({ accessToken: 'access-1', refreshToken: 'refresh-1', user: { id: 'u1' } });
+      }
+      if (pathname.endsWith('/workspaces/ws_1/members')) {
+        return envelope([
+          {
+            workspaceId: 'ws_1',
+            userId: 'u1',
+            role: 'owner',
+            name: 'Ada Lovelace',
+            email: 'ada@relay.test',
+          },
+        ]);
+      }
+      throw new Error(`unexpected request: ${url}`);
+    };
+    const client = createCloudClient({
+      baseUrl: 'http://relay.test',
+      fetchImpl,
+      tokenStore: fakeTokenStore(),
+    });
+    await client.login({ email: 'dev@relay.test', password: 'pw' });
+
+    await expect(client.members('ws_1')).resolves.toEqual([
+      {
+        workspaceId: 'ws_1',
+        userId: 'u1',
+        role: 'owner',
+        name: 'Ada Lovelace',
+        email: 'ada@relay.test',
+      },
+    ]);
   });
 });
 

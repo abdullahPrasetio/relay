@@ -67,6 +67,27 @@ function commentBody(value) {
   return body;
 }
 
+/**
+ * Optional mention list: user id strings in input order, deduplicated. The
+ * server still checks that every id is a current workspace member; invalid
+ * ids are rejected there with 422. An explicitly empty array clears the set
+ * on PATCH.
+ */
+function mentionIds(value) {
+  if (!Array.isArray(value)) {
+    throw new TypeError('mentions must be an array of user ids');
+  }
+  const seen = new Set();
+  const ids = [];
+  for (const entry of value) {
+    const id = requiredString(entry, 'mention id').trim();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
 const WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'viewer'];
 
 function requireRole(value) {
@@ -535,6 +556,7 @@ export function createCloudClient({
       return data;
     },
 
+    /** Workspace members, including display `name` and `email` for mentions. */
     async members(workspaceId) {
       const data = await call(`/workspaces/${requireId(workspaceId)}/members`);
       if (Array.isArray(data)) return data;
@@ -649,16 +671,21 @@ export function createCloudClient({
       };
     },
 
-    async createComment(workspaceId, { entityId, body } = {}) {
+    async createComment(workspaceId, { entityId, body, mentions } = {}) {
+      const payload = {
+        entityId: requiredString(entityId, 'entityId'),
+        body: commentBody(body),
+      };
+      if (mentions !== undefined && mentions !== null) payload.mentions = mentionIds(mentions);
       const data = await call(`/workspaces/${requireId(workspaceId)}/comments`, {
         method: 'POST',
-        body: { entityId: requiredString(entityId, 'entityId'), body: commentBody(body) },
+        body: payload,
       });
       return data ?? null;
     },
 
-    /** Patch a comment's text and/or resolved state. */
-    async updateComment(id, { body, resolved } = {}) {
+    /** Patch a comment's text, mention set, and/or resolved state. */
+    async updateComment(id, { body, resolved, mentions } = {}) {
       const patch = {};
       if (body !== undefined) patch.body = commentBody(body);
       if (resolved !== undefined) {
@@ -667,11 +694,30 @@ export function createCloudClient({
         }
         patch.resolved = resolved;
       }
+      if (mentions !== undefined && mentions !== null) patch.mentions = mentionIds(mentions);
       if (Object.keys(patch).length === 0) {
-        throw new TypeError('updateComment requires body or resolved');
+        throw new TypeError('updateComment requires body, resolved, or mentions');
       }
       const data = await call(`/comments/${requireId(id)}`, { method: 'PATCH', body: patch });
       return data ?? null;
+    },
+
+    /**
+     * Comments in this workspace that mention the caller, newest first.
+     * `before` is the opaque cursor from the previous page's `nextBefore`.
+     */
+    async mentions(workspaceId, { before, limit } = {}) {
+      const params = new URLSearchParams();
+      params.set('limit', String(requirePositiveInt(limit, 'limit', 50)));
+      if (before !== undefined && before !== null && before !== '') {
+        params.set('before', String(before));
+      }
+      const data = await call(`/workspaces/${requireId(workspaceId)}/mentions?${params}`);
+      const cursor = data?.nextBefore;
+      return {
+        comments: Array.isArray(data?.comments) ? data.comments : [],
+        nextBefore: cursor === undefined || cursor === null || cursor === '' ? null : cursor,
+      };
     },
 
     async deleteComment(id) {
