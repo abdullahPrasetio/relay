@@ -48,6 +48,9 @@ import { createCloudClient } from './cloud/client.js';
 import { createTokenStore } from './cloud/token-store.js';
 import { registerCloudIpc } from './cloud/ipc.js';
 import { createChangeStream } from './cloud/sse.js';
+import { createDeviceKeyManager } from './cloud/device-keys.js';
+import { createWorkspaceKeyManager } from './cloud/workspace-keys.js';
+import * as cloudCrypto from '../packages/core/src/crypto/index.js';
 // Script runner runs user scripts here in Node (renderer CSP forbids eval).
 // Imported (not require'd from a copied .cjs) so Vite bundles it + its deps
 // into main.js, eliminating stale-copy bugs.
@@ -181,15 +184,29 @@ function createWindow() {
 app.whenReady().then(() => {
   // Cloud client: one instance for the app's lifetime. The refresh token is
   // persisted encrypted in userData; the access token never leaves memory.
+  const tokenStore = createTokenStore();
   const cloudClient = createCloudClient({
     baseUrl: process.env.RELAY_API_URL || 'http://127.0.0.1:8080',
-    tokenStore: createTokenStore(),
+    tokenStore,
   });
   const changeStream = createChangeStream({
     baseUrl: process.env.RELAY_API_URL || 'http://127.0.0.1:8080',
     tokenProvider: () => cloudClient.ensureAccessToken(),
   });
-  registerCloudIpc({ ipcMain, client: cloudClient, stream: changeStream });
+  // Device identity and workspace-key provisioning stay in the main process:
+  // the private key and plaintext workspace keys never cross IPC.
+  const deviceKeys = createDeviceKeyManager({ tokenStore, crypto: cloudCrypto });
+  const workspaceKeys = createWorkspaceKeyManager({
+    client: cloudClient,
+    deviceKeys,
+    crypto: cloudCrypto,
+  });
+  registerCloudIpc({
+    ipcMain,
+    client: cloudClient,
+    stream: changeStream,
+    workspaceKeys,
+  });
 
   registerIpc();
   createWindow();

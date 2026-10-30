@@ -21,6 +21,10 @@
 import {
   mergeLocalSecrets,
   sanitizeChanges,
+  secretCloudSlots,
+  secretValueSlots,
+  withDecryptedSecrets,
+  withEncryptedSecrets,
   applyPulledChanges,
   createSyncQueue,
   diffEntities,
@@ -197,6 +201,47 @@ export function createCloudController({
     }
   }
 
+  // ─── Secret encryption ────────────────────────────────────────────────────
+  //
+  // Secret variable values are E2E-encrypted in the main process with the
+  // workspace key before they are queued, so neither the persisted queue nor
+  // the network ever sees plaintext. When the key is unavailable (never
+  // provisioned, device revoked, older main process) the existing strip-only
+  // guard applies: secrets sync as empty rows and local copies are merged back
+  // on pull. Crypto failures are never fatal for non-secret changes.
+
+  async function secureChanges(workspaceId, changes) {
+    const list = Array.isArray(changes) ? changes : [];
+    const slots = secretValueSlots(list);
+    if (!slots.length) return sanitizeChanges(list);
+
+    const status = await call('cryptoStatus', { workspaceId });
+    if (!status.ok || !status.data?.ready) return sanitizeChanges(list);
+
+    const encrypted = await call('encryptSecrets', {
+      workspaceId,
+      values: slots.map((slot) => slot.value),
+    });
+    const envelopes = encrypted.ok ? encrypted.data?.envelopes : null;
+    if (!Array.isArray(envelopes) || envelopes.length < slots.length) {
+      return sanitizeChanges(list);
+    }
+    return sanitizeChanges(withEncryptedSecrets(list, slots, envelopes));
+  }
+
+  async function openPulledChanges(workspaceId, changes) {
+    const list = Array.isArray(changes) ? changes : [];
+    const slots = secretCloudSlots(list);
+    if (!slots.length) return list;
+
+    const decrypted = await call('decryptSecrets', {
+      workspaceId,
+      envelopes: slots.map((slot) => slot.envelope),
+    });
+    if (!decrypted.ok) return withDecryptedSecrets(list, slots, []);
+    return withDecryptedSecrets(list, slots, decrypted.data?.values);
+  }
+
   function save(workspaceId, cfg, extra = {}) {
     // Every persisted config carries the current diff baseline so a reload can
     // resume from server state instead of silently dropping offline edits.
@@ -250,12 +295,16 @@ export function createCloudController({
     const drained = queue.drain();
     if (!drained.length) return { ok: true, data: { applied: 0, pending: 0, conflicts: 0 } };
 
-    const response = await call('push', { workspaceId: cfg.remoteId, changes: drained });
+    // Normally the queue already holds encrypted payloads; this pass covers a
+    // queued item restored from an older build and is a no-op otherwise.
+    const outgoing = await secureChanges(cfg.remoteId, drained);
+
+    const response = await call('push', { workspaceId: cfg.remoteId, changes: outgoing });
     if (!response.ok) return response;
 
     const data = response.data;
     const { applied, conflicts, failed } = reconcilePushResults(data);
-    const drainedByOp = new Map(drained.map((item) => [item.opId, item]));
+    const drainedByOp = new Map(outgoing.map((item) => [item.opId, item]));
 
     for (const result of applied) {
       if (result?.id != null && result.rev != null) {
@@ -443,7 +492,7 @@ export function createCloudController({
     setBaseline(workspaceId, { ...flat, revs: baseline.revs, persisted: true });
 
     const queue = queueFor(workspaceId, cfg);
-    queue.enqueue(sanitizeChanges(baseline.changes));
+    queue.enqueue(await secureChanges(remoteId, baseline.changes));
 
     const pushed = await pushQueue(workspaceId, cfg, queue);
     if (!pushed.ok) {
@@ -512,7 +561,9 @@ export function createCloudController({
 
     const queue = queueFor(workspaceId, cfg);
     const localChanges = collect(workspaceId, cfg);
-    if (localChanges.length) queue.enqueue(localChanges);
+    if (localChanges.length) {
+      queue.enqueue(await secureChanges(cfg.remoteId, localChanges));
+    }
 
     const pushed = await pushQueue(workspaceId, cfg, queue);
     if (!pushed.ok) {
@@ -568,7 +619,8 @@ export function createCloudController({
       if (applicable.length) {
         const revs = { ...cfg.revs };
         const localById = flattenWorkspace(current).byId;
-        const withSecrets = applicable.map((change) => ({
+        const opened = await openPulledChanges(cfg.remoteId, applicable);
+        const withSecrets = opened.map((change) => ({
           ...change,
           payload: mergeLocalSecrets(change.kind, change.payload, localById[change.id]?.payload),
         }));
@@ -603,7 +655,7 @@ export function createCloudController({
       if (Object.prototype.hasOwnProperty.call(serverRevs, id)) cfg.revs[id] = serverRevs[id];
       else delete cfg.revs[id];
     }
-    if (lateChanges.length) queue.enqueue(lateChanges);
+    if (lateChanges.length) queue.enqueue(await secureChanges(cfg.remoteId, lateChanges));
 
     const linked = getWorkspace(workspaceId);
     if (linked) {
@@ -634,7 +686,7 @@ export function createCloudController({
   }
 
   // Queue local edits so an edit made between syncs survives a push failure.
-  function enqueue(workspaceId) {
+  async function enqueue(workspaceId) {
     const workspace = getWorkspace(workspaceId);
     const cfg = cloudConfig(workspace);
     if (!cfg) return fail('not_attached', 'This workspace is not linked to the cloud.');
@@ -644,7 +696,7 @@ export function createCloudController({
     }
     const changes = collect(workspaceId, cfg);
     if (!changes.length) return { ok: true, data: { queued: 0 } };
-    queueFor(workspaceId, cfg).enqueue(changes);
+    queueFor(workspaceId, cfg).enqueue(await secureChanges(cfg.remoteId, changes));
     return { ok: true, data: { queued: changes.length } };
   }
 
@@ -653,12 +705,12 @@ export function createCloudController({
   // Idempotent: capturing advances the baseline, so a second call (duplicate
   // mount, StrictMode) enqueues nothing. Without a known baseline nothing is
   // queued: a fresh link must not turn the whole workspace into edits.
-  function captureOfflineEdits(workspaceId) {
+  async function captureOfflineEdits(workspaceId) {
     const workspace = getWorkspace(workspaceId);
     const cfg = cloudConfig(workspace);
     if (!cfg) return fail('not_attached', 'This workspace is not linked to the cloud.');
     if (syncing.has(workspaceId)) {
-      // A running sync collects these edits itself before it finishes.
+      // A running sync will collect these edits itself before it finishes.
       return { ok: true, data: { queued: 0, deferred: true } };
     }
 
@@ -672,7 +724,7 @@ export function createCloudController({
 
     const changes = collect(workspaceId, cfg);
     if (!changes.length) return { ok: true, data: { queued: 0, captured: 0 } };
-    queueFor(workspaceId, cfg).enqueue(changes);
+    queueFor(workspaceId, cfg).enqueue(await secureChanges(cfg.remoteId, changes));
     return { ok: true, data: { queued: changes.length, captured: changes.length } };
   }
 
@@ -742,7 +794,9 @@ export function createCloudController({
       }
       cfg.conflicts = all.filter((conflict) => !actionable.includes(conflict));
       save(workspaceId, cfg);
-      if (replay.length) queueFor(workspaceId, cfg).enqueue(replay);
+      // The conflict copy may predate E2E encryption; never let a plaintext
+      // secret reach the queue (the next push would otherwise upload it).
+      if (replay.length) queueFor(workspaceId, cfg).enqueue(sanitizeChanges(replay));
       return { ok: true, data: { resolved: actionable.length, requeued: replay.length, mode } };
     }
 
@@ -812,6 +866,8 @@ export function createCloudController({
     sync,
     enqueue,
     captureOfflineEdits,
+    secureChanges,
+    openPulledChanges,
     resolveConflicts,
     dismissConflicts,
     nextSyncDelay: (attempt) => nextBackoff(attempt),

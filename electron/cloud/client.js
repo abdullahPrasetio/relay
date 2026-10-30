@@ -86,6 +86,31 @@ function requirePositiveInt(value, field, fallback) {
   return Math.floor(number);
 }
 
+/** Workspace key versions are whole numbers starting at 1. */
+function requireVersion(value) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number <= 0) {
+    throw new TypeError('version must be a positive integer');
+  }
+  return number;
+}
+
+/** Entries are `{ deviceKeyId, wrappedKey }` pairs, one per recipient device. */
+function requireKeyEntries(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new TypeError('entries must be a non-empty array');
+  }
+  return entries.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new TypeError('each entry must be an object');
+    }
+    return {
+      deviceKeyId: requiredString(entry.deviceKeyId, 'deviceKeyId'),
+      wrappedKey: requiredString(entry.wrappedKey, 'wrappedKey'),
+    };
+  });
+}
+
 /**
  * Build a monitor create/patch body. Creates require the three schedule
  * fields; patches only carry the fields the caller supplied, so an enabled
@@ -401,6 +426,26 @@ export function createCloudClient({
       return null;
     },
 
+    // --- Device key registry (end-to-end secret sharing) -------------------
+    // Public keys only: the private key never leaves the main process.
+
+    async registerDeviceKey({ publicKey, label } = {}) {
+      const body = { publicKey: requiredString(publicKey, 'publicKey') };
+      if (typeof label === 'string' && label.trim()) body.label = label.trim();
+      const data = await call('/devices/keys', { method: 'PUT', body });
+      return data ?? null;
+    },
+
+    async listDeviceKeys() {
+      const data = await call('/devices/keys');
+      return Array.isArray(data) ? data : Array.isArray(data?.keys) ? data.keys : [];
+    },
+
+    async revokeDeviceKey(id) {
+      await call(`/devices/keys/${requireId(id)}`, { method: 'DELETE' });
+      return null;
+    },
+
     async me() {
       const data = await call('/auth/me');
       if (data) user = data;
@@ -437,6 +482,40 @@ export function createCloudClient({
       const id = typeof idOrPayload === 'object' ? idOrPayload?.id : idOrPayload;
       await call(`/workspaces/${requireId(id)}`, { method: 'DELETE' });
       return null;
+    },
+
+    /** Single workspace including this caller's role. */
+    async workspace(workspaceId) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}`);
+      return data ?? null;
+    },
+
+    // --- Workspace key provisioning ---------------------------------------
+
+    async workspaceDeviceKeys(workspaceId) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/device-keys`);
+      return Array.isArray(data) ? data : Array.isArray(data?.deviceKeys) ? data.deviceKeys : [];
+    },
+
+    /** Wrapped workspace keys addressed to this caller's active devices. */
+    async workspaceKeys(workspaceId) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/keys`);
+      return Array.isArray(data) ? data : Array.isArray(data?.keys) ? data.keys : [];
+    },
+
+    async putWorkspaceKeys(workspaceId, { version, entries } = {}) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/keys`, {
+        method: 'POST',
+        body: { version: requireVersion(version), entries: requireKeyEntries(entries) },
+      });
+      return data ?? null;
+    },
+
+    async rotateWorkspaceKeys(workspaceId) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/keys/rotate`, {
+        method: 'POST',
+      });
+      return data ?? null;
     },
 
     async pushChanges(workspaceId, changes) {

@@ -632,6 +632,123 @@ function mapVariableRows(payload, fn) {
   return payload;
 }
 
+// Same as mapVariableRows but passes the row index so callers can address the
+// exact variable a batch envelope belongs to.
+function mapVariableRowsIndexed(payload, fn) {
+  if (Array.isArray(payload)) {
+    return payload.map((row, index) => (row && typeof row === 'object' ? fn(row, index) : row));
+  }
+  if (payload && typeof payload === 'object' && Array.isArray(payload.variables)) {
+    return {
+      ...payload,
+      variables: payload.variables.map((row, index) =>
+        row && typeof row === 'object' ? fn(row, index) : row
+      ),
+    };
+  }
+  return payload;
+}
+
+function variableRowsOf(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object' && Array.isArray(payload.variables)) {
+    return payload.variables;
+  }
+  return null;
+}
+
+// Collect variable rows of outgoing changes that pass `accept`. A slot is the
+// address of one row (`changeIndex`, `rowIndex`) plus its position in the
+// batch (`slotIndex`), so the async crypto call can map results back.
+function secretRowSlots(changes, accept) {
+  const slots = [];
+  const list = Array.isArray(changes) ? changes : [];
+  list.forEach((change, changeIndex) => {
+    if (!change || typeof change !== 'object' || change.deleted) return;
+    if (!SECRET_KINDS.has(change.kind)) return;
+    const rows = variableRowsOf(change.payload);
+    if (!rows) return;
+    rows.forEach((row, rowIndex) => {
+      if (!row || typeof row !== 'object' || row.type !== 'secret') return;
+      const picked = accept(row);
+      if (!picked) return;
+      slots.push({ changeIndex, rowIndex, slotIndex: slots.length, ...picked });
+    });
+  });
+  return slots;
+}
+
+function applySecretSlots(changes, slots, pick) {
+  if (!Array.isArray(changes) || !slots.length) return changes;
+  const byChange = new Map();
+  for (const slot of slots) {
+    const rows = byChange.get(slot.changeIndex) || new Map();
+    rows.set(slot.rowIndex, slot);
+    byChange.set(slot.changeIndex, rows);
+  }
+  return changes.map((change, changeIndex) => {
+    const rows = byChange.get(changeIndex);
+    if (!rows) return change;
+    const payload = mapVariableRowsIndexed(change.payload, (row, rowIndex) => {
+      const slot = rows.get(rowIndex);
+      return slot ? pick(row, slot) : row;
+    });
+    return { ...change, payload };
+  });
+}
+
+/**
+ * Secret rows that still hold plaintext and therefore need an encrypted
+ * envelope before upload. Rows already carrying `secretCloud` are skipped, so
+ * re-running an encryption pass never double-encrypts a queued payload.
+ */
+export function secretValueSlots(changes) {
+  return secretRowSlots(changes, (row) => {
+    if (row.secretCloud) return null;
+    const value = typeof row.value === 'string' ? row.value : '';
+    return value ? { value } : null;
+  });
+}
+
+/** Secret rows carrying an encrypted envelope pulled from the server. */
+export function secretCloudSlots(changes) {
+  return secretRowSlots(changes, (row) =>
+    typeof row.secretCloud === 'string' && row.secretCloud ? { envelope: row.secretCloud } : null
+  );
+}
+
+/**
+ * Apply a batch of encrypted envelopes to the slots returned by
+ * `secretValueSlots`. A missing/failed envelope leaves the row untouched so
+ * the caller's strip-only guard can drop its plaintext.
+ */
+export function withEncryptedSecrets(changes, slots, envelopes) {
+  const list = Array.isArray(envelopes) ? envelopes : [];
+  return applySecretSlots(changes, slots, (row, slot) => {
+    const envelope = list[slot.slotIndex];
+    if (typeof envelope !== 'string' || !envelope) return row;
+    const next = { ...row, secretCloud: envelope, value: '' };
+    delete next.secretEnc;
+    return next;
+  });
+}
+
+/**
+ * Apply a batch of decrypted values to the slots returned by
+ * `secretCloudSlots`. Missing/failed entries become an empty value; the
+ * envelope is always removed so it can never be re-sent as a local secret.
+ */
+export function withDecryptedSecrets(changes, slots, values) {
+  const list = Array.isArray(values) ? values : [];
+  return applySecretSlots(changes, slots, (row, slot) => {
+    const plain = list[slot.slotIndex];
+    const next = { ...row, value: typeof plain === 'string' ? plain : '' };
+    delete next.secretCloud;
+    delete next.secretEnc;
+    return next;
+  });
+}
+
 function stripSecretRow(row) {
   if (row.type !== 'secret') return row;
   const next = { ...row, value: '' };
@@ -671,6 +788,10 @@ export function mergeLocalSecrets(kind, incomingPayload, localPayload) {
   );
   return mapVariableRows(incomingPayload, (row) => {
     if (row.type !== 'secret') return row;
+    // A row that was just decrypted already carries the real plaintext and no
+    // envelope: never replace it with a stale local copy.
+    const incomingValue = typeof row.value === 'string' ? row.value : '';
+    if (!row.secretCloud && incomingValue) return row;
     const local = byKey.get(String(row.key));
     return local && local.type === 'secret' ? keepLocalSecretRow(local) : stripSecretRow(row);
   });

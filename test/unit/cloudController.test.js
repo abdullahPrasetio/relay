@@ -47,7 +47,10 @@ function defaultPush(payload) {
   };
 }
 
-function harness({ signedIn = true } = {}) {
+const encodeSecret = (value) => Buffer.from(String(value), 'utf8').toString('base64');
+const decodeSecret = (envelope) => Buffer.from(String(envelope), 'base64').toString('utf8');
+
+function harness({ signedIn = true, cryptoReady = true } = {}) {
   const workspace = makeWorkspace();
   const table = new Map([[workspace.id, workspace]]);
   const calls = [];
@@ -76,6 +79,22 @@ function harness({ signedIn = true } = {}) {
       calls.push({ method: 'pull', payload });
       return { ok: true, data: { changes: [], nextSeq: payload.since, hasMore: false } };
     }),
+    cryptoStatus: vi.fn(async () => ({
+      ok: true,
+      data: { ready: cryptoReady, version: cryptoReady ? 1 : 0, reason: null },
+    })),
+    encryptSecrets: vi.fn(async ({ values }) => ({
+      ok: true,
+      data: { envelopes: (values || []).map(encodeSecret) },
+    })),
+    decryptSecrets: vi.fn(async ({ envelopes }) => ({
+      ok: true,
+      data: {
+        values: (envelopes || []).map((envelope) =>
+          String(envelope).startsWith('bad:') ? null : decodeSecret(envelope)
+        ),
+      },
+    })),
   };
 
   const controller = createCloudController({
@@ -119,6 +138,23 @@ function editCollectionName(h, name) {
       collection.id === 'col1' ? { ...collection, name } : collection
     ),
   });
+}
+
+function addSecret(h, { key = 'token', value = 's3cr3t' } = {}) {
+  const current = h.table.get(h.workspace.id);
+  const row = { key, value, type: 'secret', secretEnc: `local-ciphertext-${key}`, enabled: true };
+  h.table.set(h.workspace.id, {
+    ...current,
+    environments: current.environments.map((environment) =>
+      environment.id === 'env1' ? { ...environment, variables: [...environment.variables, row] } : environment
+    ),
+  });
+  return row;
+}
+
+function pushedEnvironment(h) {
+  const push = h.calls.filter((entry) => entry.method === 'push').at(-1);
+  return push.payload.changes.find((change) => change.kind === 'environment');
 }
 
 describe('createCloudController', () => {
@@ -175,6 +211,183 @@ describe('createCloudController', () => {
     expect(after.value).toBe('s3cr3t');
     expect(after.secretEnc).toBe('local-ciphertext');
   });
+
+  it('uploads a E2E envelope instead of the plaintext when the workspace key is ready', async () => {
+    const h = harness();
+    addSecret(h, { key: 'token', value: 's3cr3t' });
+    await h.controller.attach(h.workspace.id);
+
+    const envChange = pushedEnvironment(h);
+    const token = envChange.payload.variables.find((row) => row.key === 'token');
+    expect(token.secretCloud).toBe(encodeSecret('s3cr3t'));
+    expect(token.value).toBe('');
+    expect(token).not.toHaveProperty('secretEnc');
+    expect(JSON.stringify(h.calls)).not.toContain('s3cr3t');
+    expect(h.cloud.cryptoStatus).toHaveBeenCalledWith({ workspaceId: 'remote-1' });
+    expect(h.cloud.encryptSecrets).toHaveBeenCalledTimes(1);
+    expect(h.cloud.encryptSecrets.mock.calls[0][0]).toEqual({
+      workspaceId: 'remote-1',
+      values: ['s3cr3t'],
+    });
+  });
+
+  it('falls back to the strip-only guard when the workspace key is not ready', async () => {
+    const h = harness({ cryptoReady: false });
+    addSecret(h, { key: 'token', value: 's3cr3t' });
+    await h.controller.attach(h.workspace.id);
+
+    const token = pushedEnvironment(h).payload.variables.find((row) => row.key === 'token');
+    expect(token.value).toBe('');
+    expect(token).not.toHaveProperty('secretCloud');
+    expect(token).not.toHaveProperty('secretEnc');
+    expect(JSON.stringify(h.calls)).not.toContain('s3cr3t');
+    expect(h.cloud.encryptSecrets).not.toHaveBeenCalled();
+  });
+
+  it('decrypts pulled secret envelopes into the local workspace', async () => {
+    const h = harness();
+    await h.controller.attach(h.workspace.id);
+
+    h.cloud.pull.mockImplementationOnce(async () => ({
+      ok: true,
+      data: {
+        changes: [
+          {
+            seq: 11,
+            id: 'env1',
+            kind: 'environment',
+            rev: 2,
+            deleted: false,
+            payload: {
+              id: 'env1',
+              name: 'Prod',
+              variables: [
+                { key: 'baseUrl', value: 'https://api.test', enabled: true },
+                {
+                  key: 'apiKey',
+                  value: '',
+                  type: 'secret',
+                  secretCloud: encodeSecret('pulled-secret'),
+                  enabled: true,
+                },
+              ],
+            },
+          },
+        ],
+        nextSeq: 11,
+        hasMore: false,
+      },
+    }));
+
+    const res = await h.controller.sync(h.workspace.id);
+    expect(res.ok).toBe(true);
+
+    const apiKey = h.table
+      .get(h.workspace.id)
+      .environments[0].variables.find((row) => row.key === 'apiKey');
+    expect(apiKey.value).toBe('pulled-secret');
+    expect(apiKey).not.toHaveProperty('secretCloud');
+    expect(apiKey).not.toHaveProperty('secretEnc');
+    expect(h.cloud.decryptSecrets).toHaveBeenCalledTimes(1);
+    expect(h.cloud.decryptSecrets.mock.calls[0][0]).toEqual({
+      workspaceId: 'remote-1',
+      envelopes: [encodeSecret('pulled-secret')],
+    });
+  });
+
+  it('hides only the value whose envelope failed to decrypt', async () => {
+    const h = harness();
+    await h.controller.attach(h.workspace.id);
+
+    h.cloud.pull.mockImplementationOnce(async () => ({
+      ok: true,
+      data: {
+        changes: [
+          {
+            seq: 11,
+            id: 'env1',
+            kind: 'environment',
+            rev: 2,
+            deleted: false,
+            payload: {
+              id: 'env1',
+              name: 'Prod',
+              variables: [
+                {
+                  key: 'good',
+                  value: '',
+                  type: 'secret',
+                  secretCloud: encodeSecret('good-secret'),
+                  enabled: true,
+                },
+                { key: 'bad', value: '', type: 'secret', secretCloud: 'bad:envelope', enabled: true },
+              ],
+            },
+          },
+        ],
+        nextSeq: 11,
+        hasMore: false,
+      },
+    }));
+
+    const res = await h.controller.sync(h.workspace.id);
+    expect(res.ok).toBe(true);
+
+    const variables = h.table.get(h.workspace.id).environments[0].variables;
+    const good = variables.find((row) => row.key === 'good');
+    const bad = variables.find((row) => row.key === 'bad');
+    expect(good.value).toBe('good-secret');
+    expect(bad.value).toBe('');
+    expect(good).not.toHaveProperty('secretCloud');
+    expect(bad).not.toHaveProperty('secretCloud');
+  });
+
+  it('keeps queued payloads encrypted and never double-encrypts a retried push', async () => {
+    const h = harness();
+    addSecret(h, { key: 'token', value: 's3cr3t' });
+    h.cloud.push.mockImplementation(async () => ({
+      ok: false,
+      error: { code: 'offline', message: 'Cannot reach Relay Cloud', status: 0 },
+    }));
+
+    const failed = await h.controller.attach(h.workspace.id);
+    expect(failed.ok).toBe(false);
+    expect(h.cloud.encryptSecrets).toHaveBeenCalledTimes(1);
+
+    const queued = h.table.get(h.workspace.id).cloud.queueSnapshot;
+    const queuedEnv = queued.items.find((item) => item.kind === 'environment');
+    const queuedToken = queuedEnv.payload.variables.find((row) => row.key === 'token');
+    expect(queuedToken.secretCloud).toBe(encodeSecret('s3cr3t'));
+    expect(queuedToken.value).toBe('');
+    expect(JSON.stringify(queued)).not.toContain('s3cr3t');
+    expect(JSON.stringify(queued)).not.toContain('local-ciphertext');
+
+    h.cloud.push.mockImplementation(async (payload) => {
+      h.calls.push({ method: 'push', payload });
+      return defaultPush(payload);
+    });
+    const retried = await h.controller.sync(h.workspace.id);
+    expect(retried.ok).toBe(true);
+    expect(h.cloud.encryptSecrets).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(h.calls)).not.toContain('s3cr3t');
+  });
+
+  it('does not block non-secret changes when encryption fails', async () => {
+    const h = harness();
+    addSecret(h, { key: 'token', value: 's3cr3t' });
+    h.cloud.encryptSecrets.mockResolvedValue({ ok: false, error: { code: 'no_key', message: 'no key', status: 0 } });
+    await h.controller.attach(h.workspace.id);
+
+    const push = h.calls.find((entry) => entry.method === 'push');
+    expect(push.payload.changes.length).toBeGreaterThan(0);
+    const token = push.payload.changes
+      .find((change) => change.kind === 'environment')
+      .payload.variables.find((row) => row.key === 'token');
+    expect(token).not.toHaveProperty('secretCloud');
+    expect(token.value).toBe('');
+    expect(h.table.get(h.workspace.id).cloud.state).toBe('synced');
+  });
+
   it('requires a session before attaching', async () => {
     const h = harness({ signedIn: false });
     const res = await h.controller.attach(h.workspace.id);
@@ -522,7 +735,7 @@ describe('cloud durability', () => {
     expect(first).toMatchObject({ ok: true, data: { remoteId: 'remote-1' } });
 
     editCollectionName(h, 'Pending rename');
-    expect(h.controller.enqueue(h.workspace.id)).toMatchObject({ ok: true, data: { queued: 1 } });
+    expect(await h.controller.enqueue(h.workspace.id)).toMatchObject({ ok: true, data: { queued: 1 } });
 
     const createCalls = h.cloud.createWorkspace.mock.calls.length;
     const pushCalls = h.cloud.push.mock.calls.length;
@@ -558,7 +771,7 @@ describe('cloud durability', () => {
     // the previous baseline cache.
     editCollectionName(h, 'Edited while closed');
     const revived = h.newController();
-    const captured = revived.captureOfflineEdits(h.workspace.id);
+    const captured = await revived.captureOfflineEdits(h.workspace.id);
 
     expect(captured).toMatchObject({ ok: true, data: { queued: 1, captured: 1 } });
     let saved = h.table.get(h.workspace.id);
@@ -570,7 +783,7 @@ describe('cloud durability', () => {
     );
 
     // Idempotent: the baseline advanced, so a second mount captures nothing.
-    const again = revived.captureOfflineEdits(h.workspace.id);
+    const again = await revived.captureOfflineEdits(h.workspace.id);
     expect(again).toMatchObject({ ok: true, data: { queued: 0 } });
     saved = h.table.get(h.workspace.id);
     expect(saved.cloud.queueSnapshot.items).toHaveLength(1);
@@ -588,7 +801,7 @@ describe('cloud durability', () => {
     editCollectionName(h, 'Offline edit without baseline');
 
     const revived = h.newController();
-    const res = revived.captureOfflineEdits(h.workspace.id);
+    const res = await revived.captureOfflineEdits(h.workspace.id);
 
     expect(res).toMatchObject({ ok: true, data: { queued: 0, skipped: true } });
     expect(h.table.get(h.workspace.id).cloud.queueSnapshot.items).toHaveLength(0);
@@ -636,7 +849,7 @@ describe('cloud durability', () => {
 
     // A new local edit is queued; the push then fails while offline.
     editCollectionName(h, 'Edited offline');
-    expect(h.controller.enqueue(h.workspace.id)).toMatchObject({ ok: true, data: { queued: 1 } });
+    expect(await h.controller.enqueue(h.workspace.id)).toMatchObject({ ok: true, data: { queued: 1 } });
 
     h.cloud.push.mockImplementation(async () => ({
       ok: false,

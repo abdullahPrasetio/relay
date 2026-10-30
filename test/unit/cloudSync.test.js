@@ -11,7 +11,11 @@ import {
   nextBackoff,
   reconcilePushResults,
   sanitizeChanges,
+  secretCloudSlots,
+  secretValueSlots,
   UNFILED_COLLECTION_ID,
+  withDecryptedSecrets,
+  withEncryptedSecrets,
 } from '../../src/lib/cloudSync.js';
 
 function makeWorkspace() {
@@ -699,5 +703,115 @@ describe('secret redaction', () => {
     const merged = mergeLocalSecrets('environment', incoming, local);
     expect(merged.variables[0].value).toBe('s3cr3t');
     expect(merged.variables[0].secretEnc).toBe('cipher');
+  });
+
+  it('prefers a decrypted incoming secret over the local copy', () => {
+    const local = {
+      id: 'env1',
+      variables: [{ key: 'token', value: 'stale', type: 'secret', secretEnc: 'cipher', enabled: true }],
+    };
+    const incoming = {
+      id: 'env1',
+      variables: [{ key: 'token', value: 'fresh', type: 'secret', enabled: true }],
+    };
+    const merged = mergeLocalSecrets('environment', incoming, local);
+    expect(merged.variables[0].value).toBe('fresh');
+  });
+
+  it('collects only plaintext secret rows that still need an envelope', () => {
+    const changes = [
+      {
+        id: 'env1',
+        kind: KIND.environment,
+        payload: {
+          id: 'env1',
+          variables: [
+            { key: 'plain', value: 'ok', enabled: true },
+            { key: 'token', value: 's3cr3t', type: 'secret', enabled: true },
+            { key: 'blank', value: '', type: 'secret', enabled: true },
+            { key: 'done', value: '', type: 'secret', secretCloud: 'env-done', enabled: true },
+          ],
+        },
+      },
+      {
+        id: GLOBALS_ID,
+        kind: KIND.globals,
+        payload: [{ key: 'shared', value: 'global-secret', type: 'secret', enabled: true }],
+      },
+      { id: 'del', kind: KIND.environment, deleted: true, payload: null },
+    ];
+
+    const slots = secretValueSlots(changes);
+    expect(slots).toEqual([
+      { changeIndex: 0, rowIndex: 1, slotIndex: 0, value: 's3cr3t' },
+      { changeIndex: 1, rowIndex: 0, slotIndex: 1, value: 'global-secret' },
+    ]);
+  });
+
+  it('attaches envelopes in slot order and drops the plaintext/ciphertext', () => {
+    const changes = [
+      {
+        id: 'env1',
+        kind: KIND.environment,
+        payload: {
+          id: 'env1',
+          variables: [
+            { key: 'a', value: 'one', type: 'secret', secretEnc: 'cipher-a', enabled: true },
+            { key: 'b', value: '', type: 'secret', enabled: true },
+            { key: 'c', value: 'three', type: 'secret', secretEnc: 'cipher-c', enabled: true },
+          ],
+        },
+      },
+    ];
+    const slots = secretValueSlots(changes);
+    expect(slots.map((slot) => slot.value)).toEqual(['one', 'three']);
+
+    const secured = withEncryptedSecrets(changes, slots, ['env-one', 'env-three']);
+    const rows = secured[0].payload.variables;
+    expect(rows[0]).toMatchObject({ key: 'a', value: '', secretCloud: 'env-one' });
+    expect(rows[0]).not.toHaveProperty('secretEnc');
+    expect(rows[1]).toMatchObject({ key: 'b', value: '' });
+    expect(rows[2]).toMatchObject({ key: 'c', value: '', secretCloud: 'env-three' });
+    // The input changes are not mutated.
+    expect(changes[0].payload.variables[0].value).toBe('one');
+  });
+
+  it('leaves a row untouched when its envelope is missing, so the guard strips it', () => {
+    const changes = [
+      {
+        id: 'env1',
+        kind: KIND.environment,
+        payload: { id: 'env1', variables: [{ key: 'a', value: 'one', type: 'secret', enabled: true }] },
+      },
+    ];
+    const slots = secretValueSlots(changes);
+    const secured = withEncryptedSecrets(changes, slots, [undefined]);
+    expect(secured[0].payload.variables[0]).toMatchObject({ key: 'a', value: 'one' });
+    expect(sanitizeChanges(secured)[0].payload.variables[0]).toMatchObject({ key: 'a', value: '' });
+  });
+
+  it('applies decrypted values and clears the envelope, empty on failure', () => {
+    const changes = [
+      {
+        id: 'env1',
+        kind: KIND.environment,
+        payload: {
+          id: 'env1',
+          variables: [
+            { key: 'a', value: '', type: 'secret', secretCloud: 'env-a', enabled: true },
+            { key: 'b', value: '', type: 'secret', secretCloud: 'env-b', enabled: true },
+          ],
+        },
+      },
+    ];
+    const slots = secretCloudSlots(changes);
+    expect(slots.map((slot) => slot.envelope)).toEqual(['env-a', 'env-b']);
+
+    const opened = withDecryptedSecrets(changes, slots, ['plain-a', null]);
+    const rows = opened[0].payload.variables;
+    expect(rows[0]).toMatchObject({ key: 'a', value: 'plain-a' });
+    expect(rows[1]).toMatchObject({ key: 'b', value: '' });
+    expect(rows[0]).not.toHaveProperty('secretCloud');
+    expect(rows[1]).not.toHaveProperty('secretCloud');
   });
 });

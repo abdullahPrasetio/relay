@@ -1,4 +1,5 @@
 import { CloudError } from './client.js';
+import { WorkspaceKeyError } from './workspace-keys.js';
 
 // IPC surface for relay-api.
 //
@@ -40,10 +41,13 @@ export const CLOUD_CHANNELS = [
   'cloud:stream-start',
   'cloud:stream-stop',
   'cloud:presence',
+  'cloud:crypto-status',
+  'cloud:encrypt-secrets',
+  'cloud:decrypt-secrets',
 ];
 
 function wireError(err) {
-  if (err instanceof CloudError) {
+  if (err instanceof CloudError || err instanceof WorkspaceKeyError) {
     return { code: err.code, message: err.message, status: err.status || 0 };
   }
   return {
@@ -53,7 +57,7 @@ function wireError(err) {
   };
 }
 
-export function registerCloudIpc({ ipcMain, client, stream = null }) {
+export function registerCloudIpc({ ipcMain, client, stream = null, workspaceKeys = null }) {
   if (!ipcMain) throw new Error('registerCloudIpc requires ipcMain');
   if (!client) throw new Error('registerCloudIpc requires a cloud client');
 
@@ -77,7 +81,15 @@ export function registerCloudIpc({ ipcMain, client, stream = null }) {
   ipcMain.handle('cloud:me', wrap(() => client.me()));
   ipcMain.handle('cloud:login', wrap((payload) => client.login(payload)));
   ipcMain.handle('cloud:register', wrap((payload) => client.register(payload)));
-  ipcMain.handle('cloud:logout', wrap(() => client.logout()));
+  ipcMain.handle(
+    'cloud:logout',
+    wrap(async () => {
+      const result = await client.logout();
+      // Key material is session-scoped: drop cached workspace keys on sign-out.
+      workspaceKeys?.reset?.();
+      return result;
+    })
+  );
   ipcMain.handle('cloud:workspaces', wrap(() => client.listWorkspaces()));
   ipcMain.handle(
     'cloud:create-workspace',
@@ -202,6 +214,41 @@ export function registerCloudIpc({ ipcMain, client, stream = null }) {
   ipcMain.handle(
     'cloud:presence',
     wrap((payload) => client.presence(payload.workspaceId, payload.entityId ?? null))
+  );
+
+  // End-to-end secret support. Only envelopes and decrypted values cross this
+  // boundary; the workspace key and the device private key stay in main.
+  const keyManager = () => {
+    if (!workspaceKeys) {
+      throw new WorkspaceKeyError('unavailable', 'Workspace key manager is unavailable');
+    }
+    return workspaceKeys;
+  };
+
+  ipcMain.handle(
+    'cloud:crypto-status',
+    wrap(async (payload) => {
+      const state = await keyManager().ensure(payload.workspaceId);
+      return {
+        ready: Boolean(state?.ready),
+        version: state?.version ?? null,
+        reason: state?.reason ?? null,
+      };
+    })
+  );
+  ipcMain.handle(
+    'cloud:encrypt-secrets',
+    wrap(async (payload) => {
+      const envelopes = await keyManager().encrypt(payload.workspaceId, payload.values);
+      return { envelopes };
+    })
+  );
+  ipcMain.handle(
+    'cloud:decrypt-secrets',
+    wrap(async (payload) => {
+      const values = await keyManager().decrypt(payload.workspaceId, payload.envelopes);
+      return { values };
+    })
   );
 
   return { channels: CLOUD_CHANNELS };
