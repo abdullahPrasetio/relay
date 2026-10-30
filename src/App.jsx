@@ -22,9 +22,11 @@ import MockServerModal from './components/MockServerModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import AppearanceModal from './components/AppearanceModal.jsx';
 import RequestSettingsModal from './components/RequestSettingsModal.jsx';
+import CloudAuthModal from './components/CloudAuthModal.jsx';
 import { VarContext } from './components/VarContext.jsx';
 import { useDialogs } from './components/Dialogs.jsx';
 import { useStore } from './lib/useStore.js';
+import { useCloudSync } from './lib/useCloudSync.js';
 import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { useAppearance } from './lib/useAppearance.js';
 import { newRequest, normalizeRequest, uid } from './lib/factory.js';
@@ -212,6 +214,7 @@ function isPristineTab(tab) {
 
 export default function App() {
   const store = useStore();
+  const cloud = useCloudSync(store);
   const network = useNetworkSettings();
   const appearance = useAppearance();
   const dialogs = useDialogs();
@@ -230,6 +233,7 @@ export default function App() {
   const [mockOpen, setMockOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [cloudAuthOpen, setCloudAuthOpen] = useState(false);
   const [requestSettingsOpen, setRequestSettingsOpen] = useState(false);
 
   // Session restore waits for the store: tab requests that live in a
@@ -1704,17 +1708,49 @@ export default function App() {
     <div className="app">
       <AppHeader
         store={store}
+        cloud={cloud}
         searchQuery={globalSearch}
         onSearch={setGlobalSearch}
         onOpenCookies={() => setCookiesOpen(true)}
         onOpenMock={() => setMockOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenAppearance={() => setAppearanceOpen(true)}
+        onOpenCloud={() => setCloudAuthOpen(true)}
       />
 
       {store.saveError && (
         <div className="persist-warning" role="alert" title="Persistence failed">
           Changes not saved: {store.saveError}
+        </div>
+      )}
+
+      {cloud.conflicts.length > 0 && (
+        <div className="cloud-conflict-banner" role="alert" data-testid="cloud-conflict-banner">
+          <span className="cloud-conflict-text">
+            {cloud.conflicts.length === 1
+              ? '1 change conflicts with the cloud copy.'
+              : `${cloud.conflicts.length} changes conflict with the cloud copy.`}{' '}
+            Local edits were kept; per-field merge is not available yet.
+            <span className="cloud-conflict-ids">
+              {' '}
+              {cloud.conflicts
+                .slice(0, 5)
+                .map((entry) => entry.id)
+                .join(', ')}
+              {cloud.conflicts.length > 5 ? ` +${cloud.conflicts.length - 5} more` : ''}
+            </span>
+          </span>
+          <button type="button" className="mini-btn" onClick={() => cloud.syncNow()}>
+            Retry sync
+          </button>
+          <button
+            type="button"
+            className="mini-btn"
+            onClick={() => cloud.dismissConflicts()}
+            title="Keep the local version and clear the conflict"
+          >
+            Dismiss (keep local)
+          </button>
         </div>
       )}
 
@@ -1886,6 +1922,14 @@ export default function App() {
       )}
 
       {cookiesOpen && <CookiesModal onClose={() => setCookiesOpen(false)} />}
+
+      {cloudAuthOpen && (
+        <CloudAuthModal
+          onClose={() => setCloudAuthOpen(false)}
+          onSignIn={cloud.signIn}
+          onSignUp={cloud.signUp}
+        />
+      )}
 
       {mockOpen && <MockServerModal store={store} onClose={() => setMockOpen(false)} />}
 

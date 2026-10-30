@@ -5,15 +5,43 @@ import Icon from './Icon.jsx';
 
 // Top application bar: brand, a centered (decorative) search field, and the
 // environment selector on the right -- echoing Postman's header layout.
+const SYNC_LABELS = {
+  local: 'Local only',
+  synced: 'Synced',
+  syncing: 'Syncing…',
+  offline: 'Offline',
+  conflict: 'Conflict',
+  signed_out: 'Signed out',
+};
+
 export default function AppHeader({
   store,
+  cloud,
   searchQuery,
   onSearch,
   onOpenCookies,
   onOpenMock,
   onOpenSettings,
   onOpenAppearance,
+  onOpenCloud,
 }) {
+  const syncStatus = cloud?.status || 'local';
+  const syncLabel = SYNC_LABELS[syncStatus] || 'Local only';
+  const syncTitle = !cloud?.signedIn
+    ? 'Sign in to Relay Cloud'
+    : syncStatus === 'local'
+      ? 'This workspace is not linked to Relay Cloud'
+      : `${syncLabel}${cloud.user?.email ? ` — ${cloud.user.email}` : ''}`;
+
+  function handleCloudClick() {
+    if (!cloud) return;
+    if (!cloud.signedIn) {
+      onOpenCloud?.();
+      return;
+    }
+    cloud.syncNow?.();
+  }
+
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -21,7 +49,7 @@ export default function AppHeader({
           <span className="brand-dot" />
           Relay
         </span>
-        <WorkspaceSwitcher store={store} />
+        <WorkspaceSwitcher store={store} cloud={cloud} onOpenCloud={onOpenCloud} />
       </div>
 
       <div className="topbar-center">
@@ -34,6 +62,18 @@ export default function AppHeader({
       </div>
 
       <div className="topbar-right">
+        {cloud && (
+          <button
+            type="button"
+            className={`sync-pill sync-${syncStatus}`}
+            title={syncTitle}
+            onClick={handleCloudClick}
+            data-testid="cloud-status"
+          >
+            <span className="sync-dot" aria-hidden="true" />
+            {syncLabel}
+          </button>
+        )}
         <EnvBar
           environments={store.environments}
           activeEnvId={store.activeEnvId}

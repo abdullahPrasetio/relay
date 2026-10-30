@@ -196,6 +196,18 @@ export function useStore() {
     setWorkspaces((prev) => prev.map((w) => (w.id === id ? { ...w, name } : w)));
   }, []);
 
+  // Merge an arbitrary patch into one workspace. Used by cloud sync to update
+  // workspace.cloud without touching the active-workspace field setters.
+  const patchWorkspace = useCallback((id, patch) => {
+    setWorkspaces((prev) =>
+      prev.map((w) => {
+        if (w.id !== id) return w;
+        const next = typeof patch === 'function' ? patch(w) : patch;
+        return next ? { ...w, ...next } : w;
+      })
+    );
+  }, []);
+
   const deleteWorkspace = useCallback(
     (id) => {
       setWorkspaces((prev) => {
@@ -247,6 +259,7 @@ export function useStore() {
     activeWorkspace: active,
     createWorkspace,
     renameWorkspace,
+    patchWorkspace,
     deleteWorkspace,
     switchWorkspace,
     importWorkspace,

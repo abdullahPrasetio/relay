@@ -29,7 +29,23 @@ function downloadManifest(files, name) {
 }
 
 // Header control to switch between local workspaces and manage them.
-export default function WorkspaceSwitcher({ store }) {
+const CLOUD_STATE_LABELS = {
+  off: 'Not linked',
+  synced: 'Synced',
+  syncing: 'Syncing…',
+  offline: 'Offline',
+  conflict: 'Conflict',
+};
+
+function cloudStateFor(workspace) {
+  if (!workspace?.cloud?.remoteId) return 'off';
+  if (workspace.cloud.conflicts?.length) return 'conflict';
+  if (workspace.cloud.state === 'offline') return 'offline';
+  if (workspace.cloud.state === 'syncing') return 'syncing';
+  return 'synced';
+}
+
+export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
   const [open, setOpen] = useState(false);
   const dialogs = useDialogs();
   const active = store.activeWorkspace;
@@ -66,6 +82,36 @@ export default function WorkspaceSwitcher({ store }) {
     );
     if (!ok) return;
     store.deleteWorkspace(ws.id);
+  }
+
+  async function toggleCloud(ws) {
+    if (!cloud) return;
+    if (!cloud.signedIn) {
+      setOpen(false);
+      onOpenCloud?.();
+      return;
+    }
+    if (ws.cloud?.remoteId) {
+      const ok = await dialogs.confirm(
+        `Detach "${ws.name}" from Relay Cloud? Local data stays; the remote copy is not deleted.`,
+        { title: 'Detach cloud sync', okLabel: 'Detach' }
+      );
+      if (!ok) return;
+      const res = await cloud.detach(ws.id);
+      if (!res?.ok) {
+        await dialogs.alert(res?.error?.message || 'Could not detach.', {
+          title: 'Cloud sync',
+        });
+      }
+      return;
+    }
+    setOpen(false);
+    const res = await cloud.attach(ws.id);
+    if (!res?.ok) {
+      await dialogs.alert(res?.error?.message || 'Could not attach this workspace.', {
+        title: 'Cloud sync',
+      });
+    }
   }
 
   async function exportForGit() {
@@ -168,8 +214,29 @@ export default function WorkspaceSwitcher({ store }) {
                 >
                   <span className={`ws-dot ${ws.id === store.activeWorkspaceId ? 'on' : ''}`} />
                   {ws.name}
+                  {cloud && ws.cloud?.remoteId && (
+                    <span className={`ws-cloud-badge ${cloudStateFor(ws)}`}>
+                      {CLOUD_STATE_LABELS[cloudStateFor(ws)]}
+                    </span>
+                  )}
                   <span className="ws-count">{ws.collections?.length || 0} coll.</span>
                 </button>
+                {cloud && (
+                  <button
+                    className={`icon-btn ws-cloud ${ws.cloud?.remoteId ? 'on' : ''}`}
+                    title={
+                      !cloud.signedIn
+                        ? 'Sign in to sync this workspace'
+                        : ws.cloud?.remoteId
+                          ? `Cloud: ${CLOUD_STATE_LABELS[cloudStateFor(ws)]} (click to detach)`
+                          : 'Sync this workspace to Relay Cloud'
+                    }
+                    onClick={() => toggleCloud(ws)}
+                    data-testid={`ws-cloud-${ws.id}`}
+                  >
+                    <Icon name={ws.cloud?.remoteId ? 'check' : 'globe'} size={13} />
+                  </button>
+                )}
                 <button className="icon-btn" title="Rename" onClick={() => rename(ws)}>
                   <Icon name="edit" size={13} />
                 </button>
