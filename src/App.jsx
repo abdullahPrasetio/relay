@@ -23,6 +23,8 @@ import SettingsModal from './components/SettingsModal.jsx';
 import AppearanceModal from './components/AppearanceModal.jsx';
 import RequestSettingsModal from './components/RequestSettingsModal.jsx';
 import CloudAuthModal from './components/CloudAuthModal.jsx';
+import CloudDevicesModal from './components/CloudDevicesModal.jsx';
+import ConflictResolveModal from './components/ConflictResolveModal.jsx';
 import { VarContext } from './components/VarContext.jsx';
 import { useDialogs } from './components/Dialogs.jsx';
 import { useStore } from './lib/useStore.js';
@@ -235,6 +237,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [cloudAuthOpen, setCloudAuthOpen] = useState(false);
+  const [devicesOpen, setDevicesOpen] = useState(false);
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [requestSettingsOpen, setRequestSettingsOpen] = useState(false);
 
   // Session restore waits for the store: tab requests that live in a
@@ -1726,6 +1730,7 @@ export default function App() {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenAppearance={() => setAppearanceOpen(true)}
         onOpenCloud={() => setCloudAuthOpen(true)}
+        onOpenDevices={() => setDevicesOpen(true)}
       />
 
       {store.saveError && (
@@ -1750,6 +1755,14 @@ export default function App() {
               {cloud.conflicts.length > 5 ? ` +${cloud.conflicts.length - 5} more` : ''}
             </span>
           </span>
+          <button
+            type="button"
+            className="mini-btn"
+            onClick={() => setConflictModalOpen(true)}
+            data-testid="cloud-conflict-review"
+          >
+            Review
+          </button>
           <button type="button" className="mini-btn" onClick={() => cloud.syncNow()}>
             Retry sync
           </button>
@@ -1938,6 +1951,21 @@ export default function App() {
           onClose={() => setCloudAuthOpen(false)}
           onSignIn={cloud.signIn}
           onSignUp={cloud.signUp}
+        />
+      )}
+
+      {devicesOpen && <CloudDevicesModal onClose={() => setDevicesOpen(false)} />}
+
+      {conflictModalOpen && (
+        <ConflictResolveModal
+          conflicts={cloud.conflicts}
+          resolve={
+            typeof cloud.resolveConflicts === 'function'
+              ? (ids, choice) => cloud.resolveConflicts(undefined, ids, choice)
+              : null
+          }
+          dismiss={cloud.dismissConflicts}
+          onClose={() => setConflictModalOpen(false)}
         />
       )}
 

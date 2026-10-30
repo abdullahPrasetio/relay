@@ -24,6 +24,7 @@ export default function AppHeader({
   onOpenSettings,
   onOpenAppearance,
   onOpenCloud,
+  onOpenDevices,
 }) {
   const syncStatus = cloud?.status || 'local';
   const syncLabel = SYNC_LABELS[syncStatus] || 'Local only';
@@ -72,6 +73,18 @@ export default function AppHeader({
           >
             <span className="sync-dot" aria-hidden="true" />
             {syncLabel}
+          </button>
+        )}
+        {cloud && (
+          <button
+            type="button"
+            className="mini-btn icon-only"
+            onClick={onOpenDevices}
+            title="Devices"
+            aria-label="Devices"
+            data-testid="devices-open"
+          >
+            <Icon name="monitor" size={15} />
           </button>
         )}
         <EnvBar

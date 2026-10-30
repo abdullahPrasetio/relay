@@ -18,6 +18,121 @@ function bridge() {
 
 const IDLE_SESSION = { signedIn: false, user: null };
 
+export const RETRY_MIN_MS = 1000;
+export const RETRY_MAX_MS = 60000;
+
+// Errors worth retrying automatically. Auth and validation failures are not:
+// retrying them would spin until sign-in or the payload changes.
+const NON_RETRYABLE_CODES = new Set([
+  'unauthorized',
+  'forbidden',
+  'not_found',
+  'not_attached',
+  'busy',
+  'validation',
+]);
+
+export function isRetryableError(error) {
+  if (!error) return false;
+  const status = Number(error.status) || 0;
+  if (status === 401 || status === 403 || status === 404 || status === 422) return false;
+  return !NON_RETRYABLE_CODES.has(String(error.code || '').toLowerCase());
+}
+
+// Pure retry timer: no React and no timers of its own unless injected, so the
+// backoff contract is unit-testable. One attempt is scheduled at a time;
+// `fail()` re-arms with `nextDelay(attempt)` (0-based, capped by maxDelayMs),
+// `reset()` cancels and forgets the attempt count, `stop()` also disables it.
+export function createRetryScheduler({
+  schedule = (fn, ms) => setTimeout(fn, ms),
+  cancel = (handle) => clearTimeout(handle),
+  nextDelay = () => RETRY_MIN_MS,
+  onRun = () => {},
+  maxDelayMs = RETRY_MAX_MS,
+} = {}) {
+  const cap =
+    Number.isFinite(Number(maxDelayMs)) && Number(maxDelayMs) >= 0
+      ? Number(maxDelayMs)
+      : RETRY_MAX_MS;
+  let attempt = 0;
+  let handle = null;
+  let delay = null;
+  let stopped = false;
+
+  const clearTimer = () => {
+    if (handle == null) return;
+    try {
+      cancel(handle);
+    } catch {
+      // The timer may already be gone; nothing to clean up.
+    }
+    handle = null;
+  };
+
+  const delayFor = (index) => {
+    let value;
+    try {
+      value = Number(nextDelay(index));
+    } catch {
+      value = NaN;
+    }
+    if (!Number.isFinite(value) || value < 0) value = Math.min(cap, RETRY_MIN_MS);
+    return Math.min(cap, Math.max(0, Math.round(value)));
+  };
+
+  const scheduleNext = () => {
+    if (stopped || handle != null) return null;
+    const wait = delayFor(attempt);
+    attempt += 1;
+    delay = wait;
+    let fired = false;
+    const timer = schedule(() => {
+      fired = true;
+      handle = null;
+      delay = null;
+      if (!stopped) onRun();
+    }, wait);
+    // A synchronous `schedule` (tests) may run the callback before returning.
+    if (!fired) handle = timer;
+    return wait;
+  };
+
+  return {
+    get attempt() {
+      return attempt;
+    },
+    get retryInMs() {
+      return delay;
+    },
+    get scheduled() {
+      return handle != null || delay != null;
+    },
+    get stopped() {
+      return stopped;
+    },
+    start() {
+      stopped = false;
+      return scheduleNext();
+    },
+    scheduleNext,
+    fail() {
+      return scheduleNext();
+    },
+    reset() {
+      clearTimer();
+      attempt = 0;
+      delay = null;
+    },
+    stop() {
+      stopped = true;
+      clearTimer();
+      attempt = 0;
+      delay = null;
+    },
+  };
+}
+
+
 export function useCloudSync(store) {
   const cloud = useMemo(bridge, []);
   const available = !!cloud;
@@ -30,6 +145,10 @@ export function useCloudSync(store) {
   const [session, setSession] = useState(IDLE_SESSION);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [retryInMs, setRetryInMs] = useState(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  const schedulerRef = useRef(null);
+  const runSyncRef = useRef(null);
 
   const controller = useMemo(
     () =>
@@ -64,11 +183,19 @@ export function useCloudSync(store) {
     };
   }, [available, controller]);
 
+  // Recover edits made while the app was closed: the controller diffs against
+  // the persisted baseline and queues only real changes (idempotent).
+  const signedIn = session.signedIn;
+  const activeId = store.activeWorkspaceId;
+  useEffect(() => {
+    if (!available || !signedIn || !activeId) return undefined;
+    controller.captureOfflineEdits(activeId);
+    return undefined;
+  }, [available, signedIn, activeId, controller]);
+
   // Track local edits while linked so an offline period never loses them. The
   // controller diffs against its last snapshot and persists the queue; a no-op
   // edit writes nothing.
-  const signedIn = session.signedIn;
-  const activeId = store.activeWorkspaceId;
   useEffect(() => {
     if (!available || !signedIn || !activeId) return undefined;
     const linked = workspacesRef.current.find(
@@ -99,6 +226,88 @@ export function useCloudSync(store) {
     },
     []
   );
+
+  // Feed a sync result back into the retry scheduler: offline or retryable
+  // failures arm the next attempt with the controller's backoff; success (or
+  // a state that needs the user, like conflicts) disarms it.
+  const reportSyncResult = useCallback(
+    (workspaceId, res) => {
+      const scheduler = schedulerRef.current;
+      if (!scheduler) return;
+      const state = workspaceId != null ? controller.status(workspaceId).status : null;
+      const offline = state === 'offline';
+      const retry = res?.ok ? offline : isRetryableError(res?.error);
+      if (!retry) {
+        scheduler.reset();
+        setRetryInMs(null);
+        setRetryAttempt(0);
+        return;
+      }
+      const wait = scheduler.fail();
+      setRetryInMs(wait);
+      setRetryAttempt(scheduler.attempt);
+    },
+    [controller]
+  );
+
+  const syncWorkspace = useCallback(
+    async (workspaceId) => {
+      const id = workspaceId || storeRef.current.activeWorkspaceId || null;
+      if (!id) {
+        const res = {
+          ok: false,
+          error: { code: 'not_found', message: 'No workspace selected.', status: 0 },
+        };
+        setError(res.error);
+        return res;
+      }
+      const res = await run(() => controller.sync(id));
+      reportSyncResult(id, res);
+      return res;
+    },
+    [controller, run, reportSyncResult]
+  );
+  runSyncRef.current = syncWorkspace;
+
+  // One scheduler per signed-in session. A timer fires a sync; the sync result
+  // re-arms or resets it through reportSyncResult. Sign-out and unmount cancel
+  // the pending timer.
+  useEffect(() => {
+    if (!available || !signedIn) {
+      schedulerRef.current = null;
+      setRetryInMs(null);
+      setRetryAttempt(0);
+      return undefined;
+    }
+    const scheduler = createRetryScheduler({
+      nextDelay: (attempt) => controller.nextSyncDelay(attempt),
+      onRun: () => {
+        const id = storeRef.current.activeWorkspaceId || null;
+        if (!id) {
+          scheduler.reset();
+          setRetryInMs(null);
+          return;
+        }
+        runSyncRef.current?.(id);
+      },
+    });
+    schedulerRef.current = scheduler;
+
+    // A workspace that was left offline must resume on its own after a
+    // restart, not wait for a manual click.
+    if (activeId && controller.status(activeId).status === 'offline') {
+      const wait = scheduler.fail();
+      setRetryInMs(wait);
+      setRetryAttempt(scheduler.attempt);
+    }
+
+    return () => {
+      scheduler.stop();
+      if (schedulerRef.current === scheduler) schedulerRef.current = null;
+      setRetryInMs(null);
+      setRetryAttempt(0);
+    };
+  }, [available, signedIn, controller, activeId]);
 
   const signIn = useCallback(
     async (credentials) => {
@@ -150,18 +359,24 @@ export function useCloudSync(store) {
   );
 
   const syncNow = useCallback(
-    (workspaceId) =>
-      run(() => controller.sync(workspaceId || storeRef.current.activeWorkspaceId)),
-    [controller, run]
+    (workspaceId) => syncWorkspace(workspaceId),
+    [syncWorkspace]
+  );
+
+  const resolveConflicts = useCallback(
+    (workspaceId, ids, choice = 'local') => {
+      const id = workspaceId || storeRef.current.activeWorkspaceId;
+      setError(null);
+      const res = controller.resolveConflicts(id, ids, choice);
+      if (!res.ok) setError(res.error);
+      return res;
+    },
+    [controller]
   );
 
   const dismissConflicts = useCallback(
-    (workspaceId) => {
-      const id = workspaceId || storeRef.current.activeWorkspaceId;
-      setError(null);
-      return controller.dismissConflicts(id);
-    },
-    [controller]
+    (workspaceId, ids = null) => resolveConflicts(workspaceId, ids, 'local'),
+    [resolveConflicts]
   );
 
   const conflicts = Array.isArray(store.activeWorkspace?.cloud?.conflicts)
@@ -184,12 +399,15 @@ export function useCloudSync(store) {
     conflicts,
     error,
     busy,
+    retryInMs,
+    retryAttempt,
     signIn,
     signUp,
     signOut,
     attach,
     detach,
     syncNow,
+    resolveConflicts,
     dismissConflicts,
     nextSyncDelay: controller.nextSyncDelay,
   };

@@ -60,6 +60,10 @@ test('cloud signup, attach workspace, and baseline push', async () => {
     const kinds = new Set(pull.data.changes.map((c) => c.kind));
     expect(kinds.has('collection')).toBeTruthy();
     expect(kinds.has('globals')).toBeTruthy();
+
+    // Device management UI lists the session created by this app.
+    await page.getByTestId('devices-open').click();
+    await expect(page.getByText('Relay desktop').first()).toBeVisible({ timeout: 10000 });
   } finally {
     await app.evaluate(({ app: electronApp }) => electronApp.exit(0)).catch(() => {});
     await app.close().catch(() => {});

@@ -91,7 +91,24 @@ function harness({ signedIn = true } = {}) {
     newId: () => `op-${(seq += 1)}`,
   });
 
-  return { workspace, table, calls, cloud, controller };
+  // A second controller over the same persisted table simulates an app
+  // restart: it starts with an empty in-memory baseline cache.
+  function newController() {
+    return createCloudController({
+      cloud,
+      getWorkspace: (id) => table.get(id) || null,
+      patchWorkspace: (id, patch) => {
+        const current = table.get(id);
+        if (!current) return;
+        const next = typeof patch === 'function' ? patch(current) : patch;
+        table.set(id, { ...current, ...next });
+      },
+      now: () => 1000,
+      newId: () => `op-${(seq += 1)}`,
+    });
+  }
+
+  return { workspace, table, calls, cloud, controller, newController };
 }
 
 function editCollectionName(h, name) {
@@ -385,5 +402,201 @@ describe('createCloudController', () => {
     expect(h.controller.nextSyncDelay(0)).toBe(1000);
     expect(h.controller.nextSyncDelay(3)).toBe(8000);
     expect(h.controller.nextSyncDelay(20)).toBe(60000);
+  });
+});
+
+async function seedConflict(h, { serverName = 'Server wins', rev = 4 } = {}) {
+  await h.controller.refreshSession();
+  await h.controller.attach(h.workspace.id);
+  editCollectionName(h, 'Local wins');
+
+  h.cloud.push.mockImplementation(async (payload) => {
+    h.calls.push({ method: 'push', payload });
+    return {
+      ok: true,
+      data: {
+        results: [
+          {
+            opId: payload.changes[0].opId,
+            applied: false,
+            conflict: true,
+            server: {
+              rev,
+              payload: {
+                id: 'col1',
+                name: serverName,
+                description: '',
+                variables: [],
+                items: [],
+              },
+            },
+          },
+        ],
+        serverSeq: 20,
+      },
+    };
+  });
+
+  h.cloud.pull.mockImplementation(async (payload) => {
+    h.calls.push({ method: 'pull', payload });
+    return {
+      ok: true,
+      data: {
+        changes: [
+          {
+            id: 'col1',
+            kind: 'collection',
+            parentId: null,
+            orderKey: '000000',
+            payload: { id: 'col1', name: serverName, description: '', variables: [], items: [] },
+            rev,
+          },
+        ],
+        nextSeq: 21,
+        hasMore: false,
+      },
+    };
+  });
+
+  return h.controller.sync(h.workspace.id);
+}
+
+describe('cloud durability', () => {
+  it('attach is idempotent: no backend calls and the pending queue survives', async () => {
+    const h = harness();
+    await h.controller.refreshSession();
+    const first = await h.controller.attach(h.workspace.id);
+    expect(first).toMatchObject({ ok: true, data: { remoteId: 'remote-1' } });
+
+    editCollectionName(h, 'Pending rename');
+    expect(h.controller.enqueue(h.workspace.id)).toMatchObject({ ok: true, data: { queued: 1 } });
+
+    const createCalls = h.cloud.createWorkspace.mock.calls.length;
+    const pushCalls = h.cloud.push.mock.calls.length;
+
+    const second = await h.controller.attach(h.workspace.id);
+    expect(second).toMatchObject({
+      ok: true,
+      already: true,
+      data: { remoteId: 'remote-1', already: true },
+    });
+    expect(h.cloud.createWorkspace).toHaveBeenCalledTimes(createCalls);
+    expect(h.cloud.push).toHaveBeenCalledTimes(pushCalls);
+
+    const saved = h.table.get(h.workspace.id);
+    expect(saved.cloud.queueSnapshot.items).toEqual([
+      expect.objectContaining({ id: 'col1', deleted: false }),
+    ]);
+  });
+
+  it('persists the diff baseline and recovers offline edits on a fresh controller', async () => {
+    const h = harness();
+    await h.controller.refreshSession();
+    await h.controller.attach(h.workspace.id);
+
+    const attached = h.table.get(h.workspace.id);
+    expect(attached.cloud.baseline).toBeTruthy();
+    expect(attached.cloud.baseline.entities.map((entity) => entity.id).sort()).toEqual(
+      flattenWorkspace(attached).entities.map((entity) => entity.id).sort()
+    );
+    expect(attached.cloud.baseline.revs.col1).toBe(1);
+
+    // "Restart": edit on disk, then a brand-new controller with no memory of
+    // the previous baseline cache.
+    editCollectionName(h, 'Edited while closed');
+    const revived = h.newController();
+    const captured = revived.captureOfflineEdits(h.workspace.id);
+
+    expect(captured).toMatchObject({ ok: true, data: { queued: 1, captured: 1 } });
+    let saved = h.table.get(h.workspace.id);
+    expect(saved.cloud.queueSnapshot.items).toEqual([
+      expect.objectContaining({ id: 'col1', baseRev: 1, deleted: false }),
+    ]);
+    expect(saved.cloud.baseline.entities.find((entity) => entity.id === 'col1').payload.name).toBe(
+      'Edited while closed'
+    );
+
+    // Idempotent: the baseline advanced, so a second mount captures nothing.
+    const again = revived.captureOfflineEdits(h.workspace.id);
+    expect(again).toMatchObject({ ok: true, data: { queued: 0 } });
+    saved = h.table.get(h.workspace.id);
+    expect(saved.cloud.queueSnapshot.items).toHaveLength(1);
+  });
+
+  it('does not queue edits when no persisted baseline exists', async () => {
+    const h = harness();
+    await h.controller.refreshSession();
+    await h.controller.attach(h.workspace.id);
+
+    const current = h.table.get(h.workspace.id);
+    const cloud = { ...current.cloud };
+    delete cloud.baseline;
+    h.table.set(h.workspace.id, { ...current, cloud });
+    editCollectionName(h, 'Offline edit without baseline');
+
+    const revived = h.newController();
+    const res = revived.captureOfflineEdits(h.workspace.id);
+
+    expect(res).toMatchObject({ ok: true, data: { queued: 0, skipped: true } });
+    expect(h.table.get(h.workspace.id).cloud.queueSnapshot.items).toHaveLength(0);
+  });
+
+  it("resolves a conflict with 'local': replays the local side on the server rev", async () => {
+    const h = harness();
+    await seedConflict(h);
+
+    expect(h.table.get(h.workspace.id).cloud.conflicts).toHaveLength(1);
+
+    const res = h.controller.resolveConflicts(h.workspace.id, ['col1'], 'local');
+    expect(res).toMatchObject({ ok: true, data: { resolved: 1, requeued: 1, mode: 'local' } });
+
+    const saved = h.table.get(h.workspace.id);
+    expect(saved.cloud.conflicts).toHaveLength(0);
+    expect(saved.cloud.revs.col1).toBe(4);
+    expect(saved.cloud.queueSnapshot.items).toEqual([
+      expect.objectContaining({ id: 'col1', baseRev: 4, deleted: false }),
+    ]);
+    expect(saved.cloud.baseline.revs.col1).toBe(4);
+  });
+
+  it("resolves a conflict with 'server': applies the server payload and advances the rev", async () => {
+    const h = harness();
+    await seedConflict(h);
+
+    const res = h.controller.resolveConflicts(h.workspace.id, null, 'server');
+    expect(res).toMatchObject({ ok: true, data: { resolved: 1, requeued: 0, mode: 'server' } });
+
+    const saved = h.table.get(h.workspace.id);
+    expect(saved.collections[0].name).toBe('Server wins');
+    expect(saved.cloud.conflicts).toHaveLength(0);
+    expect(saved.cloud.revs.col1).toBe(4);
+    // The applied server copy is the new baseline, so it is not re-queued.
+    expect(saved.cloud.queueSnapshot.items).toHaveLength(0);
+    expect(saved.cloud.baseline.entities.find((entity) => entity.id === 'col1').payload.name).toBe(
+      'Server wins'
+    );
+  });
+
+  it('keeps a conflict when a sync fails before the user resolves it', async () => {
+    const h = harness();
+    await seedConflict(h);
+
+    // A new local edit is queued; the push then fails while offline.
+    editCollectionName(h, 'Edited offline');
+    expect(h.controller.enqueue(h.workspace.id)).toMatchObject({ ok: true, data: { queued: 1 } });
+
+    h.cloud.push.mockImplementation(async () => ({
+      ok: false,
+      error: { code: 'offline', message: 'Cannot reach Relay Cloud', status: 0 },
+    }));
+
+    const failed = await h.controller.sync(h.workspace.id);
+    expect(failed.ok).toBe(false);
+    expect(failed.error.code).toBe('offline');
+
+    const saved = h.table.get(h.workspace.id);
+    expect(saved.cloud.conflicts).toHaveLength(1);
+    expect(saved.cloud.conflicts[0]).toMatchObject({ id: 'col1', server: { rev: 4 } });
+    expect(h.controller.status(h.workspace.id).status).toBe('conflict');
   });
 });
