@@ -3,6 +3,7 @@ import { useDialogs } from './Dialogs.jsx';
 import Icon from './Icon.jsx';
 import WorkspaceMembersModal from './WorkspaceMembersModal.jsx';
 import WorkspaceAuditModal from './WorkspaceAuditModal.jsx';
+import MonitorsModal from './MonitorsModal.jsx';
 import { filesToWorkspace, slugify, workspaceToFiles } from '../lib/gitWorkspace.js';
 
 function hasExportBridge() {
@@ -51,6 +52,7 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
   const [open, setOpen] = useState(false);
   const [teamWorkspace, setTeamWorkspace] = useState(null);
   const [auditWorkspace, setAuditWorkspace] = useState(null);
+  const [monitorsWorkspace, setMonitorsWorkspace] = useState(null);
   const dialogs = useDialogs();
   const active = store.activeWorkspace;
   const cloudBridge = typeof window !== 'undefined' ? window.api?.cloud : null;
@@ -63,6 +65,11 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
   function openAudit(ws) {
     setOpen(false);
     setAuditWorkspace(ws);
+  }
+
+  function openMonitors(ws) {
+    setOpen(false);
+    setMonitorsWorkspace(ws);
   }
 
   async function create() {
@@ -275,6 +282,15 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
                     >
                       <Icon name="clock" size={13} />
                     </button>
+                    <button
+                      className="icon-btn ws-team"
+                      title="Scheduled monitors"
+                      aria-label={`Scheduled monitors for ${ws.name}`}
+                      onClick={() => openMonitors(ws)}
+                      data-testid={`ws-monitors-${ws.id}`}
+                    >
+                      <Icon name="monitor" size={13} />
+                    </button>
                   </>
                 )}
                 <button className="icon-btn" title="Delete" onClick={() => remove(ws)}>
@@ -307,6 +323,14 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
           workspace={auditWorkspace}
           cloud={cloudBridge}
           onClose={() => setAuditWorkspace(null)}
+        />
+      )}
+      {monitorsWorkspace && (
+        <MonitorsModal
+          workspace={monitorsWorkspace}
+          currentUserId={cloud?.user?.id || null}
+          cloud={cloudBridge}
+          onClose={() => setMonitorsWorkspace(null)}
         />
       )}
     </div>

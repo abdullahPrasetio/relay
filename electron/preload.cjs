@@ -94,6 +94,15 @@ contextBridge.exposeInMainWorld('api', {
     removeMember: (payload) => ipcRenderer.invoke('cloud:remove-member', payload),
     createInvite: (payload) => ipcRenderer.invoke('cloud:create-invite', payload),
     listAudit: (payload) => ipcRenderer.invoke('cloud:list-audit', payload),
+    monitors: (workspaceId) => ipcRenderer.invoke('cloud:monitors', { workspaceId }),
+    createMonitor: (workspaceId, payload) =>
+      ipcRenderer.invoke('cloud:create-monitor', { workspaceId, monitor: payload }),
+    getMonitor: (id) => ipcRenderer.invoke('cloud:get-monitor', { id }),
+    updateMonitor: (id, patch) => ipcRenderer.invoke('cloud:update-monitor', { id, patch }),
+    deleteMonitor: (id) => ipcRenderer.invoke('cloud:delete-monitor', { id }),
+    monitorRuns: (id, options = {}) =>
+      ipcRenderer.invoke('cloud:monitor-runs', { id, limit: options?.limit }),
+    runMonitor: (id) => ipcRenderer.invoke('cloud:run-monitor', { id }),
     startStream: (workspaceId) => ipcRenderer.invoke('cloud:stream-start', { workspaceId }),
     stopStream: () => ipcRenderer.invoke('cloud:stream-stop'),
     setPresence: (payload) => ipcRenderer.invoke('cloud:presence', payload),

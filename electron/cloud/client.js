@@ -75,6 +75,41 @@ function requirePositiveInt(value, field, fallback) {
   return Math.floor(number);
 }
 
+/**
+ * Build a monitor create/patch body. Creates require the three schedule
+ * fields; patches only carry the fields the caller supplied, so an enabled
+ * toggle never overwrites the rest of the monitor.
+ */
+function monitorPayload(payload, { partial = false } = {}) {
+  if (!payload || typeof payload !== 'object') {
+    throw new TypeError('payload must be an object');
+  }
+  const body = {};
+  for (const field of ['name', 'requestId', 'cron']) {
+    if (payload[field] !== undefined) {
+      body[field] = requiredString(payload[field], field);
+    } else if (!partial) {
+      body[field] = requiredString(payload[field], field);
+    }
+  }
+  if (payload.enabled !== undefined) {
+    if (typeof payload.enabled !== 'boolean') {
+      throw new TypeError('enabled must be a boolean');
+    }
+    body.enabled = payload.enabled;
+  }
+  if (payload.alertWebhook !== undefined) {
+    if (payload.alertWebhook === null) {
+      body.alertWebhook = null;
+    } else if (typeof payload.alertWebhook !== 'string') {
+      throw new TypeError('alertWebhook must be a string');
+    } else {
+      body.alertWebhook = payload.alertWebhook.trim() || null;
+    }
+  }
+  return body;
+}
+
 export function createCloudClient({
   baseUrl = process.env.RELAY_API_URL || DEFAULT_BASE_URL,
   fetchImpl = globalThis.fetch,
@@ -461,6 +496,49 @@ export function createCloudClient({
         events: Array.isArray(data?.events) ? data.events : [],
         nextBefore: data?.nextBefore ?? null,
       };
+    },
+
+    async monitors(workspaceId) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/monitors`);
+      return Array.isArray(data) ? data : Array.isArray(data?.monitors) ? data.monitors : [];
+    },
+
+    async createMonitor(workspaceId, payload) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/monitors`, {
+        method: 'POST',
+        body: monitorPayload(payload),
+      });
+      return data ?? null;
+    },
+
+    async getMonitor(id) {
+      const data = await call(`/monitors/${requireId(id)}`);
+      return data ?? null;
+    },
+
+    async updateMonitor(id, patch) {
+      const data = await call(`/monitors/${requireId(id)}`, {
+        method: 'PATCH',
+        body: monitorPayload(patch, { partial: true }),
+      });
+      return data ?? null;
+    },
+
+    async deleteMonitor(id) {
+      await call(`/monitors/${requireId(id)}`, { method: 'DELETE' });
+      return null;
+    },
+
+    async monitorRuns(id, { limit } = {}) {
+      const params = new URLSearchParams();
+      params.set('limit', String(requirePositiveInt(limit, 'limit', 50)));
+      const data = await call(`/monitors/${requireId(id)}/runs?${params}`);
+      return Array.isArray(data) ? data : Array.isArray(data?.runs) ? data.runs : [];
+    },
+
+    async runMonitor(id) {
+      const data = await call(`/monitors/${requireId(id)}/run`, { method: 'POST' });
+      return data ?? null;
     },
 
     async status() {

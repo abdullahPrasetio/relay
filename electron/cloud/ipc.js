@@ -26,6 +26,13 @@ export const CLOUD_CHANNELS = [
   'cloud:remove-member',
   'cloud:create-invite',
   'cloud:list-audit',
+  'cloud:monitors',
+  'cloud:create-monitor',
+  'cloud:get-monitor',
+  'cloud:update-monitor',
+  'cloud:delete-monitor',
+  'cloud:monitor-runs',
+  'cloud:run-monitor',
   'cloud:stream-start',
   'cloud:stream-stop',
   'cloud:presence',
@@ -122,6 +129,25 @@ export function registerCloudIpc({ ipcMain, client, stream = null }) {
       client.listAudit(payload.workspaceId, { before: payload.before, limit: payload.limit })
     )
   );
+
+  // Scheduled monitors. The monitor id is opaque to the renderer; only the
+  // workspace-scoped list and per-monitor run history cross this boundary.
+  ipcMain.handle('cloud:monitors', wrap((payload) => client.monitors(payload.workspaceId)));
+  ipcMain.handle(
+    'cloud:create-monitor',
+    wrap((payload) => client.createMonitor(payload.workspaceId, payload.monitor))
+  );
+  ipcMain.handle('cloud:get-monitor', wrap((payload) => client.getMonitor(payload.id)));
+  ipcMain.handle(
+    'cloud:update-monitor',
+    wrap((payload) => client.updateMonitor(payload.id, payload.patch))
+  );
+  ipcMain.handle('cloud:delete-monitor', wrap((payload) => client.deleteMonitor(payload.id)));
+  ipcMain.handle(
+    'cloud:monitor-runs',
+    wrap((payload) => client.monitorRuns(payload.id, { limit: payload.limit }))
+  );
+  ipcMain.handle('cloud:run-monitor', wrap((payload) => client.runMonitor(payload.id)));
 
   ipcMain.handle('cloud:stream-start', async (event, payload) => {
     if (!stream) {
