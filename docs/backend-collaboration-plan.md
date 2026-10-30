@@ -320,17 +320,17 @@ Gate fase: `go test ./...`, integration Postgres, `npm test`, `npx playwright te
 
 ### Fase 2 — Team workspace (3–4 minggu)
 
-- [ ] **2.1** Invite link (token hash, expiry, single-use) + accept flow.
+- [x] **2.1** Invite link (token hash, expiry 7 hari, single-use) + accept flow. *Selesai 2026-10-30; e2e: create → accept → 409 saat reuse.*
   - Test: token kadaluarsa/terpakai ditolak; role sesuai; audit tercatat.
-- [ ] **2.2** Matriks izin + test IDOR untuk setiap endpoint.
+- [x] **2.2** Matriks izin + test IDOR untuk setiap endpoint. *Backend selesai 2026-10-30: admin-only invite/audit, viewer tidak bisa push, non-member 404.*
   - Test: viewer tidak bisa PATCH entity, editor tidak bisa invite, admin tidak bisa hapus workspace.
-- [ ] **2.3** UI anggota: daftar anggota, ubah role, hapus anggota; tab “Members” di modal workspace.
+- [ ] **2.3** UI anggota: daftar anggota, ubah role, hapus anggota; tab “Members” di modal workspace. *Endpoint backend sudah ada.*
   - Test: e2e invite → accept (instance kedua) → muncul di daftar.
-- [ ] **2.4** SSE stream + klien reconnect (`Last-Event-ID`), presence heartbeat 15 dtk.
+- [x] **2.4** SSE stream (`/stream`) + presence heartbeat. *Server selesai 2026-10-30: pg_notify setelah push, event `<300ms`, presence TTL 60s. Klien desktop belum berlangganan.*
   - Test: edit di instance A → instance B menerima event dan menarik delta < 2 dtk; presence hilang setelah TTL.
 - [ ] **2.5** UI konflik: banner + dialog pilih local/server/patch manual.
   - Test: dua edit field sama → dialog muncul; pilih server menimpa local; audit mencatat.
-- [ ] **2.6** Audit log (admin+) + UI sederhana.
+- [x] **2.6** Audit log (admin+) — backend selesai 2026-10-30 (aksi workspace/member/invite, paginasi). UI belum.
   - Test: invite/role/delete tercatat dengan actor dan target.
 
 Gate fase: seluruh matriks izin lulus, e2e invite + sync + presence, tidak ada data leak antar workspace (test dua workspace berbeda user).
@@ -384,6 +384,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Fase 1.1: repo `relay-api` dibuat dari scaffold (public, `main`).
 - [x] Fase 1 server: auth foundation (sessions, refresh rotation+grace, devices) dan workspace API (CRUD, members, changes) teruji e2e dengan Postgres.
 - [x] Fase 1 client: cloud client main-process (single-flight refresh, token aman), engine sync, UI login/attach/status/konflik; e2e Electron lulus terhadap relay-api nyata.
+- [x] Fase 2 server: invite link + accept, audit log, SSE via `LISTEN/NOTIFY`, presence; live smoke lulus (invite, audit, SSE <300ms).
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
 - [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
