@@ -337,13 +337,13 @@ Gate fase: seluruh matriks izin lulus, e2e invite + sync + presence, tidak ada d
 
 ### Fase 3 — Monitor terjadwal (2–3 minggu)
 
-- [ ] **3.1** CRUD monitor + validasi cron + `next_run_at`.
+- [x] **3.1** CRUD monitor + validasi cron + `next_run_at`. *Selesai 2026-10-30; role matrix, requestId harus entity request.*
   - Test: cron invalid ditolak; perhitungan `next_run_at` diuji.
-- [ ] **3.2** Worker Node: ambil job dari Postgres (`FOR UPDATE SKIP LOCKED`), jalankan `packages/core`, tulis `monitor_runs`.
+- [x] **3.2** Worker: klaim job Postgres (`FOR UPDATE SKIP LOCKED`), jalankan `packages/core` lewat CLI stdio, tulis `monitor_runs`. *Selesai 2026-10-30; dua worker tidak double-run.*
   - Test: job sukses/gagal/retry; timeout; graceful shutdown; dua worker tidak double-run.
-- [ ] **3.3** Assertion hasil test script + klasifikasi ok/fail.
+- [x] **3.3** Assertion hasil test script + klasifikasi ok/fail. *Selesai 2026-10-30; assertionFailures tersimpan.*
   - Test: collection dengan test gagal → run `ok=false`, `assertion_failures>0`.
-- [ ] **3.4** Alert webhook + email (opsional), retry dengan backoff, dedupe.
+- [x] **3.4** Alert webhook, retry backoff, dedupe transisi ok→fail. *Selesai 2026-10-30; email belum.*
   - Test: webhook 500 → retry; alert hanya sekali per transisi status.
 - [ ] **3.5** UI monitor: daftar, toggle, riwayat run, grafik durasi sederhana.
   - Test: e2e start monitor interval 1 menit (dengan clock inject) → run muncul.
@@ -387,6 +387,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Fase 2 server: invite link + accept, audit log, SSE via `LISTEN/NOTIFY`, presence; live smoke lulus (invite, audit, SSE <300ms).
 - [x] Fase 2 client: modal Members (role/remove/invite), modal Audit, SSE consumer + presence heartbeat di app; e2e Electron lulus.
 - [x] Sisa Fase 1–2: baseline rev persisten + capture offline edits, auto-retry backoff, attach idempoten, modal Devices + revoke, dialog resolusi konflik dua arah.
+- [x] Fase 3 inti: `packages/core` + CLI, monitor CRUD, worker terjadwal, assertions, alert webhook; e2e monitor sukses/gagal via core bundle nyata.
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
 - [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
