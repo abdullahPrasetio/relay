@@ -163,18 +163,29 @@ broker, itu keputusan arsitektur berbeda (bukan local-first murni).
 Confluence tidak punya folder bebas. Page tanpa `ancestors` akan dibuat di
 bawah **space homepage** (top-level). Karena itu create tidak boleh implicit:
 
+- **Update-only tidak butuh space/parent.** Cukup `pageId`; update halaman
+  existing tetap bisa diexport. Ini jalur default.
+- **Create selalu butuh space.** REST Confluence tidak bisa membuat page tanpa
+  space tujuan (`space.key` di v1, `spaceId` di v2). Tanpa spaceKey, create
+  memang tidak mungkin — bukan karena aplikasi membatasi.
+- Parent sebenarnya **opsional di API**, tetapi aplikasi mewajibkannya agar
+  page tidak otomatis jatuh ke root space. Tidak ada create tanpa parent di
+  v1.
+- Alternatif tanpa mengisi space/parent: buat page dulu di Confluence UI
+  (pilih lokasi di sana), lalu paste page ID-nya ke collection → mode update.
+- Opsi masa depan: paste **anchor page** (page existing); aplikasi mengambil
+  `space.key` dan parent/anchor dari page itu untuk create sibling. Tetap
+  butuh satu page acuan, jadi bukan create “buta”.
 - **Create hanya aktif** jika `confluenceSpaceKey` dan
-  `confluenceParentPageId` diisi. Tidak ada opsi “create di root space”
-  di v1; user harus membuat container page dulu di Confluence (misalnya
-  “API Docs”) lalu paste ID/URL-nya.
+  `confluenceParentPageId` diisi (user membuat container page dulu di
+  Confluence, misalnya “API Docs”, lalu paste ID/URL-nya). Tidak ada opsi
+  “create di root space” di v1.
 - Parent divalidasi sebelum POST:
   `GET /rest/api/content/{parentId}?expand=space,version`; harus
   `type:'page'` dan `space.key` sama dengan space tujuan. Gagal →
   `parent_invalid`, tidak ada request create.
 - `POST` selalu mengirim `ancestors:[{id: parentPageId}]`, jadi halaman tidak
   bisa “nyasar” ke tempat lain.
-- **Update-only tetap default.** User yang tidak ingin mengatur root cukup
-  paste page ID halaman yang sudah ada; create tidak pernah dipaksa.
 
 Title:
 
