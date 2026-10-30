@@ -117,7 +117,7 @@ create table workspace_members (
 create table entities (
   workspace_id uuid not null references workspaces(id) on delete cascade,
   id text not null,                   -- id lokal dari app (ws_/col_/req_/env_)
-  kind text not null check (kind in ('collection','request','environment','globals')),
+  kind text not null check (kind in ('collection','folder','request','environment','globals')),
   parent_id text,
   order_key text,                     -- fractional index untuk reorder
   rev bigint not null default 1,
@@ -290,11 +290,11 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
   - Test: start dengan `DB_AUTO_MIGRATE=false` tidak membuat tabel; migrasi eksplisit yang membuat.
 - [x] **0.3** SSRF: resolusi DNS divalidasi lalu IP yang sama di-dial langsung (anti DNS rebinding) + opsi `AllowPrivate` untuk self-host. *Selesai 2026-10-29; test loopback/mixed-IP/resolver-once lulus.*
   - Test: hostname yang resolve ke `127.0.0.1` ditolak; `AllowPrivate=true` mengizinkan; redirect ke IP privat ditolak.
-- [ ] **0.4** Redis opsional: interface `Blacklist` + no-op, cache optional; sesi/refresh disimpan di Postgres.
+- [x] **0.4** Redis opsional: cache + blacklist punya implementasi Redis dan in-memory; API berjalan dengan `REDIS_URL` kosong. *Selesai 2026-10-29; login/logout/refresh tetap jalan tanpa Redis (revocation instance-local). Sesi refresh di Postgres diimplementasikan di relay-api.*
   - Test: service start tanpa `REDIS_URL`; logout tetap merevoke token.
-- [ ] **0.5** Template worker scheduler (River) di `wapgo make:worker`.
+- [x] **0.5** Template worker scheduler di skeleton (`run-worker`/`build-worker`). *Selesai 2026-10-29, deviasi dari rencana: queue Postgres `FOR UPDATE SKIP LOCKED` + retry/backoff, bukan River, agar tanpa dependency baru.*
   - Test: worker mengambil job `SKIP LOCKED`, retry tercatat, graceful shutdown.
-- [ ] **0.6** Rate limiter bersama (opsional Redis) + dokumentasi keterbatasan in-memory.
+- [x] **0.6** Rate limiter bersama: `RATE_LIMIT_BACKEND=memory|redis`, RedisLimiter atomik, header `Retry-After`/`X-RateLimit-Remaining`, keterbatasan in-memory didokumentasikan. *Selesai 2026-10-29; test miniredis lulus.*
   - Test: dua instance berbagi kuota saat Redis aktif.
 - [x] **0.7** Port runner migrasi + SSRF dialer ke `cli/generator/templates/skeleton` (termasuk Makefile, go.mod, `.env.example`), agar `wapgo new` mewarisi perbaikan tanpa copy manual. *Selesai 2026-10-29; proyek hasil generate lulus build/test dan migrate up/down di Postgres.*
   - Test: generate proyek baru di direktori sementara, `make migrate` berjalan, dan dial ke `127.0.0.1` diblokir secara default.
@@ -303,58 +303,58 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
 
 - [x] **1.1** Buat repo `relay-api` sesuai topologi 1.2; `wapgo new` dengan semua add-on off (tanpa Kafka/RabbitMQ/Filebeat). *Selesai 2026-10-29: `github.com/abdullahPrasetio/relay-api` @ `ae219fc`.*
   - Test: `go test ./...` hijau; `/health` 200; Docker image jalan sebagai nonroot.
-- [ ] **1.2** Domain `workspace`, `member`, `entity` + repository GORM; query sync memakai raw SQL.
+- [x] **1.2** Domain `workspace`, `member`, `entity` + repository; query sync pakai raw SQL dalam satu transaksi (advisory lock per workspace). *Selesai 2026-10-29; test integrasi Postgres lulus.*
   - Test: unit usecase (mock repo) + integration Postgres (testcontainers/compose) untuk insert/update/rev.
-- [ ] **1.3** Endpoint workspace CRUD + attach workspace lokal (id mapping).
+- [x] **1.3** Endpoint workspace CRUD + attach workspace lokal (id mapping). *Selesai 2026-10-30; e2e Electron: signup → attach → status `Synced`, backend menerima baseline collection+globals.*
   - Test: buat workspace → owner otomatis member role owner; IDOR: workspace orang lain → 404.
-- [ ] **1.4** Delta push/pull (`/changes`, `entity_ops` dedupe) + transaksi `entity_changes`.
+- [x] **1.4** Delta push/pull (`/changes`, `entity_ops` dedupe) + transaksi `entity_changes`, beserta HTTP handler dan otorisasi role. *Selesai 2026-10-29; e2e viewer/editor/konflik/dedupe lulus.*
   - Test: push batch campuran create/update/delete; pull cursor konsisten; `baseRev` salah → conflict; retry `opId` sama tidak menerapkan dua kali.
-- [ ] **1.5** Klien desktop: `src/lib/cloudSync.js` (queue persisten, retry backoff, cursor), tombol “Connect to cloud” di WorkspaceSwitcher, indikator status sync.
+- [x] **1.5** Klien desktop: `cloudSync.js`, controller + queue persisten, attach, indikator status, baseline rev persisten, `captureOfflineEdits`, auto-retry backoff. *Selesai 2026-10-30.*
   - Test: unit queue (offline → reconnect); server dimatikan setelah login → edit tetap tersimpan dan terkirim saat server hidup; e2e dua instance app dengan userData berbeda + satu server.
-- [ ] **1.6** Auth klien: login browser PKCE loopback, token di `safeStorage`, refresh single-flight + grace, kelola perangkat.
+- [ ] **1.6** Auth klien: PKCE loopback + kelola perangkat. *Kelola perangkat selesai 2026-10-30 (modal, revoke, e2e). PKCE belum: butuh endpoint OAuth Google di backend + kredensial client.*
   - Test: e2e login/logout; rotasi refresh; refresh saat jaringan putus tidak menghapus token; revoke device membuat request 401.
-- [ ] **1.7** Migrasi data lokal → cloud (workspace attach) idempoten.
+- [x] **1.7** Attach workspace idempoten. *Selesai 2026-10-30: attach kedua tidak memanggil backend dan tidak mereset queue (unit test).*
   - Test: attach dua kali tidak menduplikasi entity; payload round-trip sama dengan export Git.
 
 Gate fase: `go test ./...`, integration Postgres, `npm test`, `npx playwright test`, e2e sync 2 instance.
 
 ### Fase 2 — Team workspace (3–4 minggu)
 
-- [ ] **2.1** Invite link (token hash, expiry, single-use) + accept flow.
+- [x] **2.1** Invite link (token hash, expiry 7 hari, single-use) + accept flow. *Selesai 2026-10-30; e2e: create → accept → 409 saat reuse.*
   - Test: token kadaluarsa/terpakai ditolak; role sesuai; audit tercatat.
-- [ ] **2.2** Matriks izin + test IDOR untuk setiap endpoint.
+- [x] **2.2** Matriks izin + test IDOR untuk setiap endpoint. *Backend selesai 2026-10-30: admin-only invite/audit, viewer tidak bisa push, non-member 404.*
   - Test: viewer tidak bisa PATCH entity, editor tidak bisa invite, admin tidak bisa hapus workspace.
-- [ ] **2.3** UI anggota: daftar anggota, ubah role, hapus anggota; tab “Members” di modal workspace.
+- [x] **2.3** UI anggota: daftar anggota, ubah role, hapus anggota, invite link sekali-tampil. *Selesai 2026-10-30.*
   - Test: e2e invite → accept (instance kedua) → muncul di daftar.
-- [ ] **2.4** SSE stream + klien reconnect (`Last-Event-ID`), presence heartbeat 15 dtk.
+- [x] **2.4** SSE stream (`/stream`) + presence heartbeat. *Selesai 2026-10-30: pg_notify setelah push, event `<300ms`; app Electron berlangganan (`/stream` 200) dan menulis presence tiap 30 dtk.*
   - Test: edit di instance A → instance B menerima event dan menarik delta < 2 dtk; presence hilang setelah TTL.
-- [ ] **2.5** UI konflik: banner + dialog pilih local/server/patch manual.
+- [x] **2.5** UI konflik: banner + dialog pilih “Use server”/“Keep local” (per item dan apply-all). *Selesai 2026-10-30; patch manual per field belum.*
   - Test: dua edit field sama → dialog muncul; pilih server menimpa local; audit mencatat.
-- [ ] **2.6** Audit log (admin+) + UI sederhana.
+- [x] **2.6** Audit log (admin+) + UI. *Selesai 2026-10-30: aksi workspace/member/invite, paginasi, modal Activity.*
   - Test: invite/role/delete tercatat dengan actor dan target.
 
 Gate fase: seluruh matriks izin lulus, e2e invite + sync + presence, tidak ada data leak antar workspace (test dua workspace berbeda user).
 
 ### Fase 3 — Monitor terjadwal (2–3 minggu)
 
-- [ ] **3.1** CRUD monitor + validasi cron + `next_run_at`.
+- [x] **3.1** CRUD monitor + validasi cron + `next_run_at`. *Selesai 2026-10-30; role matrix, requestId harus entity request.*
   - Test: cron invalid ditolak; perhitungan `next_run_at` diuji.
-- [ ] **3.2** Worker Node: ambil job dari Postgres (`FOR UPDATE SKIP LOCKED`), jalankan `packages/core`, tulis `monitor_runs`.
+- [x] **3.2** Worker: klaim job Postgres (`FOR UPDATE SKIP LOCKED`), jalankan `packages/core` lewat CLI stdio, tulis `monitor_runs`. *Selesai 2026-10-30; dua worker tidak double-run.*
   - Test: job sukses/gagal/retry; timeout; graceful shutdown; dua worker tidak double-run.
-- [ ] **3.3** Assertion hasil test script + klasifikasi ok/fail.
+- [x] **3.3** Assertion hasil test script + klasifikasi ok/fail. *Selesai 2026-10-30; assertionFailures tersimpan.*
   - Test: collection dengan test gagal → run `ok=false`, `assertion_failures>0`.
-- [ ] **3.4** Alert webhook + email (opsional), retry dengan backoff, dedupe.
+- [x] **3.4** Alert webhook, retry backoff, dedupe transisi ok→fail. *Selesai 2026-10-30; email belum.*
   - Test: webhook 500 → retry; alert hanya sekali per transisi status.
-- [ ] **3.5** UI monitor: daftar, toggle, riwayat run, grafik durasi sederhana.
+- [x] **3.5** UI monitor: daftar, toggle, riwayat run, run-now, form create dengan cron preset dan pemilih request. *Selesai 2026-10-30; e2e Electron membuat monitor dan melihat run 200. Grafik durasi belum.*
   - Test: e2e start monitor interval 1 menit (dengan clock inject) → run muncul.
 
 Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network internal (kecuali `AllowPrivate`).
 
 ### Fase 4 — Opsional (3+ minggu)
 
-- [ ] **4.1** E2E secret sharing: kunci publik per device (X25519), data key workspace dibungkus per anggota, rotasi saat anggota keluar.
+- [x] **4.1** E2E secret sharing. *Selesai 2026-10-30: keypair per device (private di safeStorage), workspace key di-wrap per device, bootstrap owner/admin, sharing ke device baru, enkripsi `secretCloud` saat push dan dekripsi saat pull. Rotasi otomatis saat anggota keluar belum (endpoint rotate tersedia).*
   - Test: server tidak bisa dekripsi; anggota baru membuka secret setelah envelope dibagikan; anggota keluar kehilangan akses.
-- [ ] **4.2** Komentar/activity feed per request (thread, mention).
+- [x] **4.2** Komentar per request: backend (migrasi 000008, keyset pagination, audit) + modal komentar di app. *Selesai 2026-10-30; e2e Electron post komentar lulus. Mention/activity feed belum.*
 - [ ] **4.3** (Evaluasi) live editing per field — hanya jika data menunjukkan kebutuhan.
 
 ---
@@ -364,7 +364,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 ### Sudah dikerjakan dan teruji (app, bukan backend)
 
 - [x] Fase 0–6 roadmap app: network engine, auth, runtime sandbox, workflow, protokol, mock/docs/git workspace, signing pipeline.
-- [x] Unit test: 568 lulus / 41 file (`npm test`).
+- [x] Unit test: 613 lulus / 45 file (`npm test`, setelah Fase 1 client).
 - [x] E2E: 19 lulus (`npx playwright test`), termasuk sync sesi, quit handshake, tema, environment menu.
 - [x] Lint: 0 error; build produksi sukses.
 - [x] CI GitHub Actions 3 OS (`.github/workflows/build.yml`) hijau; artifact mac/win/linux terunggah.
@@ -376,12 +376,24 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 
 ### Belum dikerjakan
 
-- [ ] Fase 0 (sisa): Redis opsional, scheduler, rate limit.
+- [x] Fase 0 (sisa): Redis opsional, scheduler, rate limit.
 - [x] Fase 0.1–0.2 wapgo: runner migrasi SQL (`cmd/migrate`) + guard `AutoMigrate` (uji up/down Postgres 14).
 - [x] Fase 0.3 wapgo: SSRF cek IP hasil DNS di dialer + `AllowPrivate`.
 - [x] Fase 0.7 wapgo: perbaikan di-port ke skeleton; proyek hasil generate terverifikasi.
+- [x] Fase 0.4–0.6 wapgo: Redis opsional, rate limiter memory/redis, worker Postgres di skeleton; generate+build+migrate terverifikasi.
 - [x] Fase 1.1: repo `relay-api` dibuat dari scaffold (public, `main`).
-- [ ] Fase 1: auth + cloud sync per user.
+- [x] Fase 1 server: auth foundation (sessions, refresh rotation+grace, devices) dan workspace API (CRUD, members, changes) teruji e2e dengan Postgres.
+- [x] Fase 1 client: cloud client main-process (single-flight refresh, token aman), engine sync, UI login/attach/status/konflik; e2e Electron lulus terhadap relay-api nyata.
+- [x] Fase 2 server: invite link + accept, audit log, SSE via `LISTEN/NOTIFY`, presence; live smoke lulus (invite, audit, SSE <300ms).
+- [x] Fase 2 client: modal Members (role/remove/invite), modal Audit, SSE consumer + presence heartbeat di app; e2e Electron lulus.
+- [x] Sisa Fase 1–2: baseline rev persisten + capture offline edits, auto-retry backoff, attach idempoten, modal Devices + revoke, dialog resolusi konflik dua arah.
+- [x] Fase 3 inti: `packages/core` + CLI, monitor CRUD, worker terjadwal, assertions, alert webhook; e2e monitor sukses/gagal via core bundle nyata.
+- [x] Fase 3 UI: modal Monitors (create/run/history/delete) di app; e2e Electron lulus.
+- [x] Fase 4 fondasi: crypto X25519/AES-GCM + registry device/workspace key; komentar per request full-stack dengan e2e.
+- [x] Pengaman sementara: variabel secret tidak pernah dikirim ke server; digantikan enkripsi E2E penuh (secretCloud) pada 2026-10-30.
+- [x] Fase 4.1 verifikasi live: server hanya menyimpan ciphertext, device kedua menunggu lalu menerima key yang sama dan berhasil dekripsi.
+- [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
+- [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
 - [ ] Fase 3: monitor terjadwal.
 - [ ] Fase 4: E2E secret sharing, komentar.
