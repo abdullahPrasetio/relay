@@ -19,6 +19,7 @@
 // `error` is always { code, message, status }.
 
 import {
+  KIND,
   mergeLocalSecrets,
   sanitizeChanges,
   secretCloudSlots,
@@ -92,6 +93,24 @@ function uniqueConflicts(list) {
     byKey.set(`${conflict.opId || ''}:${conflict.id}`, conflict);
   }
   return [...byKey.values()];
+}
+
+// True when an environment/globals payload still carries a secret in plaintext.
+// Rows that only have an encrypted envelope (`secretCloud`) are already safe.
+function hasPlaintextSecret(payload) {
+  const rows = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.variables)
+      ? payload.variables
+      : [];
+  return rows.some(
+    (row) =>
+      row &&
+      typeof row === 'object' &&
+      row.type === 'secret' &&
+      typeof row.value === 'string' &&
+      row.value !== ''
+  );
 }
 
 export function createCloudController({
@@ -685,6 +704,111 @@ export function createCloudController({
     return lock(workspaceId, () => syncLocked(workspaceId));
   }
 
+  // Rotate the workspace key after a member is removed, then re-encrypt every
+  // locally stored secret with the new key and push the envelopes.
+  //
+  // The rotation must succeed before anything local is touched: if it fails
+  // (or the new key is not ready) the queue, revisions and workspace are all
+  // left exactly as they were, so the caller can retry later.
+  async function reencryptLocked(workspaceId) {
+    const workspace = getWorkspace(workspaceId);
+    if (!workspace) return fail('not_found', 'Workspace not found.');
+    const stored = cloudConfig(workspace);
+    if (!stored) return fail('not_attached', 'This workspace is not linked to the cloud.');
+
+    const rotation = await call('rotateWorkspaceKey', { workspaceId: stored.remoteId });
+    if (!rotation.ok) return rotation;
+    const version = rotation.data?.version ?? null;
+    if (!rotation.data?.ready) {
+      return fail('crypto_unavailable', 'The workspace key could not be rotated.');
+    }
+
+    const current = getWorkspace(workspaceId);
+    if (!current) return fail('not_found', 'Workspace not found.');
+
+    // Work on a copy, as in `syncLocked`: nothing persists until the push.
+    const cfg = {
+      ...stored,
+      revs: { ...(stored.revs || {}) },
+      conflicts: Array.isArray(stored.conflicts) ? [...stored.conflicts] : [],
+    };
+
+    const flat = flattenWorkspace(current);
+    const entities = flat.entities.filter(
+      (entity) =>
+        (entity.kind === KIND.environment || entity.kind === KIND.globals) &&
+        hasPlaintextSecret(entity.payload)
+    );
+
+    // No local secrets to re-wrap (secrets live on other devices): the key was
+    // still rotated, so report success without a network push.
+    if (!entities.length) {
+      return {
+        ok: true,
+        version,
+        pushed: 0,
+        conflicts: 0,
+        data: { ready: true, version, pushed: 0, conflicts: 0 },
+      };
+    }
+
+    let changes = entities.map((entity) => ({
+      id: entity.id,
+      kind: entity.kind,
+      baseRev: Number(cfg.revs[entity.id] ?? 0),
+      payload: entity.payload,
+      parentId: entity.parentId ?? null,
+      orderKey: entity.orderKey ?? null,
+      deleted: false,
+    }));
+
+    // One batched encryption call for every plaintext secret across entities;
+    // the envelopes are produced by the freshly rotated key.
+    const slots = secretValueSlots(changes);
+    const encrypted = await call('encryptSecrets', {
+      workspaceId: cfg.remoteId,
+      values: slots.map((slot) => slot.value),
+    });
+    const envelopes = encrypted.ok ? encrypted.data?.envelopes : null;
+    if (!Array.isArray(envelopes) || envelopes.length < slots.length) {
+      if (!encrypted.ok) return encrypted;
+      return fail('encrypt_failed', 'Secret values could not be encrypted with the new key.');
+    }
+
+    // `withEncryptedSecrets` blanks each plaintext value and drops the local
+    // ciphertext; `sanitizeChanges` is a final guard that nothing leaks.
+    changes = sanitizeChanges(withEncryptedSecrets(changes, slots, envelopes));
+
+    const queue = queueFor(workspaceId, cfg);
+    queue.enqueue(changes);
+    const pushed = await pushQueue(workspaceId, cfg, queue);
+    if (!pushed.ok) return { ...pushed, version };
+
+    const linked = getWorkspace(workspaceId) || current;
+    setBaseline(workspaceId, {
+      ...flattenWorkspace(linked),
+      revs: cfg.revs,
+      persisted: true,
+    });
+    cfg.state = SYNC_STATUS.synced;
+    cfg.lastError = null;
+    save(workspaceId, cfg);
+
+    const applied = pushed.data?.applied ?? 0;
+    const conflictCount = Array.isArray(cfg.conflicts) ? cfg.conflicts.length : 0;
+    return {
+      ok: true,
+      version,
+      pushed: applied,
+      conflicts: conflictCount,
+      data: { ready: true, version, pushed: applied, conflicts: conflictCount },
+    };
+  }
+
+  function reencryptSecrets(workspaceId) {
+    return lock(workspaceId, () => reencryptLocked(workspaceId));
+  }
+
   // Queue local edits so an edit made between syncs survives a push failure.
   async function enqueue(workspaceId) {
     const workspace = getWorkspace(workspaceId);
@@ -866,6 +990,7 @@ export function createCloudController({
     sync,
     enqueue,
     captureOfflineEdits,
+    reencryptSecrets,
     secureChanges,
     openPulledChanges,
     resolveConflicts,

@@ -120,6 +120,7 @@ contextBridge.exposeInMainWorld('api', {
     cryptoStatus: (payload) => ipcRenderer.invoke('cloud:crypto-status', payload),
     encryptSecrets: (payload) => ipcRenderer.invoke('cloud:encrypt-secrets', payload),
     decryptSecrets: (payload) => ipcRenderer.invoke('cloud:decrypt-secrets', payload),
+    rotateWorkspaceKey: (payload) => ipcRenderer.invoke('cloud:rotate-workspace-key', payload),
     startStream: (workspaceId) => ipcRenderer.invoke('cloud:stream-start', { workspaceId }),
     stopStream: () => ipcRenderer.invoke('cloud:stream-stop'),
     setPresence: (payload) => ipcRenderer.invoke('cloud:presence', payload),

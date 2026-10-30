@@ -8,7 +8,11 @@ import os from 'node:os';
 //   1. registers this device's public key (once per process),
 //   2. fetches this caller's wrapped keys and unwraps the newest usable one,
 //   3. bootstraps (or rotates forward) a workspace key when the caller is an
-//      owner/admin and no key is available for this device yet.
+//      owner/admin and no key is available for this device yet,
+//   4. rotates the key on demand: a brand-new key at version+1, wrapped for
+//      every active device of the current members, and
+//   5. re-checks cached keys periodically so a rotation performed from another
+//      device is adopted without a restart.
 //
 // It never returns key material to the renderer: `encrypt`/`decrypt` are the
 // only value-level operations, and both keep the workspace key in-process.
@@ -135,13 +139,17 @@ function unwrapNewest(entries, privateKey, crypto) {
   return null;
 }
 
-function nextVersion(entries) {
+function newestVersion(entries) {
   let highest = 0;
   for (const entry of keyEntries(entries)) {
     const version = Number(entry?.version);
     if (isPositiveVersion(version) && version > highest) highest = Math.floor(version);
   }
-  return highest + 1;
+  return highest;
+}
+
+function nextVersion(entries) {
+  return newestVersion(entries) + 1;
 }
 
 function readyState(state) {
@@ -195,7 +203,44 @@ export function createWorkspaceKeyManager({ client, deviceKeys, crypto } = {}) {
   const inFlight = new Map();
   const shareCache = new Map();
   const shareCheckedAt = new Map();
+  const verifyCheckedAt = new Map();
   let registration = null;
+
+  // Cache a usable key set. The cached fast path may skip the server re-check
+  // only until `VERIFY_RECHECK_MS` elapses, so record the moment it was seen.
+  function remember(id, state) {
+    cache.set(id, state);
+    verifyCheckedAt.set(id, Date.now());
+    return state;
+  }
+
+  // Wrap `workspaceKey` for every active device of the workspace's current
+  // members and return the recipients that produced an entry. The server lists
+  // only active device keys of current members, so removed members and revoked
+  // devices never receive an entry.
+  async function wrapForDevices(id, workspaceKey) {
+    const recipients = deviceKeyEntries(await client.workspaceDeviceKeys(id));
+    const seen = new Set();
+    const entries = [];
+    for (const recipient of recipients) {
+      if (!recipient || typeof recipient.publicKey !== 'string' || !recipient.publicKey) {
+        continue;
+      }
+      const deviceKeyId = recipient.id ?? recipient.deviceKeyId;
+      if (typeof deviceKeyId !== 'string' || !deviceKeyId || seen.has(deviceKeyId)) {
+        continue;
+      }
+      seen.add(deviceKeyId);
+      entries.push({
+        deviceKeyId,
+        wrappedKey: crypto.wrapWorkspaceKey({
+          workspaceKey,
+          recipientPublicKey: recipient.publicKey,
+        }),
+      });
+    }
+    return { entries, recipients };
+  }
 
   function registerOnce() {
     if (registration) return registration;
@@ -221,29 +266,9 @@ export function createWorkspaceKeyManager({ client, deviceKeys, crypto } = {}) {
       return waitingState(WORKSPACE_KEY_REASONS.WAITING);
     }
 
-    const recipients = deviceKeyEntries(await client.workspaceDeviceKeys(id));
     const version = nextVersion(entries);
     const workspaceKey = crypto.generateWorkspaceKey();
-    const seen = new Set();
-    const wrapped = [];
-
-    for (const recipient of recipients) {
-      if (!recipient || typeof recipient.publicKey !== 'string' || !recipient.publicKey) {
-        continue;
-      }
-      const deviceKeyId = recipient.id ?? recipient.deviceKeyId;
-      if (typeof deviceKeyId !== 'string' || !deviceKeyId || seen.has(deviceKeyId)) {
-        continue;
-      }
-      seen.add(deviceKeyId);
-      wrapped.push({
-        deviceKeyId,
-        wrappedKey: crypto.wrapWorkspaceKey({
-          workspaceKey,
-          recipientPublicKey: recipient.publicKey,
-        }),
-      });
-    }
+    const { entries: wrapped } = await wrapForDevices(id, workspaceKey);
 
     if (wrapped.length === 0) {
       return waitingState(WORKSPACE_KEY_REASONS.NO_DEVICE_KEYS);
@@ -257,7 +282,7 @@ export function createWorkspaceKeyManager({ client, deviceKeys, crypto } = {}) {
       if (Number(err?.status) === 409) {
         const adopted = unwrapNewest(await client.workspaceKeys(id), pair.privateKey, crypto);
         if (adopted) {
-          cache.set(id, adopted);
+          remember(id, adopted);
           return readyState(adopted);
         }
       }
@@ -270,7 +295,7 @@ export function createWorkspaceKeyManager({ client, deviceKeys, crypto } = {}) {
       version: isPositiveVersion(createdVersion) ? Math.floor(createdVersion) : version,
       key: workspaceKey,
     };
-    cache.set(id, state);
+    remember(id, state);
     // Bootstrap already wrapped every active device; avoid a duplicate PUT.
     shareCheckedAt.set(id, Date.now());
     return readyState(state);
@@ -287,31 +312,16 @@ export function createWorkspaceKeyManager({ client, deviceKeys, crypto } = {}) {
     const workspace = await client.workspace(id);
     if (!BOOTSTRAP_ROLES.has(roleOf(workspace))) return;
 
-    const recipients = deviceKeyEntries(await client.workspaceDeviceKeys(id));
-    const usable = recipients.filter(
-      (recipient) => recipient && typeof recipient.publicKey === 'string' && recipient.publicKey
-    );
-    const signature = `${state.version}:${usable
+    const { entries, recipients } = await wrapForDevices(id, state.key);
+    const signature = `${state.version}:${recipients
+      .filter(
+        (recipient) => recipient && typeof recipient.publicKey === 'string' && recipient.publicKey
+      )
       .map((recipient) => recipient.id ?? recipient.deviceKeyId)
       .filter(Boolean)
       .sort()
       .join(',')}`;
     if (shareCache.get(id) === signature) return;
-
-    const seen = new Set();
-    const entries = [];
-    for (const recipient of usable) {
-      const deviceKeyId = recipient.id ?? recipient.deviceKeyId;
-      if (typeof deviceKeyId !== 'string' || !deviceKeyId || seen.has(deviceKeyId)) continue;
-      seen.add(deviceKeyId);
-      entries.push({
-        deviceKeyId,
-        wrappedKey: crypto.wrapWorkspaceKey({
-          workspaceKey: state.key,
-          recipientPublicKey: recipient.publicKey,
-        }),
-      });
-    }
     if (entries.length === 0) return;
 
     await client.putWorkspaceKeys(id, { version: state.version, entries });
@@ -327,6 +337,30 @@ export function createWorkspaceKeyManager({ client, deviceKeys, crypto } = {}) {
     await shareWithDevices(id, state);
   }
 
+  // An admin on another device can rotate the key while this process holds a
+  // cached one. Re-read the server's wrapped keys at most once per interval and
+  // adopt the newest version only when this device's private key unwraps it;
+  // a failed re-check keeps the cached key (offline use still works).
+  const VERIFY_RECHECK_MS = 15000;
+  async function adoptNewer(id, cached) {
+    const last = verifyCheckedAt.get(id) || 0;
+    if (Date.now() - last < VERIFY_RECHECK_MS) return null;
+    verifyCheckedAt.set(id, Date.now());
+    try {
+      const pair = await registerOnce();
+      const entries = await client.workspaceKeys(id);
+      if (newestVersion(entries) <= cached.version) return null;
+      const adopted = unwrapNewest(entries, pair.privateKey, crypto);
+      if (!adopted || adopted.version <= cached.version) return null;
+      remember(id, adopted);
+      // The key set changed, so the old share signature no longer applies.
+      shareCache.delete(id);
+      return adopted;
+    } catch {
+      return null;
+    }
+  }
+
   async function resolve(id, pair) {
     let entries;
     try {
@@ -339,7 +373,7 @@ export function createWorkspaceKeyManager({ client, deviceKeys, crypto } = {}) {
 
     const adopted = unwrapNewest(entries, pair.privateKey, crypto);
     if (adopted) {
-      cache.set(id, adopted);
+      remember(id, adopted);
       await shareWithDevices(id, adopted).catch(() => {});
       return readyState(adopted);
     }
@@ -369,8 +403,9 @@ export function createWorkspaceKeyManager({ client, deviceKeys, crypto } = {}) {
     const id = requireWorkspaceId(workspaceId);
     const cached = cache.get(id);
     if (cached) {
-      await maybeShare(id, cached).catch(() => {});
-      return readyState(cached);
+      const current = (await adoptNewer(id, cached)) || cached;
+      await maybeShare(id, current).catch(() => {});
+      return readyState(current);
     }
 
     const pending = inFlight.get(id);
@@ -452,14 +487,77 @@ export function createWorkspaceKeyManager({ client, deviceKeys, crypto } = {}) {
     return values;
   }
 
-  /** Drop cached key material, for one workspace or (no argument) all. */
+  /**
+   * Rotate the workspace key. Requires a ready state (resolving it first),
+   * generates a brand-new 32-byte key, wraps it for every active device of the
+   * workspace's current members and stores it as the next version. The previous
+   * key/version is never reused. Returns `{ ready: true, version, key }`;
+   * without a ready state this throws the same typed `WorkspaceKeyError` that
+   * `ensure` reports as a reason (e.g. `waiting_key`).
+   */
+  async function rotate(workspaceId) {
+    const id = requireWorkspaceId(workspaceId);
+    const state = requireReady(cache.get(id) || (await ensure(id)));
+    const pair = await registerOnce();
+    const version = Math.floor(Number(state.version)) + 1;
+    const workspaceKey = crypto.generateWorkspaceKey();
+    const { entries, recipients } = await wrapForDevices(id, workspaceKey);
+
+    // Rotating without an entry for this device would lock it out of the new
+    // version after a restart; refuse instead of storing an unreachable key.
+    if (!recipients.some((recipient) => recipient?.publicKey === pair.publicKey)) {
+      throw new WorkspaceKeyError(
+        WORKSPACE_KEY_REASONS.NO_DEVICE_KEYS,
+        'This device is not among the workspace device keys'
+      );
+    }
+
+    let created;
+    try {
+      created = await client.putWorkspaceKeys(id, { version, entries });
+    } catch (err) {
+      // Another admin rotated first: adopt the version that won instead of
+      // overwriting it, which would orphan ciphertexts under that key.
+      if (Number(err?.status) === 409) {
+        const adopted = unwrapNewest(await client.workspaceKeys(id), pair.privateKey, crypto);
+        if (adopted && adopted.version > state.version) {
+          remember(id, adopted);
+          shareCache.delete(id);
+          return readyState(adopted);
+        }
+      }
+      throw err;
+    }
+
+    const createdVersion = Number(created?.version);
+    const next = {
+      ready: true,
+      version: isPositiveVersion(createdVersion) ? Math.floor(createdVersion) : version,
+      key: workspaceKey,
+    };
+    remember(id, next);
+    // New version => prior share signatures are stale; every active device was
+    // just wrapped, so no immediate re-share is needed either.
+    shareCache.delete(id);
+    shareCheckedAt.set(id, Date.now());
+    return readyState(next);
+  }
+
+  /** Drop cached key material and bookkeeping, for one workspace or all. */
   function reset(workspaceId) {
     if (workspaceId === undefined) {
       cache.clear();
+      shareCache.clear();
+      shareCheckedAt.clear();
+      verifyCheckedAt.clear();
       return;
     }
-    cache.delete(requireWorkspaceId(workspaceId));
+    const id = requireWorkspaceId(workspaceId);
+    cache.delete(id);
+    shareCache.delete(id);
+    shareCheckedAt.delete(id);
+    verifyCheckedAt.delete(id);
   }
 
-  return { ensure, encrypt, decrypt, reset };
+  return { ensure, encrypt, decrypt, rotate, reset };
 }

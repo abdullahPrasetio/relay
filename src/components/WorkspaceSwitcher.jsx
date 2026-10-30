@@ -315,6 +315,7 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
           workspace={teamWorkspace}
           currentUserId={cloud?.user?.id || null}
           cloud={cloudBridge}
+          reencryptSecrets={cloud?.reencryptSecrets || null}
           onClose={() => setTeamWorkspace(null)}
         />
       )}
