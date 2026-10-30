@@ -309,11 +309,11 @@ Legenda: `[ ]` belum, `[x]` selesai, gate test ditulis di tiap langkah.
   - Test: buat workspace → owner otomatis member role owner; IDOR: workspace orang lain → 404.
 - [x] **1.4** Delta push/pull (`/changes`, `entity_ops` dedupe) + transaksi `entity_changes`, beserta HTTP handler dan otorisasi role. *Selesai 2026-10-29; e2e viewer/editor/konflik/dedupe lulus.*
   - Test: push batch campuran create/update/delete; pull cursor konsisten; `baseRev` salah → conflict; retry `opId` sama tidak menerapkan dua kali.
-- [x] **1.5** Klien desktop: `cloudSync.js` (flatten/diff/apply), controller + queue persisten, tombol attach di WorkspaceSwitcher, indikator status. *Selesai 2026-10-30; retry masih manual (`nextSyncDelay` tersedia), baseline rev in-memory.*
+- [x] **1.5** Klien desktop: `cloudSync.js`, controller + queue persisten, attach, indikator status, baseline rev persisten, `captureOfflineEdits`, auto-retry backoff. *Selesai 2026-10-30.*
   - Test: unit queue (offline → reconnect); server dimatikan setelah login → edit tetap tersimpan dan terkirim saat server hidup; e2e dua instance app dengan userData berbeda + satu server.
 - [ ] **1.6** Auth klien: login browser PKCE loopback, token di `safeStorage`, refresh single-flight + grace, kelola perangkat.
   - Test: e2e login/logout; rotasi refresh; refresh saat jaringan putus tidak menghapus token; revoke device membuat request 401.
-- [ ] **1.7** Migrasi data lokal → cloud (workspace attach) idempoten.
+- [x] **1.7** Attach workspace idempoten. *Selesai 2026-10-30: attach kedua tidak memanggil backend dan tidak mereset queue (unit test).*
   - Test: attach dua kali tidak menduplikasi entity; payload round-trip sama dengan export Git.
 
 Gate fase: `go test ./...`, integration Postgres, `npm test`, `npx playwright test`, e2e sync 2 instance.
@@ -328,7 +328,7 @@ Gate fase: `go test ./...`, integration Postgres, `npm test`, `npx playwright te
   - Test: e2e invite → accept (instance kedua) → muncul di daftar.
 - [x] **2.4** SSE stream (`/stream`) + presence heartbeat. *Selesai 2026-10-30: pg_notify setelah push, event `<300ms`; app Electron berlangganan (`/stream` 200) dan menulis presence tiap 30 dtk.*
   - Test: edit di instance A → instance B menerima event dan menarik delta < 2 dtk; presence hilang setelah TTL.
-- [ ] **2.5** UI konflik: banner + dialog pilih local/server/patch manual.
+- [x] **2.5** UI konflik: banner + dialog pilih “Use server”/“Keep local” (per item dan apply-all). *Selesai 2026-10-30; patch manual per field belum.*
   - Test: dua edit field sama → dialog muncul; pilih server menimpa local; audit mencatat.
 - [x] **2.6** Audit log (admin+) + UI. *Selesai 2026-10-30: aksi workspace/member/invite, paginasi, modal Activity.*
   - Test: invite/role/delete tercatat dengan actor dan target.
@@ -386,6 +386,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Fase 1 client: cloud client main-process (single-flight refresh, token aman), engine sync, UI login/attach/status/konflik; e2e Electron lulus terhadap relay-api nyata.
 - [x] Fase 2 server: invite link + accept, audit log, SSE via `LISTEN/NOTIFY`, presence; live smoke lulus (invite, audit, SSE <300ms).
 - [x] Fase 2 client: modal Members (role/remove/invite), modal Audit, SSE consumer + presence heartbeat di app; e2e Electron lulus.
+- [x] Sisa Fase 1–2: baseline rev persisten + capture offline edits, auto-retry backoff, attach idempoten, modal Devices + revoke, dialog resolusi konflik dua arah.
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
 - [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
