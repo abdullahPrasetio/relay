@@ -345,7 +345,7 @@ Gate fase: seluruh matriks izin lulus, e2e invite + sync + presence, tidak ada d
   - Test: collection dengan test gagal → run `ok=false`, `assertion_failures>0`.
 - [x] **3.4** Alert webhook, retry backoff, dedupe transisi ok→fail. *Selesai 2026-10-30; email belum.*
   - Test: webhook 500 → retry; alert hanya sekali per transisi status.
-- [ ] **3.5** UI monitor: daftar, toggle, riwayat run, grafik durasi sederhana.
+- [x] **3.5** UI monitor: daftar, toggle, riwayat run, run-now, form create dengan cron preset dan pemilih request. *Selesai 2026-10-30; e2e Electron membuat monitor dan melihat run 200. Grafik durasi belum.*
   - Test: e2e start monitor interval 1 menit (dengan clock inject) → run muncul.
 
 Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network internal (kecuali `AllowPrivate`).
@@ -388,6 +388,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Fase 2 client: modal Members (role/remove/invite), modal Audit, SSE consumer + presence heartbeat di app; e2e Electron lulus.
 - [x] Sisa Fase 1–2: baseline rev persisten + capture offline edits, auto-retry backoff, attach idempoten, modal Devices + revoke, dialog resolusi konflik dua arah.
 - [x] Fase 3 inti: `packages/core` + CLI, monitor CRUD, worker terjadwal, assertions, alert webhook; e2e monitor sukses/gagal via core bundle nyata.
+- [x] Fase 3 UI: modal Monitors (create/run/history/delete) di app; e2e Electron lulus.
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
 - [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
