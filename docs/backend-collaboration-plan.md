@@ -324,13 +324,13 @@ Gate fase: `go test ./...`, integration Postgres, `npm test`, `npx playwright te
   - Test: token kadaluarsa/terpakai ditolak; role sesuai; audit tercatat.
 - [x] **2.2** Matriks izin + test IDOR untuk setiap endpoint. *Backend selesai 2026-10-30: admin-only invite/audit, viewer tidak bisa push, non-member 404.*
   - Test: viewer tidak bisa PATCH entity, editor tidak bisa invite, admin tidak bisa hapus workspace.
-- [ ] **2.3** UI anggota: daftar anggota, ubah role, hapus anggota; tab “Members” di modal workspace. *Endpoint backend sudah ada.*
+- [x] **2.3** UI anggota: daftar anggota, ubah role, hapus anggota, invite link sekali-tampil. *Selesai 2026-10-30.*
   - Test: e2e invite → accept (instance kedua) → muncul di daftar.
-- [x] **2.4** SSE stream (`/stream`) + presence heartbeat. *Server selesai 2026-10-30: pg_notify setelah push, event `<300ms`, presence TTL 60s. Klien desktop belum berlangganan.*
+- [x] **2.4** SSE stream (`/stream`) + presence heartbeat. *Selesai 2026-10-30: pg_notify setelah push, event `<300ms`; app Electron berlangganan (`/stream` 200) dan menulis presence tiap 30 dtk.*
   - Test: edit di instance A → instance B menerima event dan menarik delta < 2 dtk; presence hilang setelah TTL.
 - [ ] **2.5** UI konflik: banner + dialog pilih local/server/patch manual.
   - Test: dua edit field sama → dialog muncul; pilih server menimpa local; audit mencatat.
-- [x] **2.6** Audit log (admin+) — backend selesai 2026-10-30 (aksi workspace/member/invite, paginasi). UI belum.
+- [x] **2.6** Audit log (admin+) + UI. *Selesai 2026-10-30: aksi workspace/member/invite, paginasi, modal Activity.*
   - Test: invite/role/delete tercatat dengan actor dan target.
 
 Gate fase: seluruh matriks izin lulus, e2e invite + sync + presence, tidak ada data leak antar workspace (test dua workspace berbeda user).
@@ -385,6 +385,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Fase 1 server: auth foundation (sessions, refresh rotation+grace, devices) dan workspace API (CRUD, members, changes) teruji e2e dengan Postgres.
 - [x] Fase 1 client: cloud client main-process (single-flight refresh, token aman), engine sync, UI login/attach/status/konflik; e2e Electron lulus terhadap relay-api nyata.
 - [x] Fase 2 server: invite link + accept, audit log, SSE via `LISTEN/NOTIFY`, presence; live smoke lulus (invite, audit, SSE <300ms).
+- [x] Fase 2 client: modal Members (role/remove/invite), modal Audit, SSE consumer + presence heartbeat di app; e2e Electron lulus.
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
 - [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
