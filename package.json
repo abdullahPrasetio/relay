@@ -1,8 +1,8 @@
 {
   "name": "relay",
   "productName": "Relay",
-  "version": "0.1.0",
-  "description": "Relay \u2014 a modern local API client (Postman-style) built with Electron + React + Vite",
+  "version": "0.2.0",
+  "description": "Relay — a modern local API client (Postman-style) built with Electron + React + Vite",
   "main": "dist-electron/main.js",
   "bin": {
     "relay": "cli/relay.mjs"
