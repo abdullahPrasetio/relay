@@ -6,40 +6,34 @@
 // the engine.
 
 import { spawn } from 'node:child_process';
-import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { build as esbuild } from 'esbuild';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
 const cliPath = path.join(root, 'dist-core/relay-core.mjs');
 
-const require = createRequire(import.meta.url);
-
-function buildCli() {
-  // esbuild ships with Vite; the bundle is the same one `npm run build:core`
-  // produces, so the test never depends on a prior build.
-  const esbuildDir = path.dirname(require.resolve('esbuild/package.json'));
-  const bin = path.join(esbuildDir, 'bin', process.platform === 'win32' ? 'esbuild.exe' : 'esbuild');
-  execFileSync(
-    bin,
-    [
-      'packages/core/src/cli.js',
-      '--bundle',
-      '--platform=node',
-      '--format=esm',
-      '--outfile=dist-core/relay-core.mjs',
-      '--external:electron',
-      // The proxy-agent packages are CommonJS and lazily require Node builtins;
-      // in an ESM bundle esbuild needs a real `require` for those calls.
-      '--banner:js=import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
-    ],
-    { cwd: root, stdio: 'pipe' }
-  );
+async function buildCli() {
+  // Use the esbuild JS API instead of the platform binary: the wrapper resolves
+  // the correct binary on every OS (the Windows binary is not at bin/esbuild).
+  await esbuild({
+    entryPoints: ['packages/core/src/cli.js'],
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    outfile: 'dist-core/relay-core.mjs',
+    external: ['electron'],
+    logLevel: 'silent',
+    // The proxy-agent packages are CommonJS and lazily require Node builtins;
+    // in an ESM bundle esbuild needs a real `require` for those calls.
+    banner: {
+      js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
+    },
+  });
 }
 
 function runCli(payload) {
@@ -153,7 +147,7 @@ beforeAll(async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-  buildCli();
+  await buildCli();
 });
 
 afterAll(async () => {
