@@ -352,7 +352,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 
 ### Fase 4 — Opsional (3+ minggu)
 
-- [x] **4.1** E2E secret sharing. *Selesai 2026-10-30: keypair per device (private di safeStorage), workspace key di-wrap per device, bootstrap owner/admin, sharing ke device baru, enkripsi `secretCloud` saat push dan dekripsi saat pull. Rotasi otomatis saat anggota keluar belum (endpoint rotate tersedia).*
+- [x] **4.1** E2E secret sharing. *Selesai 2026-10-30: keypair per device (private di safeStorage), workspace key di-wrap per device, bootstrap owner/admin, sharing ke device baru, enkripsi `secretCloud` saat push dan dekripsi saat pull. Rotasi otomatis saat anggota keluar selesai 2026-10-30: kunci baru v+1 hanya untuk device anggota tersisa, secret dienkripsi ulang.*
   - Test: server tidak bisa dekripsi; anggota baru membuka secret setelah envelope dibagikan; anggota keluar kehilangan akses.
 - [x] **4.2** Komentar per request: backend (migrasi 000008, keyset pagination, audit) + modal komentar di app. *Selesai 2026-10-30; e2e Electron post komentar lulus. Mention/activity feed belum.*
 - [ ] **4.3** (Evaluasi) live editing per field — hanya jika data menunjukkan kebutuhan.
@@ -393,6 +393,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Pengaman sementara: variabel secret tidak pernah dikirim ke server; digantikan enkripsi E2E penuh (secretCloud) pada 2026-10-30.
 - [x] Fase 4.1 verifikasi live: server hanya menyimpan ciphertext, device kedua menunggu lalu menerima key yang sama dan berhasil dekripsi.
 - [x] Merge ke `main` + rilis v0.2.0 (unsigned) dengan 6 artefak; CI ketiga repo hijau.
+- [x] Rotasi workspace key saat anggota dihapus + re-enkripsi secret; verifikasi live v2 hanya membungkus device tersisa.
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
 - [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
