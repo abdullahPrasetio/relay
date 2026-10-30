@@ -109,6 +109,48 @@ Normalisasi yang **wajib** disentuh agar field tidak hilang:
 backup metadata (`src/lib/postmanFormat.js`), dan test cloud payload.
 `SCHEMA_VERSION` naik ke 3 (main otomatis membuat backup sebelum migrasi).
 
+### 3.2.1 Siklus kredensial local-first
+
+Local-first berarti **tidak ada server Relay di tengah**. Aplikasi desktop
+memanggil Confluence langsung; token hanya berada di mesin user.
+
+| Data | Lokasi | Ikut cloud/Git/backup? |
+|---|---|---|
+| Token/PAT | main store, `safeStorage` ciphertext | Tidak |
+| Base URL, email, auth method, space, parent | main store (non-secret) | Tidak |
+| `confluencePageId/Url/SyncedAt` | workspace JSON | Ya |
+
+Aturan implementasi:
+
+- Renderer tidak pernah menerima token. Setelah disimpan, field hanya
+  menampilkan `•••• saved` + tombol Clear; blank = tidak berubah.
+- Semua operasi (`test`, `publish`) memakai `workspaceId`, bukan token dari
+  renderer. Payload publish tidak boleh memuat base URL/token.
+- Token **diikat ke origin + auth mode + email**. Jika user mengubah host,
+  scheme, port, auth method, atau email tanpa mengirim token baru, token lama
+  dihapus dan user harus memasukkan ulang. Ini mencegah token terkirim ke host
+  lain lewat perubahan konfigurasi.
+- `safeStorage` tidak tersedia (mis. Linux `basic_text`) → simpan ditolak;
+  tidak ada fallback plaintext.
+- Keychain reset / pindah mesin → decrypt gagal → UI minta token ulang. Page
+  ID tetap ada sehingga sync berikutnya tetap update halaman yang sama.
+- Tidak ada recovery token dari cloud. Jika user kehilangan akses Keychain,
+  buat token baru di Atlassian.
+
+Alur create/update:
+
+| Kondisi | Aksi |
+|---|---|
+| Belum ada `pageId`, ada space key + izin create | `POST /rest/api/content`; simpan page ID/URL hasil |
+| Sudah ada `pageId` | `GET` versi → `PUT` versi+1 |
+| Tidak punya izin create | user paste page ID halaman existing → mode update |
+| 409 saat update | dialog overwrite eksplisit, bukan retry otomatis |
+| Token hilang/tidak valid | error jelas; arahkan ke settings, jangan hapus page metadata |
+
+Team sharing: setiap anggota memakai token Atlassian masing-masing; tidak ada
+token bersama yang disebar. Jika nanti dibutuhkan service account/backend
+broker, itu keputusan arsitektur berbeda (bukan local-first murni).
+
 ### 3.3 Base URL, auth, transport
 
 - Normalisasi: trim, buang trailing `/`, tolak scheme selain `http/https`.
