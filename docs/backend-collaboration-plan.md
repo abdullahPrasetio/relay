@@ -392,12 +392,13 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Fase 4 fondasi: crypto X25519/AES-GCM + registry device/workspace key; komentar per request full-stack dengan e2e.
 - [x] Pengaman sementara: variabel secret tidak pernah dikirim ke server; digantikan enkripsi E2E penuh (secretCloud) pada 2026-10-30.
 - [x] Fase 4.1 verifikasi live: server hanya menyimpan ciphertext, device kedua menunggu lalu menerima key yang sama dan berhasil dekripsi.
+- [x] Merge ke `main` + rilis v0.2.0 (unsigned) dengan 6 artefak; CI ketiga repo hijau.
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
 - [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
 - [ ] Fase 3: monitor terjadwal.
 - [ ] Fase 4: E2E secret sharing, komentar.
-- [ ] Rilis v1.0 app: merge PR stack + signed release + auto-update.
+- [ ] Rilis v1.0 app: signing/notarization + auto-update. *Rilis unsigned v0.2.0 sudah tersedia (mac arm64/universal, win x64, linux AppImage).*
 - [ ] Hardening app Fase 8: token cache persisten, ekstraksi `packages/core` nyata, cookie jar per-run.
 - [ ] Cleanup chunk lama `dist-electron/`.
 
