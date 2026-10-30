@@ -44,6 +44,9 @@ import { SCHEMA_VERSION } from '../shared/schema.js';
 import { encryptSecret, decryptSecret } from './secret-store.js';
 import { initAutoUpdate } from './updater.js';
 import { registerMockIpc, stopMockServer } from './mock-ipc.js';
+import { createCloudClient } from './cloud/client.js';
+import { createTokenStore } from './cloud/token-store.js';
+import { registerCloudIpc } from './cloud/ipc.js';
 // Script runner runs user scripts here in Node (renderer CSP forbids eval).
 // Imported (not require'd from a copied .cjs) so Vite bundles it + its deps
 // into main.js, eliminating stale-copy bugs.
@@ -175,6 +178,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Cloud client: one instance for the app's lifetime. The refresh token is
+  // persisted encrypted in userData; the access token never leaves memory.
+  const cloudClient = createCloudClient({
+    baseUrl: process.env.RELAY_API_URL || 'http://127.0.0.1:8080',
+    tokenStore: createTokenStore(),
+  });
+  registerCloudIpc({ ipcMain, client: cloudClient });
+
   registerIpc();
   createWindow();
 

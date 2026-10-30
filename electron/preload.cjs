@@ -73,4 +73,20 @@ contextBridge.exposeInMainWorld('api', {
   mockStatus: () => ipcRenderer.invoke('mock:status'),
   loadData: () => ipcRenderer.invoke('store:get'),
   saveData: (data) => ipcRenderer.invoke('store:set', data),
+  // Relay Cloud (relay-api). Credentials stay in the main process; these
+  // calls only ever return user/workspace data.
+  cloud: {
+    status: () => ipcRenderer.invoke('cloud:status'),
+    login: (payload) => ipcRenderer.invoke('cloud:login', payload),
+    register: (payload) => ipcRenderer.invoke('cloud:register', payload),
+    logout: () => ipcRenderer.invoke('cloud:logout'),
+    workspaces: () => ipcRenderer.invoke('cloud:workspaces'),
+    createWorkspace: (payload) => ipcRenderer.invoke('cloud:create-workspace', payload),
+    renameWorkspace: (payload) => ipcRenderer.invoke('cloud:rename-workspace', payload),
+    deleteWorkspace: (payload) => ipcRenderer.invoke('cloud:delete-workspace', payload),
+    push: (payload) => ipcRenderer.invoke('cloud:push', payload),
+    pull: (payload) => ipcRenderer.invoke('cloud:pull', payload),
+    devices: () => ipcRenderer.invoke('cloud:devices'),
+    revokeDevice: (payload) => ipcRenderer.invoke('cloud:revoke-device', payload),
+  },
 });
