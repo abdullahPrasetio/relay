@@ -352,7 +352,7 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 
 ### Fase 4 — Opsional (3+ minggu)
 
-- [ ] **4.1** E2E secret sharing. *Fondasi selesai 2026-10-30: pustaka crypto X25519 + envelope 92B, registry device/workspace key (migrasi 000007, rotasi versi). Belum: registrasi device key dari app, provisioning workspace key, dan enkripsi variabel secret saat push/pull.*
+- [x] **4.1** E2E secret sharing. *Selesai 2026-10-30: keypair per device (private di safeStorage), workspace key di-wrap per device, bootstrap owner/admin, sharing ke device baru, enkripsi `secretCloud` saat push dan dekripsi saat pull. Rotasi otomatis saat anggota keluar belum (endpoint rotate tersedia).*
   - Test: server tidak bisa dekripsi; anggota baru membuka secret setelah envelope dibagikan; anggota keluar kehilangan akses.
 - [x] **4.2** Komentar per request: backend (migrasi 000008, keyset pagination, audit) + modal komentar di app. *Selesai 2026-10-30; e2e Electron post komentar lulus. Mention/activity feed belum.*
 - [ ] **4.3** (Evaluasi) live editing per field — hanya jika data menunjukkan kebutuhan.
@@ -390,7 +390,8 @@ Gate fase: worker idempoten, alert tidak dobel, tidak ada SSRF ke network intern
 - [x] Fase 3 inti: `packages/core` + CLI, monitor CRUD, worker terjadwal, assertions, alert webhook; e2e monitor sukses/gagal via core bundle nyata.
 - [x] Fase 3 UI: modal Monitors (create/run/history/delete) di app; e2e Electron lulus.
 - [x] Fase 4 fondasi: crypto X25519/AES-GCM + registry device/workspace key; komentar per request full-stack dengan e2e.
-- [x] Pengaman sementara: variabel secret tidak pernah dikirim ke server (value/secretEnc dihapus) dan secret lokal dipertahankan saat pull; enkripsi E2E penuh menyusul.
+- [x] Pengaman sementara: variabel secret tidak pernah dikirim ke server; digantikan enkripsi E2E penuh (secretCloud) pada 2026-10-30.
+- [x] Fase 4.1 verifikasi live: server hanya menyimpan ciphertext, device kedua menunggu lalu menerima key yang sama dan berhasil dekripsi.
 - [x] Hardening backend: cap 200 change/batch, `cmd/prune` untuk `entity_ops` (+index), CI 4 job (build/vet/race, integrasi Postgres, gosec, lint), README proyek. *Selesai 2026-10-30.*
 - [ ] Fase 1 (sisa): PKCE browser + UI kelola perangkat, auto-retry scheduler, baseline rev persisten, uji idempotensi attach.
 - [ ] Fase 2: team workspace (invite, role, SSE, presence, konflik).
