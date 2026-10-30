@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useDialogs } from './Dialogs.jsx';
 import Icon from './Icon.jsx';
+import WorkspaceMembersModal from './WorkspaceMembersModal.jsx';
+import WorkspaceAuditModal from './WorkspaceAuditModal.jsx';
 import { filesToWorkspace, slugify, workspaceToFiles } from '../lib/gitWorkspace.js';
 
 function hasExportBridge() {
@@ -47,8 +49,21 @@ function cloudStateFor(workspace) {
 
 export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
   const [open, setOpen] = useState(false);
+  const [teamWorkspace, setTeamWorkspace] = useState(null);
+  const [auditWorkspace, setAuditWorkspace] = useState(null);
   const dialogs = useDialogs();
   const active = store.activeWorkspace;
+  const cloudBridge = typeof window !== 'undefined' ? window.api?.cloud : null;
+
+  function openTeam(ws) {
+    setOpen(false);
+    setTeamWorkspace(ws);
+  }
+
+  function openAudit(ws) {
+    setOpen(false);
+    setAuditWorkspace(ws);
+  }
 
   async function create() {
     setOpen(false);
@@ -240,6 +255,28 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
                 <button className="icon-btn" title="Rename" onClick={() => rename(ws)}>
                   <Icon name="edit" size={13} />
                 </button>
+                {cloud?.signedIn && ws.cloud?.remoteId && (
+                  <>
+                    <button
+                      className="icon-btn ws-team"
+                      title="Members and invites"
+                      aria-label={`Members and invites for ${ws.name}`}
+                      onClick={() => openTeam(ws)}
+                      data-testid={`ws-members-${ws.id}`}
+                    >
+                      <Icon name="workspace" size={13} />
+                    </button>
+                    <button
+                      className="icon-btn ws-team"
+                      title="Audit log"
+                      aria-label={`Audit log for ${ws.name}`}
+                      onClick={() => openAudit(ws)}
+                      data-testid={`ws-audit-${ws.id}`}
+                    >
+                      <Icon name="clock" size={13} />
+                    </button>
+                  </>
+                )}
                 <button className="icon-btn" title="Delete" onClick={() => remove(ws)}>
                   <Icon name="close" size={13} />
                 </button>
@@ -256,6 +293,21 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
             </button>
           </div>
         </>
+      )}
+      {teamWorkspace && (
+        <WorkspaceMembersModal
+          workspace={teamWorkspace}
+          currentUserId={cloud?.user?.id || null}
+          cloud={cloudBridge}
+          onClose={() => setTeamWorkspace(null)}
+        />
+      )}
+      {auditWorkspace && (
+        <WorkspaceAuditModal
+          workspace={auditWorkspace}
+          cloud={cloudBridge}
+          onClose={() => setAuditWorkspace(null)}
+        />
       )}
     </div>
   );

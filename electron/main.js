@@ -47,6 +47,7 @@ import { registerMockIpc, stopMockServer } from './mock-ipc.js';
 import { createCloudClient } from './cloud/client.js';
 import { createTokenStore } from './cloud/token-store.js';
 import { registerCloudIpc } from './cloud/ipc.js';
+import { createChangeStream } from './cloud/sse.js';
 // Script runner runs user scripts here in Node (renderer CSP forbids eval).
 // Imported (not require'd from a copied .cjs) so Vite bundles it + its deps
 // into main.js, eliminating stale-copy bugs.
@@ -184,7 +185,11 @@ app.whenReady().then(() => {
     baseUrl: process.env.RELAY_API_URL || 'http://127.0.0.1:8080',
     tokenStore: createTokenStore(),
   });
-  registerCloudIpc({ ipcMain, client: cloudClient });
+  const changeStream = createChangeStream({
+    baseUrl: process.env.RELAY_API_URL || 'http://127.0.0.1:8080',
+    tokenProvider: () => cloudClient.ensureAccessToken(),
+  });
+  registerCloudIpc({ ipcMain, client: cloudClient, stream: changeStream });
 
   registerIpc();
   createWindow();

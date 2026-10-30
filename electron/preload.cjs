@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld('api', {
   // calls only ever return user/workspace data.
   cloud: {
     status: () => ipcRenderer.invoke('cloud:status'),
+    me: () => ipcRenderer.invoke('cloud:me'),
     login: (payload) => ipcRenderer.invoke('cloud:login', payload),
     register: (payload) => ipcRenderer.invoke('cloud:register', payload),
     logout: () => ipcRenderer.invoke('cloud:logout'),
@@ -88,5 +89,23 @@ contextBridge.exposeInMainWorld('api', {
     pull: (payload) => ipcRenderer.invoke('cloud:pull', payload),
     devices: () => ipcRenderer.invoke('cloud:devices'),
     revokeDevice: (payload) => ipcRenderer.invoke('cloud:revoke-device', payload),
+    members: (payload) => ipcRenderer.invoke('cloud:members', payload),
+    updateMemberRole: (payload) => ipcRenderer.invoke('cloud:update-member-role', payload),
+    removeMember: (payload) => ipcRenderer.invoke('cloud:remove-member', payload),
+    createInvite: (payload) => ipcRenderer.invoke('cloud:create-invite', payload),
+    listAudit: (payload) => ipcRenderer.invoke('cloud:list-audit', payload),
+    startStream: (workspaceId) => ipcRenderer.invoke('cloud:stream-start', { workspaceId }),
+    stopStream: () => ipcRenderer.invoke('cloud:stream-stop'),
+    setPresence: (payload) => ipcRenderer.invoke('cloud:presence', payload),
+    onChange: (cb) => {
+      const handler = (_event, payload) => cb(payload);
+      ipcRenderer.on('cloud:change', handler);
+      return () => ipcRenderer.removeListener('cloud:change', handler);
+    },
+    onStreamStatus: (cb) => {
+      const handler = (_event, payload) => cb(payload);
+      ipcRenderer.on('cloud:stream-status', handler);
+      return () => ipcRenderer.removeListener('cloud:stream-status', handler);
+    },
   },
 });

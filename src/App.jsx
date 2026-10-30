@@ -27,6 +27,7 @@ import { VarContext } from './components/VarContext.jsx';
 import { useDialogs } from './components/Dialogs.jsx';
 import { useStore } from './lib/useStore.js';
 import { useCloudSync } from './lib/useCloudSync.js';
+import { useRealtimeSync } from './lib/useRealtimeSync.js';
 import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { useAppearance } from './lib/useAppearance.js';
 import { newRequest, normalizeRequest, uid } from './lib/factory.js';
@@ -243,6 +244,15 @@ export default function App() {
   const restoreStarted = useRef(false);
 
   const activeTab = tabs.find((t) => t.tabId === activeTabId) || tabs[0];
+
+  // Live sync for the attached workspace: SSE events trigger a throttled pull,
+  // and presence is heartbeated for the request currently open.
+  const remoteWorkspaceId = store.activeWorkspace?.cloud?.remoteId || null;
+  useRealtimeSync({
+    workspaceId: remoteWorkspaceId,
+    entityId: remoteWorkspaceId ? activeTab?.request?.id ?? null : null,
+    syncNow: () => cloud.syncNow(),
+  });
 
   const activeEnv = useMemo(
     () => store.environments.find((e) => e.id === store.activeEnvId) || null,

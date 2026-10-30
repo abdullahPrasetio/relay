@@ -56,6 +56,25 @@ function requireId(value) {
   return encodeURIComponent(value);
 }
 
+const WORKSPACE_ROLES = ['owner', 'admin', 'editor', 'viewer'];
+
+function requireRole(value) {
+  const role = requiredString(value, 'role');
+  if (!WORKSPACE_ROLES.includes(role)) {
+    throw new TypeError(`role must be one of ${WORKSPACE_ROLES.join(', ')}`);
+  }
+  return role;
+}
+
+function requirePositiveInt(value, field, fallback) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    throw new TypeError(`${field} must be a positive number`);
+  }
+  return Math.floor(number);
+}
+
 export function createCloudClient({
   baseUrl = process.env.RELAY_API_URL || DEFAULT_BASE_URL,
   fetchImpl = globalThis.fetch,
@@ -261,6 +280,26 @@ export function createCloudClient({
       return root;
     },
 
+    /**
+     * Main-process only (never bridged over IPC): the change stream reads the
+     * current access token for each reconnect. It may be null until the next
+     * authenticated call refreshes the session.
+     */
+    currentAccessToken() {
+      return accessToken;
+    },
+
+    /**
+     * Main-process only: token provider for long-lived consumers such as the
+     * SSE change stream. After a restart only the refresh token survives, so
+     * this performs the single-flight refresh instead of returning null.
+     */
+    async ensureAccessToken() {
+      if (accessToken) return accessToken;
+      const data = await refresh();
+      return data?.accessToken || null;
+    },
+
     async register({ name, email, password } = {}) {
       const data = await call('/auth/register', {
         method: 'POST',
@@ -372,7 +411,56 @@ export function createCloudClient({
     },
 
     async members(workspaceId) {
-      return call(`/workspaces/${requireId(workspaceId)}/members`);
+      const data = await call(`/workspaces/${requireId(workspaceId)}/members`);
+      if (Array.isArray(data)) return data;
+      return Array.isArray(data?.members) ? data.members : [];
+    },
+
+    async updateMemberRole(workspaceId, userId, role) {
+      const data = await call(
+        `/workspaces/${requireId(workspaceId)}/members/${requireId(userId)}`,
+        { method: 'PATCH', body: { role: requireRole(role) } }
+      );
+      return data ?? null;
+    },
+
+    async removeMember(workspaceId, userId) {
+      await call(`/workspaces/${requireId(workspaceId)}/members/${requireId(userId)}`, {
+        method: 'DELETE',
+      });
+      return null;
+    },
+
+    async presence(workspaceId, entityId = null) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/presence`, {
+        method: 'POST',
+        body: { entityId: entityId || null },
+      });
+      return data ?? null;
+    },
+
+    async createInvite(workspaceId, { role, expiresInHours } = {}) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/invites`, {
+        method: 'POST',
+        body: {
+          role: requireRole(role),
+          expiresInHours: requirePositiveInt(expiresInHours, 'expiresInHours', 72),
+        },
+      });
+      return data ?? null;
+    },
+
+    async listAudit(workspaceId, { before, limit } = {}) {
+      const params = new URLSearchParams();
+      params.set('limit', String(requirePositiveInt(limit, 'limit', 50)));
+      if (before !== undefined && before !== null && before !== '') {
+        params.set('before', String(before));
+      }
+      const data = await call(`/workspaces/${requireId(workspaceId)}/audit?${params}`);
+      return {
+        events: Array.isArray(data?.events) ? data.events : [],
+        nextBefore: data?.nextBefore ?? null,
+      };
     },
 
     async status() {
