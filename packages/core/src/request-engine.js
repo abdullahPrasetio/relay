@@ -56,7 +56,7 @@ export function isTextualContentType(contentType) {
  * Runs in the Electron main (Node) process, so it is not subject to the
  * browser's CORS or mixed-content restrictions.
  *
- * `options` is the network context built by electron/network-runtime.js:
+ * `options` is the network context built by packages/core/src/network-runtime.js:
  *   { signal, followRedirects, maxRedirects, maxResponseBytes, proxy, tls,
  *     cookieJar }
  */

@@ -26,7 +26,8 @@
     "dist:win": "vite build && electron-builder --win nsis --x64",
     "dist:linux": "vite build && electron-builder --linux AppImage --x64",
     "release": "vite build && electron-builder --mac --arm64 --publish always",
-    "cli": "node cli/relay.mjs"
+    "cli": "node cli/relay.mjs",
+    "build:core": "npx esbuild packages/core/src/cli.js --bundle --platform=node --format=esm --outfile=dist-core/relay-core.mjs --external:electron --banner:js=\"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);\""
   },
   "build": {
     "appId": "com.relay.apiclient",

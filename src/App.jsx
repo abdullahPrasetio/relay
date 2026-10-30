@@ -34,7 +34,7 @@ import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { useAppearance } from './lib/useAppearance.js';
 import { newRequest, normalizeRequest, uid } from './lib/factory.js';
 import { isWebSocket, isMqtt, isSocketIo, isGrpc, isGrpcTls } from './lib/protocol.js';
-import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from './lib/variables.js';
+import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from '../packages/core/src/variables.js';
 import { collectSecretValues } from './lib/secretVars.js';
 import { runTests, runPreRequest } from './lib/testRunner.js';
 import {
@@ -42,7 +42,7 @@ import {
   combinedPreRequest,
   combinedTests,
   applyRequestPatch,
-} from './lib/inheritance.js';
+} from '../packages/core/src/inheritance.js';
 import {
   addRequest,
   updateRequestNode,

@@ -4,7 +4,7 @@ import {
   resolveProxy,
   shouldBypass,
   splitBypass,
-} from '../../electron/proxy.js';
+} from '../../packages/core/src/proxy.js';
 
 const ENV_KEYS = ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy', 'NO_PROXY', 'no_proxy'];
 const saved = {};

@@ -6,7 +6,7 @@ import {
   MAX_LOG_ENTRIES,
   createSandboxRequire,
   runInSandbox,
-} from '../../electron/sandbox/index.js';
+} from '../../packages/core/src/sandbox/index.js';
 
 const HOST_PID = String(process.pid);
 

@@ -2,7 +2,7 @@
 //
 // The renderer runs under a strict CSP (script-src 'self') that forbids
 // eval/new Function, so the actual script execution happens in Node via the
-// `script:run` IPC channel (see electron/script-runner.cjs). These wrappers
+// `script:run` IPC channel (see packages/core/src/script-runner.js). These wrappers
 // pass a mutable `context` { local, iterationData, environment, collection,
 // globals } and copy any mutations back into it so callers see variable
 // changes. `local` is per execution and never persisted.
@@ -26,7 +26,7 @@ function applyContextBack(context, returned) {
 
 // Pick the executor: an injected one (CLI/Node) wins over the renderer bridge.
 // `options.runScript` receives the same payload the `script:run` IPC channel
-// takes, so callers can reuse electron/script-runner.js directly.
+// takes, so callers can reuse packages/core/src/script-runner.js directly.
 function resolveExecutor(options) {
   if (typeof options?.runScript === 'function') return options.runScript;
   if (hasBridge) return (payload) => window.api.runScript(payload);

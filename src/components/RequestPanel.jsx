@@ -4,8 +4,8 @@ import AuthPanel from './AuthPanel.jsx';
 import VarInput from './VarInput.jsx';
 import CodeEditor from './CodeEditor.jsx';
 import Icon from './Icon.jsx';
-import { computeAutoHeaders } from '../lib/autoHeaders.js';
-import { extractPathVars } from '../lib/variables.js';
+import { computeAutoHeaders } from '../../packages/core/src/autoHeaders.js';
+import { extractPathVars } from '../../packages/core/src/variables.js';
 import { buildIntrospectionRequest, parseIntrospection } from '../lib/graphql.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];

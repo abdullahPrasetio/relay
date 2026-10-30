@@ -8,15 +8,15 @@ import {
   randomState,
   refreshToken,
   startLoopbackServer,
-} from '../../electron/auth/oauth2.js';
+} from '../../packages/core/src/auth/oauth2.js';
 import {
   authorizeOAuth2,
   getOAuth2Status,
   rememberOAuth2Token,
   resolveAuth,
-} from '../../electron/auth/index.js';
-import { authKey, clear, get, isExpired, set } from '../../electron/auth/token-cache.js';
-import { fetchOAuth2Token } from '../../electron/request-engine.js';
+} from '../../packages/core/src/auth/index.js';
+import { authKey, clear, get, isExpired, set } from '../../packages/core/src/auth/token-cache.js';
+import { fetchOAuth2Token } from '../../packages/core/src/request-engine.js';
 
 const servers = [];
 

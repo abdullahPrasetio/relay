@@ -7,9 +7,9 @@
 // `send` is injected so the runner uses the same transport as the app
 // (Electron bridge in production, fetch fallback in a browser).
 
-import { buildScopeVars, resolveRequest } from './variables.js';
+import { buildScopeVars, resolveRequest } from '../../packages/core/src/variables.js';
 import { runPreRequest, runTests } from './testRunner.js';
-import { withEffectiveAuth, combinedPreRequest, combinedTests, applyRequestPatch } from './inheritance.js';
+import { withEffectiveAuth, combinedPreRequest, combinedTests, applyRequestPatch } from '../../packages/core/src/inheritance.js';
 
 // Response snapshots kept by `saveResponses` are capped so a huge body cannot
 // bloat the in-memory report.

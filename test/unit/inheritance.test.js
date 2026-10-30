@@ -5,7 +5,7 @@ import {
   combinedTests,
   effectiveAuth,
   withEffectiveAuth,
-} from '../../src/lib/inheritance.js';
+} from '../../packages/core/src/inheritance.js';
 import { findNodePath } from '../../src/lib/collectionTree.js';
 
 const request = {

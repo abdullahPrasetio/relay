@@ -2,7 +2,7 @@
 //
 // Scripts mutate a request before it is sent. The caller (script-runner) owns
 // the request object, so mutations are NOT applied here: they are recorded into
-// `patch` and merged by `applyRequestPatch` in src/lib/inheritance.js. That keeps
+// `patch` and merged by `applyRequestPatch` in packages/core/src/inheritance.js. That keeps
 // the script realm free of app state and makes the mutation testable as data.
 //
 // Patch shape (kept intentionally small and mergeable):

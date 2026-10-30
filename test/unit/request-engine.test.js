@@ -7,7 +7,7 @@ import {
   isTextualContentType,
   parseCharset,
   sendRequest,
-} from '../../electron/request-engine.js';
+} from '../../packages/core/src/request-engine.js';
 
 const pngBytes = readFileSync(
   path.join(import.meta.dirname, '..', 'fixtures', 'binary', 'pixel.png')

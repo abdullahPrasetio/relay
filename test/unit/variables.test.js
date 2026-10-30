@@ -6,7 +6,7 @@ import {
   resolveRequest,
   resolveVars,
   varsToMap,
-} from '../../src/lib/variables.js';
+} from '../../packages/core/src/variables.js';
 import { newAuth, newRequest, normalizeRequest } from '../../src/lib/factory.js';
 
 const vars = { host: 'api.example.com', token: 'abc', region: 'eu-west-1' };

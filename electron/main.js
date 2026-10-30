@@ -2,16 +2,16 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
-import { sendRequest, fetchOAuth2Token } from './request-engine.js';
+import { sendRequest, fetchOAuth2Token } from '../packages/core/src/request-engine.js';
 import {
   authorizeOAuth2,
   getOAuth2Status,
   rememberOAuth2Token,
-} from './auth/index.js';
+} from '../packages/core/src/auth/index.js';
 import { createStore } from './store.js';
 import { writeResponseFile } from './response-file.js';
-import { deleteCookie, pruneExpired, upsertCookie } from './cookie-jar.js';
-import { createSendContext } from './network-runtime.js';
+import { deleteCookie, pruneExpired, upsertCookie } from '../packages/core/src/cookie-jar.js';
+import { createSendContext } from '../packages/core/src/network-runtime.js';
 import {
   openSession as openWsSession,
   sendFrame as sendWsFrame,
@@ -51,7 +51,7 @@ import { createChangeStream } from './cloud/sse.js';
 // Script runner runs user scripts here in Node (renderer CSP forbids eval).
 // Imported (not require'd from a copied .cjs) so Vite bundles it + its deps
 // into main.js, eliminating stale-copy bugs.
-import { runScript } from './script-runner.js';
+import { runScript } from '../packages/core/src/script-runner.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

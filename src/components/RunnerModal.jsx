@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from './Modal.jsx';
 import Icon from './Icon.jsx';
 import { runCollection } from '../lib/runner.js';
-import { varsToMap } from '../lib/variables.js';
+import { varsToMap } from '../../packages/core/src/variables.js';
 import { parseDataFile } from '../lib/dataFile.js';
 import { toJsonReport, toJUnit, toHtml, suggestReportName } from '../lib/report.js';
 

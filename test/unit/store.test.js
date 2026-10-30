@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createStore } from '../../electron/store.js';
-import { deleteCookie, pruneExpired, upsertCookie } from '../../electron/cookie-jar.js';
+import { deleteCookie, pruneExpired, upsertCookie } from '../../packages/core/src/cookie-jar.js';
 import { clampHistoryLimit, DEFAULT_HISTORY_LIMIT } from '../../src/lib/useStore.js';
 
 let dir;

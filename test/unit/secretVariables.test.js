@@ -11,7 +11,7 @@ import {
   toPostmanGlobals,
   toWorkspaceBackup,
 } from '../../src/lib/postmanFormat.js';
-import { maskSecrets, secretValues } from '../../src/lib/variables.js';
+import { maskSecrets, secretValues } from '../../packages/core/src/variables.js';
 import { migrateToWorkspaces } from '../../src/lib/workspace.js';
 
 const SECRET_ROW = {

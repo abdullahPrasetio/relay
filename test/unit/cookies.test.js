@@ -5,7 +5,7 @@ import {
   normalizeCookie,
   pruneExpired,
   upsertCookie,
-} from '../../electron/cookie-jar.js';
+} from '../../packages/core/src/cookie-jar.js';
 
 
 describe('cookie jar CRUD helpers', () => {

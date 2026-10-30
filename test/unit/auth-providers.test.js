@@ -7,7 +7,7 @@ import {
   providerTypes,
   signJwt,
   _internals,
-} from '../../electron/auth/providers.js';
+} from '../../packages/core/src/auth/providers.js';
 
 // Build a minimal MS-NLMP CHALLENGE_MESSAGE for the NTLMv2 vector tests.
 function ntlmType2({ flags, serverChallenge, targetInfo }) {

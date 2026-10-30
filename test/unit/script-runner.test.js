@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import cryptoJs from 'crypto-js';
-import { MAX_LOG_ENTRIES } from '../../electron/sandbox/index.js';
-import { runScript } from '../../electron/script-runner.js';
+import { MAX_LOG_ENTRIES } from '../../packages/core/src/sandbox/index.js';
+import { runScript } from '../../packages/core/src/script-runner.js';
 
 const emptyContext = () => ({
   local: {},

@@ -234,12 +234,17 @@ completion provider scoped.
 ## CLI dan build
 
 - `cli/relay.mjs` (`bin: relay`) menjalankan collection Postman dengan
-  `runCollection`, script executor diinjeksi dari `electron/script-runner.js`,
-  data CSV, dan report JSON/JUnit/HTML (`src/lib/report.js`). Exit 0 = bersih,
-  1 = ada kegagalan, 2 = kesalahan input.
-- `packages/core/index.js` adalah facade boundary untuk engine/variables/
-  runner/import-export/report; modul fisiknya masih di `src/lib` dan
-  `electron/` (ekstraksi penuh ditunda, tanpa duplikasi).
+  `runCollection`, script executor diinjeksi dari
+  `packages/core/src/script-runner.js`, data CSV, dan report JSON/JUnit/HTML
+  (`src/lib/report.js`). Exit 0 = bersih, 1 = ada kegagalan, 2 = kesalahan input.
+- `packages/core/src/index.js` adalah boundary Electron-free untuk engine,
+  variables, runner, import-export, dan report. Implementasi engine, auth,
+  script/pm/sandbox, dan helper resolusi tinggal di `packages/core/src`;
+  `electron/main.js` dan renderer mengimpor dari sana.
+- `packages/core/src/cli.js` (`npm run build:core` → `dist-core/relay-core.mjs`)
+  menjalankan satu request tersimpan untuk worker monitor: stdin JSON
+  `{ workspace, requestId, environmentId? }`, stdout JSON
+  `{ response, testResults, error }`, exit 0/1/2 (lihat kontrak di file CLI).
 - `.github/workflows/build.yml`: matrix macOS/Windows/Linux → `dist`,
   `dist:win` (NSIS), `dist:linux` (AppImage), artifact per OS; tag `v*`
   mempublikasikan installer ke GitHub Release. Signing/notarization dan

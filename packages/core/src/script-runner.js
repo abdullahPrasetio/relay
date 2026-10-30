@@ -8,8 +8,8 @@
 // Runs here on purpose: the renderer's strict CSP (script-src) forbids eval.
 // The user body itself executes inside `runInSandbox` (a fresh vm realm with
 // code generation disabled); this module only builds the pm.* surface host-side
-// and injects it. The pm.* surface lives in electron/pm/**; see
-// electron/sandbox/index.js for the threat model and the remaining host-object
+// and injects it. The pm.* surface lives in packages/core/src/pm/**; see
+// packages/core/src/sandbox/index.js for the threat model and the remaining host-object
 // bridge that `utilityProcess` will close.
 
 import * as CryptoJSNS from 'crypto-js';

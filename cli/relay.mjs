@@ -3,7 +3,7 @@
 //
 // The CLI reuses the renderer's runner engine (variable scopes, script hooks,
 // data-driven iterations, retries) plus the Node request engine and script
-// sandbox from `electron/`. No Electron APIs are touched here, so the command
+// sandbox from `packages/core/src/`. No Electron APIs are touched here, so the command
 // works in plain Node 22.
 //
 // Exit codes:
@@ -15,13 +15,13 @@ import fs from 'node:fs';
 
 import { fromPostmanCollection } from '../src/lib/postmanFormat.js';
 import { fromPostmanEnvironment } from '../src/lib/environmentFormat.js';
-import { varsToMap } from '../src/lib/variables.js';
+import { varsToMap } from '../packages/core/src/variables.js';
 import { runCollection } from '../src/lib/runner.js';
-import { combinedPreRequest, combinedTests, effectiveAuth } from '../src/lib/inheritance.js';
+import { combinedPreRequest, combinedTests, effectiveAuth } from '../packages/core/src/inheritance.js';
 import { toHtml, toJsonReport, toJUnit } from '../src/lib/report.js';
-import { sendRequest } from '../electron/request-engine.js';
-import { createSendContext } from '../electron/network-runtime.js';
-import { runScript } from '../electron/script-runner.js';
+import { sendRequest } from '../packages/core/src/request-engine.js';
+import { createSendContext } from '../packages/core/src/network-runtime.js';
+import { runScript } from '../packages/core/src/script-runner.js';
 import { normalizeNetworkSettings } from '../shared/networkSettings.js';
 import { parseArgs, intOption, UsageError, USAGE } from './lib/args.mjs';
 import { parseCsv } from './lib/csv.mjs';

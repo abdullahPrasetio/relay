@@ -3,8 +3,8 @@ import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { sendRequest } from '../../electron/request-engine.js';
-import { createSendContext } from '../../electron/network-runtime.js';
+import { sendRequest } from '../../packages/core/src/request-engine.js';
+import { createSendContext } from '../../packages/core/src/network-runtime.js';
 import { normalizeNetworkSettings } from '../../shared/networkSettings.js';
 
 const tlsDir = path.join(import.meta.dirname, '..', 'fixtures', 'tls');

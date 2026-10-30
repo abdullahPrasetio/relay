@@ -42,7 +42,13 @@ export default [
     },
   },
   {
-    files: ['electron/**/*.js', 'test/**/*.js', 'e2e/**/*.js', '*.config.js'],
+    files: [
+      'electron/**/*.js',
+      'packages/core/**/*.js',
+      'test/**/*.js',
+      'e2e/**/*.js',
+      '*.config.js',
+    ],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

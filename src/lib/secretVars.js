@@ -7,7 +7,7 @@
 //
 // Browser-only dev has no bridge: rows keep their plaintext and gain no
 // ciphertext. That is a development convenience, not a supported storage mode.
-import { secretValues } from './variables.js';
+import { secretValues } from '../../packages/core/src/variables.js';
 
 // Read the bridge lazily so tests (and browser dev) can install or remove
 // `window.api` after this module is imported.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runScript } from '../../electron/script-runner.js';
+import { runScript } from '../../packages/core/src/script-runner.js';
 
 const emptyContext = () => ({
   local: {},
