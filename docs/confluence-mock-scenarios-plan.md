@@ -1,9 +1,10 @@
 # Rencana: Confluence export + mock server dengan skenario
 
-Status: rencana, belum diimplementasikan. Dua fitur independen; bisa dikerjakan
-sebagai dua PR terpisah. Baseline: Relay local-first (Electron main + React,
-satu workspace JSON), sudah punya mock server berbasis saved example dan
-export docs HTML statis.
+Status: **Confluence (M1–M3) sudah diimplementasikan** di branch
+`feat/confluence-sync` (2026-10-31); mock scenarios (M4–M5) masih rencana dan
+akan menjadi branch/rilis terpisah. Baseline: Relay local-first (Electron main
++ React, satu workspace JSON), sudah punya mock server berbasis saved example
+dan export docs HTML statis.
 
 ## 1. Keputusan arsitektur
 
@@ -258,8 +259,8 @@ window.api.confluenceSetConfig({ workspaceId, baseUrl, authMethod, email,
   spaceKey, parentPageId, allowInsecureTls, token?, clearToken? })
 window.api.confluenceTest(workspaceId)
 window.api.confluencePublish({
-  workspaceId, pageId: string | '', title, content,
-  spaceKey, parentPageId,
+  workspaceId, collectionId, pageId: string | '', title, content,
+  spaceKey, parentPageId, force?: boolean,
 })
 ```
 

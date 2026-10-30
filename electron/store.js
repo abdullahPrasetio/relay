@@ -6,6 +6,9 @@ import { DEFAULT_NETWORK_SETTINGS } from '../shared/networkSettings.js';
 const EMPTY = {
   cookieJar: [],
   network: DEFAULT_NETWORK_SETTINGS,
+  // Per-workspace Confluence connection. Secrets inside are safeStorage
+  // ciphertext; the renderer never receives this map (see store:get).
+  confluenceByWorkspace: {},
 };
 
 /**
@@ -71,7 +74,17 @@ export function createStore(filePath) {
       // store manages neither the cookie jar nor the network settings).
       const jar = next.cookieJar != null ? next.cookieJar : data.cookieJar;
       const network = next.network != null ? next.network : data.network;
-      data = { ...EMPTY, ...next, cookieJar: jar || [], network: network || DEFAULT_NETWORK_SETTINGS };
+      const confluence =
+        next.confluenceByWorkspace != null
+          ? next.confluenceByWorkspace
+          : data.confluenceByWorkspace;
+      data = {
+        ...EMPTY,
+        ...next,
+        cookieJar: jar || [],
+        network: network || DEFAULT_NETWORK_SETTINGS,
+        confluenceByWorkspace: confluence || {},
+      };
       persist();
     },
     getCookieJar() {
@@ -87,6 +100,19 @@ export function createStore(filePath) {
     setNetworkSettings(network) {
       data.network = network || DEFAULT_NETWORK_SETTINGS;
       persist();
+    },
+    getConfluenceConfig(workspaceId) {
+      if (!workspaceId) return null;
+      return data.confluenceByWorkspace?.[workspaceId] || null;
+    },
+    setConfluenceConfig(workspaceId, config) {
+      if (!workspaceId) throw new Error('workspaceId is required');
+      data.confluenceByWorkspace = {
+        ...(data.confluenceByWorkspace || {}),
+        [workspaceId]: config || {},
+      };
+      persist();
+      return data.confluenceByWorkspace[workspaceId];
     },
     // One-time safety copy of the data file, e.g. before a schema migration.
     // Never overwrites an existing backup; returns null when there is nothing

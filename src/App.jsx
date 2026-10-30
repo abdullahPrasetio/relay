@@ -12,6 +12,7 @@ import SaveRequestModal from './components/SaveRequestModal.jsx';
 import VariablesModal from './components/VariablesModal.jsx';
 import EnvironmentModal from './components/EnvironmentModal.jsx';
 import CollectionEditorModal from './components/CollectionEditorModal.jsx';
+import ConfluenceSyncModal from './components/ConfluenceSyncModal.jsx';
 import CodeModal from './components/CodeModal.jsx';
 import RunnerModal from './components/RunnerModal.jsx';
 import ActivityRail from './components/ActivityRail.jsx';
@@ -242,6 +243,7 @@ export default function App() {
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [requestSettingsOpen, setRequestSettingsOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [confluenceSyncCollectionId, setConfluenceSyncCollectionId] = useState(null);
 
   // Session restore waits for the store: tab requests that live in a
   // collection must be rebuilt from the freshly loaded tree.
@@ -1802,6 +1804,7 @@ export default function App() {
           onOpenCollection={setCollectionEditorId}
           onEditEnvironment={setEnvModalId}
           onRun={openRunner}
+          onSyncConfluence={setConfluenceSyncCollectionId}
         />
 
         <main className="workspace">
@@ -1981,6 +1984,26 @@ export default function App() {
       )}
 
       {mockOpen && <MockServerModal store={store} onClose={() => setMockOpen(false)} />}
+
+      {confluenceSyncCollectionId &&
+        (() => {
+          const collection = store.collections.find(
+            (c) => c.id === confluenceSyncCollectionId
+          );
+          if (!collection) return null;
+          return (
+            <ConfluenceSyncModal
+              workspace={store.activeWorkspace}
+              collection={collection}
+              onChange={(updated) =>
+                store.setCollections((prev) =>
+                  prev.map((c) => (c.id === updated.id ? updated : c))
+                )
+              }
+              onClose={() => setConfluenceSyncCollectionId(null)}
+            />
+          );
+        })()}
 
       {requestSettingsOpen && (
         <RequestSettingsModal

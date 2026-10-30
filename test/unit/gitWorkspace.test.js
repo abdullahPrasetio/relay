@@ -167,6 +167,41 @@ describe('workspaceToFiles', () => {
     ]);
   });
 
+  it('exports Confluence page metadata without credentials', () => {
+    const workspace = buildWorkspace();
+    workspace.collections[0].confluencePageId = '123';
+    workspace.collections[0].confluencePageUrl = 'https://org.test/wiki/pages/123';
+    workspace.collections[0].confluenceTitle = 'User API docs';
+    workspace.collections[0].confluenceSpaceKey = 'DOCS';
+    workspace.collections[0].confluenceParentPageId = '456';
+    workspace.collections[0].confluenceSyncedAt = '2026-10-31T00:00:00.000Z';
+    workspace.collections[0].confluenceVersion = 2;
+
+    const files = exportFiles(workspace);
+    const file = JSON.parse(files['collections/user-api-col_users.json']);
+    expect(file).toMatchObject({
+      confluencePageId: '123',
+      confluencePageUrl: 'https://org.test/wiki/pages/123',
+      confluenceTitle: 'User API docs',
+      confluenceSpaceKey: 'DOCS',
+      confluenceParentPageId: '456',
+      confluenceSyncedAt: '2026-10-31T00:00:00.000Z',
+      confluenceVersion: 2,
+    });
+    expect(JSON.stringify(file)).not.toMatch(/tokenEnc|confluencePat|confluenceToken/i);
+
+    const { workspace: restored } = filesToWorkspace(files);
+    expect(restored.collections[0]).toMatchObject({
+      confluencePageId: '123',
+      confluencePageUrl: 'https://org.test/wiki/pages/123',
+      confluenceTitle: 'User API docs',
+      confluenceSpaceKey: 'DOCS',
+      confluenceParentPageId: '456',
+      confluenceSyncedAt: '2026-10-31T00:00:00.000Z',
+      confluenceVersion: 2,
+    });
+  });
+
   it('is deterministic with stable 2-space JSON and trailing newlines', () => {
     const first = exportFiles();
     const second = exportFiles();

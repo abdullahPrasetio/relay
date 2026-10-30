@@ -10,8 +10,8 @@ describe('migrateToWorkspaces', () => {
     const data = JSON.parse(fixture('data/legacy-flat.json'));
     const migrated = migrateToWorkspaces(data);
 
-    expect(migrated.schemaVersion).toBe(2);
-    expect(SCHEMA_VERSION).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
+    expect(SCHEMA_VERSION).toBe(3);
     expect(migrated.workspaces).toHaveLength(1);
 
     const ws = migrated.workspaces[0];

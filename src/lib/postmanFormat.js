@@ -828,6 +828,41 @@ export function fromPostmanGlobals(json) {
     });
 }
 
+// Relay-only collection metadata (Confluence destination). Kept beside the
+// Postman payload for workspace backups; normal Postman exports never include
+// it. Credentials are main-owned and are deliberately absent.
+function confluenceBackupMeta(collection) {
+  const c = collection || {};
+  const meta = {
+    pageId: c.confluencePageId || '',
+    pageUrl: c.confluencePageUrl || '',
+    title: c.confluenceTitle || '',
+    spaceKey: c.confluenceSpaceKey || '',
+    parentPageId: c.confluenceParentPageId || '',
+    syncedAt: c.confluenceSyncedAt || null,
+    version: c.confluenceVersion ?? null,
+  };
+  return Object.values(meta).some((value) => value != null && value !== '') ? meta : null;
+}
+
+function applyConfluenceBackupMeta(collection, meta) {
+  if (!collection || !meta || typeof meta !== 'object') return collection;
+  if (typeof meta.pageId === 'string') collection.confluencePageId = meta.pageId;
+  if (typeof meta.pageUrl === 'string') collection.confluencePageUrl = meta.pageUrl;
+  if (typeof meta.title === 'string') collection.confluenceTitle = meta.title;
+  if (typeof meta.spaceKey === 'string') collection.confluenceSpaceKey = meta.spaceKey;
+  if (typeof meta.parentPageId === 'string') {
+    collection.confluenceParentPageId = meta.parentPageId;
+  }
+  if (typeof meta.syncedAt === 'string' || meta.syncedAt == null) {
+    collection.confluenceSyncedAt = meta.syncedAt;
+  }
+  if (Number.isInteger(meta.version) && meta.version > 0) {
+    collection.confluenceVersion = meta.version;
+  }
+  return collection;
+}
+
 // A full workspace snapshot that keeps collections, environments, and globals
 // together. The `_relayBackup` marker lets `fromWorkspaceBackup` reject JSON
 // that is not one of our backups.
@@ -835,7 +870,12 @@ export function toWorkspaceBackup(workspace) {
   return {
     _relayBackup: { format: 'relay-workspace', version: WORKSPACE_BACKUP_VERSION },
     name: workspace?.name || 'Workspace',
-    collections: (workspace?.collections || []).map(toPostmanCollection),
+    collections: (workspace?.collections || []).map((collection) => {
+      const out = toPostmanCollection(collection);
+      const meta = confluenceBackupMeta(collection);
+      if (meta) out._relayConfluence = meta;
+      return out;
+    }),
     environments: (workspace?.environments || []).map(toPostmanEnvironment),
     globals: toPostmanGlobals(workspace?.globals || []),
   };
@@ -845,7 +885,9 @@ export function fromWorkspaceBackup(json) {
   if (!json || !json._relayBackup) return null;
   return {
     name: json.name || 'Restored Workspace',
-    collections: (json.collections || []).map(fromPostmanCollection),
+    collections: (json.collections || []).map((raw) =>
+      applyConfluenceBackupMeta(fromPostmanCollection(raw), raw?._relayConfluence)
+    ),
     environments: (json.environments || []).map(fromPostmanEnvironment),
     globals: fromPostmanGlobals(json.globals),
   };

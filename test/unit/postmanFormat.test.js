@@ -391,6 +391,42 @@ describe('globals and workspace backup', () => {
     expect(restored.globals).toEqual(workspace.globals);
   });
 
+  it('preserves Confluence page metadata in workspace backups only', () => {
+    const collection = fromPostmanCollection(fixture('postman/collection-full.json'));
+    collection.confluencePageId = '987';
+    collection.confluencePageUrl = 'https://org.test/wiki/pages/987';
+    collection.confluenceTitle = 'Custom title';
+    collection.confluenceSpaceKey = 'DOCS';
+    collection.confluenceParentPageId = '654';
+    collection.confluenceSyncedAt = '2026-10-31T00:00:00.000Z';
+    collection.confluenceVersion = 3;
+
+    const backup = toWorkspaceBackup({ name: 'Team', collections: [collection] });
+    expect(backup.collections[0]._relayConfluence).toEqual({
+      pageId: '987',
+      pageUrl: 'https://org.test/wiki/pages/987',
+      title: 'Custom title',
+      spaceKey: 'DOCS',
+      parentPageId: '654',
+      syncedAt: '2026-10-31T00:00:00.000Z',
+      version: 3,
+    });
+
+    const restored = fromWorkspaceBackup(JSON.parse(JSON.stringify(backup)));
+    expect(restored.collections[0]).toMatchObject({
+      confluencePageId: '987',
+      confluencePageUrl: 'https://org.test/wiki/pages/987',
+      confluenceTitle: 'Custom title',
+      confluenceSpaceKey: 'DOCS',
+      confluenceParentPageId: '654',
+      confluenceSyncedAt: '2026-10-31T00:00:00.000Z',
+      confluenceVersion: 3,
+    });
+
+    // Normal Postman export must stay clean.
+    expect(toPostmanCollection(collection)._relayConfluence).toBeUndefined();
+  });
+
   it('rejects JSON that is not a relay backup', () => {
     expect(fromWorkspaceBackup(null)).toBeNull();
     expect(fromWorkspaceBackup({ collections: [] })).toBeNull();

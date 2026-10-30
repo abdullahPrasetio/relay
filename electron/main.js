@@ -44,6 +44,7 @@ import { SCHEMA_VERSION } from '../shared/schema.js';
 import { encryptSecret, decryptSecret } from './secret-store.js';
 import { initAutoUpdate } from './updater.js';
 import { registerMockIpc, stopMockServer } from './mock-ipc.js';
+import { registerConfluenceIpc } from './confluence-ipc.js';
 import { createCloudClient } from './cloud/client.js';
 import { createTokenStore } from './cloud/token-store.js';
 import { registerCloudIpc } from './cloud/ipc.js';
@@ -269,6 +270,18 @@ function workspaceRelativePath(relative) {
 function registerIpc() {
   // Local mock server (collection + saved examples) — start/stop/status IPC.
   registerMockIpc({ ipcMain, store, BrowserWindow });
+
+  // Confluence: credentials stay in the main process; the renderer only sends
+  // page metadata and storage-format content.
+  registerConfluenceIpc({ ipcMain, store, getNetworkSettings: getRuntimeNetwork });
+  ipcMain.handle('app:open-external', (_event, rawUrl) => {
+    const url = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+    if (!/^https?:\/\//i.test(url)) {
+      return { ok: false, error: 'Only http(s) links can be opened.' };
+    }
+    shell.openExternal(url);
+    return { ok: true };
+  });
 
   // Fire an HTTP request from Node (no browser CORS, full network access).
   // Uses the persistent cookie jar: attaches matching cookies and stores any
@@ -743,8 +756,14 @@ function registerIpc() {
     return true;
   });
 
-  // Data persistence channels.
-  ipcMain.handle('store:get', async () => store.getAll());
+  // Data persistence channels. Main-owned Confluence ciphertext never crosses
+  // the bridge; the renderer gets workspace data only.
+  ipcMain.handle('store:get', async () => {
+    const rendererData = { ...store.getAll() };
+    // The renderer must never see main-owned Confluence ciphertext.
+    delete rendererData.confluenceByWorkspace;
+    return rendererData;
+  });
   ipcMain.handle('store:set', async (_event, data) => {
     store.setAll(data);
     return true;

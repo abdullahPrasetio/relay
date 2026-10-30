@@ -38,6 +38,7 @@ export default function Sidebar({
   onOpenCollection,
   onEditEnvironment,
   onRun,
+  onSyncConfluence,
   view = 'collections',
   query: externalQuery,
   onQueryChange,
@@ -303,6 +304,7 @@ export default function Sidebar({
                     actions={actions}
                     onExport={() => exportCollection(c)}
                     onExportDocs={() => exportDocs(c)}
+                    onSyncConfluence={() => onSyncConfluence?.(c.id)}
                     onDelete={() => deleteCollection(c.id, c.name)}
                     onRename={async () => {
                       const name = await dialogs.prompt('Collection name', c.name, {
@@ -654,7 +656,7 @@ function EnvironmentsPanel({ environments, activeEnvId, onSelectEnv, onChangeEnv
   );
 }
 
-function CollectionKebab({ collection, actions, onExport, onExportDocs, onDelete, onRename, onEditCollection, onRun }) {
+function CollectionKebab({ collection, actions, onExport, onExportDocs, onSyncConfluence, onDelete, onRename, onEditCollection, onRun }) {
   const [open, setOpen] = useState(false);
   const items = [
     { label: 'Run Collection', onClick: onRun },
@@ -664,6 +666,7 @@ function CollectionKebab({ collection, actions, onExport, onExportDocs, onDelete
     { label: 'Rename', onClick: onRename },
     { label: 'Export (Postman v2.1)', onClick: onExport },
     { label: 'Export docs (HTML)', onClick: onExportDocs },
+    { label: 'Sync to Confluence…', onClick: onSyncConfluence },
     { label: 'Delete', danger: true, onClick: onDelete },
   ];
   return (

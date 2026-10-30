@@ -59,6 +59,24 @@ export function normalizeCollection(collection) {
     // anything else is trusted. Explicit `false` must survive a reload, so it
     // is normalized to a boolean here rather than left undefined.
     scriptsTrusted: collection.scriptsTrusted !== false,
+    // Confluence metadata is non-secret and must survive every reload; this
+    // normalizer rebuilds objects, so unknown fields would otherwise vanish.
+    confluencePageId: typeof collection.confluencePageId === 'string' ? collection.confluencePageId : '',
+    confluencePageUrl:
+      typeof collection.confluencePageUrl === 'string' ? collection.confluencePageUrl : '',
+    confluenceTitle: typeof collection.confluenceTitle === 'string' ? collection.confluenceTitle : '',
+    confluenceSpaceKey:
+      typeof collection.confluenceSpaceKey === 'string' ? collection.confluenceSpaceKey : '',
+    confluenceParentPageId:
+      typeof collection.confluenceParentPageId === 'string'
+        ? collection.confluenceParentPageId
+        : '',
+    confluenceSyncedAt:
+      typeof collection.confluenceSyncedAt === 'string' ? collection.confluenceSyncedAt : null,
+    confluenceVersion:
+      Number.isInteger(collection.confluenceVersion) && collection.confluenceVersion > 0
+        ? collection.confluenceVersion
+        : null,
     items: [],
   };
   if (Array.isArray(collection.items)) {

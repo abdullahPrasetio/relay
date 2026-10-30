@@ -3674,3 +3674,34 @@ body {
     transition: none !important;
   }
 }
+
+/* ---- Confluence sync ---- */
+.confluence-page {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border, #dde1e7);
+  border-radius: 8px;
+}
+
+.confluence-page a {
+  color: var(--accent, #1f5fbf);
+  word-break: break-all;
+}
+
+.confluence-conflict {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--warning, #a35c00);
+  border-radius: 8px;
+}
+
+.confluence-conflict p {
+  margin: 6px 0;
+  word-break: break-word;
+}
+
+.confluence-conflict-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}

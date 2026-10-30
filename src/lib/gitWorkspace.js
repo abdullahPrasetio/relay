@@ -83,6 +83,14 @@ function collectionFile(collection) {
     variables: exportVariables(collection.variables),
     auth: collection.auth ?? null,
     items: exportItems(collection.items),
+    // Page destination is shareable; the Confluence token never is.
+    confluencePageId: collection.confluencePageId || '',
+    confluencePageUrl: collection.confluencePageUrl || '',
+    confluenceTitle: collection.confluenceTitle || '',
+    confluenceSpaceKey: collection.confluenceSpaceKey || '',
+    confluenceParentPageId: collection.confluenceParentPageId || '',
+    confluenceSyncedAt: collection.confluenceSyncedAt || null,
+    confluenceVersion: collection.confluenceVersion ?? null,
   };
 }
 
@@ -300,6 +308,13 @@ export function filesToWorkspace(
       variables: importVariables(json.variables),
       auth: json.auth || undefined,
       items: collectionRemapped ? remapItems(sourceItems) : sourceItems,
+      confluencePageId: json.confluencePageId || '',
+      confluencePageUrl: json.confluencePageUrl || '',
+      confluenceTitle: json.confluenceTitle || '',
+      confluenceSpaceKey: json.confluenceSpaceKey || '',
+      confluenceParentPageId: json.confluenceParentPageId || '',
+      confluenceSyncedAt: json.confluenceSyncedAt || null,
+      confluenceVersion: Number.isInteger(json.confluenceVersion) ? json.confluenceVersion : null,
     });
     collections.push(collection);
   }

@@ -130,6 +130,15 @@ export function newCollection(name = 'New Collection') {
     preRequest: '',
     tests: '',
     items: [],
+    // Confluence destination metadata (non-secret; credentials stay in the
+    // main process). Page ID empty means the collection is update-only.
+    confluencePageId: '',
+    confluencePageUrl: '',
+    confluenceTitle: '',
+    confluenceSpaceKey: '',
+    confluenceParentPageId: '',
+    confluenceSyncedAt: null,
+    confluenceVersion: null,
   };
 }
 
