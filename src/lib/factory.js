@@ -1,4 +1,5 @@
 // Factory helpers for creating default request / collection / environment shapes.
+import { normalizeMockConfig } from '../../shared/mockScenarios.js';
 
 let idCounter = 0;
 export function uid(prefix = 'id') {
@@ -22,6 +23,7 @@ export function newRequest(overrides = {}) {
     preRequest: '',
     tests: '',
     examples: [], // saved request/response snapshots
+    mock: normalizeMockConfig({}),
     ...overrides,
   };
 }
@@ -186,6 +188,7 @@ export function normalizeRequest(req) {
       jwt: { ...newAuth().jwt, ...(req.auth?.jwt || {}) },
     },
     settings: { ...newRequestSettings(), ...(req.settings || {}) },
+    mock: normalizeMockConfig(req.mock),
     grpc: {
       ...newGrpcConfig(),
       ...(req.grpc || {}),

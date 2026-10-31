@@ -427,6 +427,65 @@ describe('globals and workspace backup', () => {
     expect(toPostmanCollection(collection)._relayConfluence).toBeUndefined();
   });
 
+  it('preserves mock scenarios in workspace backups only', () => {
+    const collection = fromPostmanCollection(fixture('postman/collection-full.json'));
+    const findRequest = (items) => {
+      for (const node of items || []) {
+        if (node.type === 'folder') {
+          const nested = findRequest(node.items);
+          if (nested) return nested;
+        } else if (node.method) return node;
+      }
+      return null;
+    };
+    const request = findRequest(collection.items);
+    request.mock = {
+      enabled: true,
+      mode: 'manual',
+      activeScenarioId: 'scn_1',
+      scenarios: [
+        {
+          id: 'scn_1',
+          name: 'Success',
+          status: 200,
+          contentType: 'application/json',
+          body: '{"ok":true}',
+          isDefault: true,
+          conditions: [{ source: 'query', key: 'state', operator: 'equals', value: 'ok' }],
+        },
+      ],
+    };
+
+    const backup = toWorkspaceBackup({ name: 'Team', collections: [collection] });
+    const findExported = (items) => {
+      for (const item of items || []) {
+        if (Array.isArray(item.item)) {
+          const nested = findExported(item.item);
+          if (nested) return nested;
+        } else if (item.request) return item;
+      }
+      return null;
+    };
+    const exported = findExported(backup.collections[0].item);
+    expect(exported._relayMock.scenarios[0]).toMatchObject({
+      id: 'scn_1',
+      name: 'Success',
+      body: '{"ok":true}',
+    });
+    expect(findExported(toPostmanCollection(collection).item)._relayMock).toBeUndefined();
+
+    const restored = fromWorkspaceBackup(JSON.parse(JSON.stringify(backup)));
+    const restoredRequest = findRequest(restored.collections[0].items);
+    expect(restoredRequest.mock).toMatchObject({
+      mode: 'manual',
+      activeScenarioId: 'scn_1',
+    });
+    expect(restoredRequest.mock.scenarios[0]).toMatchObject({
+      id: 'scn_1',
+      conditions: [{ source: 'query', key: 'state', operator: 'equals', value: 'ok' }],
+    });
+  });
+
   it('rejects JSON that is not a relay backup', () => {
     expect(fromWorkspaceBackup(null)).toBeNull();
     expect(fromWorkspaceBackup({ collections: [] })).toBeNull();

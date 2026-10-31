@@ -85,6 +85,7 @@ const PATHS = {
     </>
   ),
   chevronDown: <path d="m6 9 6 6 6-6" />,
+  chevronUp: <path d="m6 15 6-6 6 6" />,
   chevronRight: <path d="m9 6 6 6-6 6" />,
   play: <path d="M6 4v16l13-8z" fill="currentColor" stroke="none" />,
   code: (

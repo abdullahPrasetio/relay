@@ -1,18 +1,30 @@
 import http from 'node:http';
+import {
+  configNeedsBody,
+  normalizeMockConfig,
+  pathnameOf,
+  renderMockTemplate,
+  selectScenario,
+  sortRoutes,
+  compileRoute,
+  normalizePath,
+  matchRoutes,
+} from '../shared/mockScenarios.js';
 
-// Local mock server: turns saved collection requests + their newest example
-// into real HTTP routes. Pure Node (no Electron) so it is unit-testable and
-// could later run in a worker.
+// Local mock server: turns saved collection requests into real HTTP routes.
+// Responses come from an active mock scenario, falling back to the newest
+// saved example (the pre-scenario behaviour). Pure Node so it stays unit
+// testable and can move to a worker later.
 //
-// Deliberate limits (Fase 6 scope):
-//   - examples only: no proxying to an upstream, no script execution, no
-//     auth handling, no dynamic path-variable values beyond "any segment".
-//   - bodies are treated as UTF-8 text; binary examples are out of scope.
-//   - responses are buffered and capped at 5 MB.
+// Deliberate limits: loopback only, no auth, no proxy/upstream, no scripts,
+// no variable/secret resolution, text bodies, 5 MB response cap.
 
 const MAX_LOG_ENTRIES = 200;
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_DELAY_MS = 10000;
+
+export { normalizePath };
 
 function clampDelay(value) {
   const n = Number(value);
@@ -26,53 +38,22 @@ function clampStatus(value) {
   return n;
 }
 
-function escapeRegex(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function hasHeader(headers, name) {
+  const lower = name.toLowerCase();
+  return Object.keys(headers).some((key) => key.toLowerCase() === lower);
 }
 
-// Path only: strip query/fragment and any scheme+authority. Requests may also
-// be stored as "example.com/path" or "{{baseUrl}}/path"; both are tolerated.
-function pathnameOf(rawUrl) {
-  let path = String(rawUrl || '').trim();
-  if (!path) return '/';
-  path = path.split('#')[0].split('?')[0];
-
-  const absolute = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^/]*(.*)$/.exec(path);
-  if (absolute) {
-    path = absolute[1] || '/';
-  } else if (path.startsWith('//')) {
-    const idx = path.indexOf('/', 2);
-    path = idx === -1 ? '/' : path.slice(idx);
-  } else if (!path.startsWith('/')) {
-    const first = path.split('/')[0];
-    const looksLikeHost = /\./.test(first.split(':')[0]);
-    const isVariable = /^\{\{.*\}\}$/.test(first);
-    if (looksLikeHost || isVariable) {
-      const idx = path.indexOf('/');
-      path = idx === -1 ? '/' : path.slice(idx);
-    } else {
-      path = '/' + path;
-    }
+function applyCors(headers) {
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase().startsWith('access-control-allow-')) delete headers[key];
   }
-  return normalizePath(path);
+  headers['Access-Control-Allow-Origin'] = '*';
+  headers['Access-Control-Allow-Headers'] = '*';
+  headers['Access-Control-Allow-Methods'] = '*';
 }
 
-export function normalizePath(raw) {
-  let path = String(raw || '').split('#')[0].split('?')[0];
-  if (!path) return '/';
-  if (!path.startsWith('/')) path = '/' + path;
-  if (path.length > 1) path = path.replace(/\/+$/, '');
-  return path || '/';
-}
-
-// `:name` matches exactly one non-empty segment. Trailing slashes are ignored.
-function compileRoute(path) {
-  if (path === '/') return /^\/$/;
-  const segments = path.slice(1).split('/');
-  const pattern = segments
-    .map((segment) => (/^:[^/]+$/.test(segment) ? '[^/]+' : escapeRegex(segment)))
-    .join('/');
-  return new RegExp(`^/${pattern}/?$`);
+function jsonBody(payload) {
+  return Buffer.from(JSON.stringify(payload), 'utf8');
 }
 
 function collectRequests(collections, out = []) {
@@ -93,8 +74,8 @@ function collectRequests(collections, out = []) {
   return out;
 }
 
-// Examples persist response headers as [{key,value,enabled}] in this app, but
-// imported/hand-written data may use a plain object. Accept both.
+// Examples persist response headers as [{key,value,enabled}], but imported or
+// handwritten data may use a plain object. Accept both.
 function headerPairs(raw) {
   const pairs = [];
   if (Array.isArray(raw)) {
@@ -116,31 +97,132 @@ function headerPairs(raw) {
   return pairs;
 }
 
-function hasHeader(headers, name) {
-  const lower = name.toLowerCase();
-  return Object.keys(headers).some((key) => key.toLowerCase() === lower);
-}
-
-function applyCors(headers) {
-  // The mock is a local dev tool; it is called from the renderer (and from
-  // arbitrary local clients), so every response is permissive.
-  for (const key of Object.keys(headers)) {
-    if (key.toLowerCase().startsWith('access-control-allow-')) delete headers[key];
+function parseJsonBody(text, contentType) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  const jsonish =
+    /json/i.test(String(contentType || '')) || raw.startsWith('{') || raw.startsWith('[');
+  if (!jsonish) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
-  headers['Access-Control-Allow-Origin'] = '*';
-  headers['Access-Control-Allow-Headers'] = '*';
-  headers['Access-Control-Allow-Methods'] = '*';
 }
 
-function jsonBody(payload) {
-  return Buffer.from(JSON.stringify(payload), 'utf8');
+function readBody(req) {
+  return new Promise((resolve) => {
+    let text = '';
+    let size = 0;
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve(text);
+    };
+    req.on('data', (chunk) => {
+      if (size >= MAX_REQUEST_BODY_BYTES) return;
+      const room = MAX_REQUEST_BODY_BYTES - size;
+      const part = chunk.length > room ? chunk.subarray(0, room) : chunk;
+      text += part.toString('utf8');
+      size += part.length;
+    });
+    req.on('end', done);
+    req.on('error', done);
+    req.on('aborted', done);
+  });
+}
+
+function buildRoutes(collections) {
+  return collectRequests(collections)
+    .map((request, order) => {
+      const method = String(request.method || 'GET').toUpperCase();
+      const path = pathnameOf(request.url);
+      const compiled = compileRoute(path);
+      const mock = normalizeMockConfig(request.mock);
+      if (!mock.enabled) return null;
+      return {
+        requestId: String(request.id || `mock_route_${order}`),
+        requestName: request.name || 'Untitled Request',
+        method,
+        path,
+        ...compiled,
+        mock,
+        order,
+        request,
+      };
+    })
+    .filter(Boolean);
+}
+
+function routeList(routes) {
+  return routes.map((route) => ({ method: route.method, path: route.path }));
+}
+
+function routeDetails(routes, overrides) {
+  const counts = new Map();
+  for (const route of routes) {
+    const key = `${route.method} ${route.path}`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return routes.map((route) => ({
+    method: route.method,
+    path: route.path,
+    requestId: route.requestId,
+    requestName: route.requestName,
+    scenarioCount: route.mock.scenarios.length,
+    scenarios: route.mock.scenarios.map((s) => ({
+      id: s.id,
+      name: s.name,
+      isDefault: s.isDefault,
+    })),
+    mode: route.mock.mode,
+    activeScenarioId: route.mock.activeScenarioId,
+    runtimeScenarioId: overrides.get(route.requestId) || null,
+    duplicate: counts.get(`${route.method} ${route.path}`) > 1,
+  }));
+}
+
+function responseFromScenario(scenario, ctx) {
+  const headers = {};
+  for (const [key, value] of headerPairs(scenario.headers)) {
+    if (key.toLowerCase() === 'content-length') continue;
+    headers[key] = value;
+  }
+  if (scenario.contentType && !hasHeader(headers, 'content-type')) {
+    headers['Content-Type'] = scenario.contentType;
+  }
+  return {
+    status: clampStatus(scenario.status),
+    headers,
+    body: renderMockTemplate(scenario.body, ctx),
+    delayMs: clampDelay(scenario.delayMs),
+  };
+}
+
+function responseFromExample(example) {
+  const saved = example?.response || {};
+  const headers = {};
+  for (const [key, value] of headerPairs(saved.headers)) {
+    if (key.toLowerCase() === 'content-length') continue;
+    headers[key] = value;
+  }
+  if (saved.contentType && !hasHeader(headers, 'content-type')) {
+    headers['Content-Type'] = String(saved.contentType);
+  }
+  let text = saved.body;
+  if (text == null) text = '';
+  else if (typeof text !== 'string') {
+    text = typeof text === 'object' ? JSON.stringify(text) : String(text);
+  }
+  return { status: clampStatus(saved.status), headers, body: text, delayMs: 0 };
 }
 
 /**
- * Start a mock server for the given collections.
- *
  * @returns {Promise<{ok:boolean, port:number|null, url:string, routes:Array,
- *   stop:() => Promise<void>, getLogs:() => Array, error?:string}>}
+ *   stop:() => Promise<void>, getLogs:() => Array, getRoutes:() => Array,
+ *   setRoutes:(collections:Array)=>Array, selectScenario:(requestId:string,
+ *   scenarioId:string|null)=>boolean, error?:string}>}
  */
 export function startMockServer({
   collections = [],
@@ -149,16 +231,13 @@ export function startMockServer({
   host = '127.0.0.1',
   onLog,
 } = {}) {
-  const delay = clampDelay(delayMs);
+  const serverDelay = clampDelay(delayMs);
   const bindHost = String(host || '127.0.0.1');
 
-  const routes = collectRequests(collections).map((request) => {
-    const method = String(request.method || 'GET').toUpperCase();
-    const path = pathnameOf(request.url);
-    return { method, path, request, matcher: compileRoute(path) };
-  });
-  const routeList = routes.map((route) => ({ method: route.method, path: route.path }));
-
+  let routes = buildRoutes(collections);
+  let sortedRoutes = sortRoutes(routes);
+  let routesSummary = routeList(routes);
+  const overrides = new Map();
   const logs = [];
   let logSink = typeof onLog === 'function' ? onLog : null;
 
@@ -174,6 +253,31 @@ export function startMockServer({
     }
   }
 
+  function setRoutes(nextCollections) {
+    routes = buildRoutes(nextCollections);
+    sortedRoutes = sortRoutes(routes);
+    routesSummary = routeList(routes);
+    for (const [id, scenarioId] of [...overrides.entries()]) {
+      const route = routes.find((r) => r.requestId === id);
+      if (!route || !route.mock.scenarios.some((s) => s.id === scenarioId)) {
+        overrides.delete(id);
+      }
+    }
+    return routeDetails(routes, overrides);
+  }
+
+  function selectRouteScenario(requestId, scenarioId) {
+    const route = routes.find((r) => r.requestId === String(requestId));
+    if (!route) return false;
+    if (scenarioId == null || scenarioId === '') {
+      overrides.delete(route.requestId);
+      return true;
+    }
+    if (!route.mock.scenarios.some((s) => s.id === String(scenarioId))) return false;
+    overrides.set(route.requestId, String(scenarioId));
+    return true;
+  }
+
   const sockets = new Set();
   const timers = new Set();
   let closing = null;
@@ -181,108 +285,152 @@ export function startMockServer({
   const server = http.createServer((req, res) => {
     const startedAt = Date.now();
     const startedHr = process.hrtime.bigint();
-
-    // Consume and discard the request body. Nothing is retained, so the 1 MB
-    // read cap is satisfied by construction (bodies are never used).
-    req.on('data', () => {});
-
     const method = String(req.method || 'GET').toUpperCase();
-    const path = normalizePath(String(req.url || '/').split('?')[0]);
+    const parsedUrl = new URL(req.url || '/', `http://${bindHost}`);
+    const path = normalizePath(parsedUrl.pathname);
 
-    const respond = () => {
+    const respondBase = (status, headers, body, extraLog) => {
       if (res.destroyed || res.writableEnded || server.listening === false) return;
+      const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body ?? '', 'utf8');
+      const capped =
+        buffer.length > MAX_RESPONSE_BYTES ? buffer.subarray(0, MAX_RESPONSE_BYTES) : buffer;
+      const outHeaders = { ...headers };
+      if (capped.length > 0 && !hasHeader(outHeaders, 'content-type')) {
+        outHeaders['Content-Type'] = 'text/plain; charset=utf-8';
+      }
+      outHeaders['Content-Length'] = String(capped.length);
+      try {
+        res.writeHead(status, outHeaders);
+        res.end(status === 204 ? undefined : capped);
+      } catch {
+        /* client went away mid-response */
+      }
+      record({
+        at: startedAt,
+        method,
+        path,
+        status,
+        ms: Math.round(Number(process.hrtime.bigint() - startedHr) / 1e6),
+        ...(extraLog || {}),
+      });
+    };
 
-      const finish = (status, headers, body) => {
-        const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body ?? '', 'utf8');
-        const capped = buffer.length > MAX_RESPONSE_BYTES
-          ? buffer.subarray(0, MAX_RESPONSE_BYTES)
-          : buffer;
-        const outHeaders = { ...headers };
-        if (capped.length > 0 && !hasHeader(outHeaders, 'content-type')) {
-          outHeaders['Content-Type'] = 'text/plain; charset=utf-8';
-        }
-        outHeaders['Content-Length'] = String(capped.length);
-        try {
-          res.writeHead(status, outHeaders);
-          res.end(status === 204 ? undefined : capped);
-        } catch {
-          /* client went away mid-response */
-        }
-        record({
-          at: startedAt,
-          method,
-          path,
-          status,
-          ms: Math.round(Number(process.hrtime.bigint() - startedHr) / 1e6),
-        });
-      };
-
-      // CORS preflight is answered before route matching so any path works.
-      if (method === 'OPTIONS') {
-        const headers = {};
-        applyCors(headers);
-        finish(204, headers, '');
+    const respond = (status, headers, body, extraLog, waitMs = 0) => {
+      if (waitMs > 0) {
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          respondBase(status, headers, body, extraLog);
+        }, waitMs);
+        if (typeof timer.unref === 'function') timer.unref();
+        timers.add(timer);
         return;
       }
+      respondBase(status, headers, body, extraLog);
+    };
 
-      const route = routes.find((r) => r.method === method && r.matcher.test(path));
-      if (!route) {
-        const headers = {};
-        applyCors(headers);
-        headers['Content-Type'] = 'application/json; charset=utf-8';
-        finish(404, headers, jsonBody({
+    // CORS preflight is answered before route matching so any path works.
+    if (method === 'OPTIONS') {
+      req.resume();
+      const headers = {};
+      applyCors(headers);
+      respond(204, headers, '');
+      return;
+    }
+
+    const matched = matchRoutes(sortedRoutes, method, path);
+    if (!matched) {
+      req.resume();
+      const headers = { 'Content-Type': 'application/json; charset=utf-8' };
+      applyCors(headers);
+      respond(
+        404,
+        headers,
+        jsonBody({
           error: 'No mock route matched',
           method,
           path,
-          routes: routeList,
-        }));
-        return;
-      }
-
-      const examples = Array.isArray(route.request.examples) ? route.request.examples : [];
-      const example = examples.length ? examples[examples.length - 1] : null;
-      if (!example) {
-        const headers = {};
-        applyCors(headers);
-        headers['Content-Type'] = 'application/json; charset=utf-8';
-        finish(501, headers, jsonBody({
-          error: 'No saved example for this route',
-          method,
-          path,
-        }));
-        return;
-      }
-
-      const saved = example.response || {};
-      const status = clampStatus(saved.status);
-      const headers = {};
-      for (const [key, value] of headerPairs(saved.headers)) {
-        if (key.toLowerCase() === 'content-length') continue;
-        headers[key] = value;
-      }
-      applyCors(headers);
-      if (saved.contentType && !hasHeader(headers, 'content-type')) {
-        headers['Content-Type'] = String(saved.contentType);
-      }
-
-      let text = saved.body;
-      if (text == null) text = '';
-      else if (typeof text !== 'string') {
-        text = typeof text === 'object' ? JSON.stringify(text) : String(text);
-      }
-      finish(status, headers, Buffer.from(text, 'utf8'));
-    };
-
-    if (delay > 0) {
-      const timer = setTimeout(() => {
-        timers.delete(timer);
-        respond();
-      }, delay);
-      if (typeof timer.unref === 'function') timer.unref();
-      timers.add(timer);
-    } else {
-      respond();
+          routes: routesSummary,
+        })
+      );
+      return;
     }
+
+    const { route, params } = matched;
+    const overrideId = overrides.get(route.requestId) || null;
+    const effectiveMock = overrideId
+      ? { ...route.mock, mode: 'manual', activeScenarioId: overrideId }
+      : route.mock;
+
+    (async () => {
+      let body = null;
+      if (configNeedsBody(effectiveMock)) {
+        const text = await readBody(req);
+        body = parseJsonBody(text, req.headers['content-type']);
+      } else {
+        req.resume();
+      }
+
+      const ctx = {
+        query: parsedUrl.searchParams,
+        headers: req.headers,
+        body,
+        path: params,
+      };
+      const selected = selectScenario(effectiveMock, ctx);
+      const scenario = selected?.scenario || null;
+
+      let response;
+      if (scenario) {
+        response = responseFromScenario(scenario, ctx);
+      } else {
+        const examples = Array.isArray(route.request.examples) ? route.request.examples : [];
+        const example = examples.length ? examples[examples.length - 1] : null;
+        if (!example) {
+          const headers = { 'Content-Type': 'application/json; charset=utf-8' };
+          applyCors(headers);
+          respond(
+            501,
+            headers,
+            jsonBody({
+              error: 'No saved example for this route',
+              method,
+              path,
+            }),
+            scenario
+              ? { matched: true, scenarioId: scenario.id, scenarioName: scenario.name }
+              : undefined
+          );
+          return;
+        }
+        response = responseFromExample(example);
+      }
+
+      applyCors(response.headers);
+      const wait = response.delayMs > 0 ? response.delayMs : serverDelay;
+      respond(
+        response.status,
+        response.headers,
+        response.body,
+        scenario
+          ? {
+              matched: true,
+              scenarioId: scenario.id,
+              scenarioName: scenario.name,
+              reason: selected?.reason || '',
+            }
+          : undefined,
+        wait
+      );
+    })().catch(() => {
+      // Never let a malformed request (or handler bug) crash the host app.
+      try {
+        const headers = { 'Content-Type': 'application/json; charset=utf-8' };
+        applyCors(headers);
+        respond(500, headers, jsonBody({ error: 'Mock handler failed' }));
+      } catch {
+        /* ignore */
+      }
+    });
   });
 
   server.on('connection', (socket) => {
@@ -291,9 +439,10 @@ export function startMockServer({
   });
 
   const requestedPort = Number(port);
-  const listenPort = Number.isInteger(requestedPort) && requestedPort >= 0 && requestedPort <= 65535
-    ? requestedPort
-    : 0;
+  const listenPort =
+    Number.isInteger(requestedPort) && requestedPort >= 0 && requestedPort <= 65535
+      ? requestedPort
+      : 0;
 
   function stop() {
     if (closing) return closing;
@@ -317,7 +466,6 @@ export function startMockServer({
         }
       }
       server.close(() => resolve());
-      // Belt and braces: never leave the caller hanging if close stalls.
       const guard = setTimeout(resolve, 500);
       if (typeof guard.unref === 'function') guard.unref();
     });
@@ -331,7 +479,6 @@ export function startMockServer({
       if (settled) return;
       settled = true;
       server.removeListener('listening', onListening);
-      // Keep close() from emitting an unhandled 'error' on a never-open server.
       server.on('error', () => {});
       try {
         server.close();
@@ -342,10 +489,13 @@ export function startMockServer({
         ok: false,
         port: null,
         url: '',
-        routes: routeList,
+        routes: routesSummary,
         error: error?.message || String(error),
         stop,
         getLogs: () => logs.map((entry) => ({ ...entry })),
+        getRoutes: () => routeDetails(routes, overrides),
+        setRoutes,
+        selectScenario: selectRouteScenario,
       });
     };
 
@@ -353,7 +503,6 @@ export function startMockServer({
       if (settled) return;
       settled = true;
       server.removeListener('error', fail);
-      // The mock must never crash the host app on a stray server error.
       server.on('error', () => {});
       const address = server.address();
       const actualPort = address && typeof address === 'object' ? address.port : null;
@@ -361,9 +510,12 @@ export function startMockServer({
         ok: true,
         port: actualPort,
         url: `http://${bindHost}:${actualPort}`,
-        routes: routeList,
+        routes: routesSummary,
         stop,
         getLogs: () => logs.map((entry) => ({ ...entry })),
+        getRoutes: () => routeDetails(routes, overrides),
+        setRoutes,
+        selectScenario: selectRouteScenario,
       });
     };
 

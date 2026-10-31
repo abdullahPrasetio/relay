@@ -202,6 +202,38 @@ describe('workspaceToFiles', () => {
     });
   });
 
+  it('round-trips mock scenarios through Git files', () => {
+    const original = buildWorkspace();
+    const sourceRequest = original.collections[0].items[0].items[0];
+    sourceRequest.mock = {
+      enabled: true,
+      mode: 'manual',
+      activeScenarioId: 'scn_1',
+      scenarios: [
+        {
+          id: 'scn_1',
+          name: 'Success',
+          status: 201,
+          contentType: 'application/json',
+          body: '{"ok":true}',
+          conditions: [{ source: 'query', key: 'state', operator: 'equals', value: 'ok' }],
+        },
+      ],
+    };
+    const { workspace, warnings } = filesToWorkspace(exportFiles(original));
+    expect(warnings).toEqual([]);
+    const restoredRequest = workspace.collections[0].items[0].items[0];
+    expect(restoredRequest.mock).toMatchObject({
+      mode: 'manual',
+      activeScenarioId: 'scn_1',
+    });
+    expect(restoredRequest.mock.scenarios[0]).toMatchObject({
+      id: 'scn_1',
+      status: 201,
+      conditions: [{ source: 'query', key: 'state', operator: 'equals', value: 'ok' }],
+    });
+  });
+
   it('is deterministic with stable 2-space JSON and trailing newlines', () => {
     const first = exportFiles();
     const second = exportFiles();
