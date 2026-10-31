@@ -640,7 +640,7 @@ body {
   align-items: center;
   gap: 7px;
   min-width: 0;
-  max-width: min(180px, 18vw);
+  max-width: min(220px, 22vw);
   background: var(--bg-3);
   border: 1px solid var(--border);
   color: var(--text);
@@ -3710,4 +3710,43 @@ body {
   display: flex;
   gap: 8px;
   margin-top: 10px;
+}
+
+/* Keep header controls circular even when the window is narrow. Without
+   flex-basis the 30px icon buttons shrink into ovals as the right column
+   compresses. */
+.topbar-right .mini-btn.icon-only,
+.topbar-right .cloud-chip,
+.topbar-divider {
+  flex: 0 0 auto;
+}
+
+/* Let the side groups keep their natural width and give the remaining space
+   to the search field, instead of squeezing icon buttons into ovals. */
+.topbar {
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+}
+
+.topbar-center {
+  width: 100%;
+  max-width: 520px;
+  justify-self: center;
+}
+
+@media (max-width: 1150px) {
+  .env-trigger-label {
+    display: none;
+  }
+  .env-trigger {
+    padding: 6px 8px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .topbar {
+    column-gap: 14px;
+  }
+  .topbar-right {
+    gap: 6px;
+  }
 }
