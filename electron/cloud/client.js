@@ -29,7 +29,7 @@ export class CloudError extends Error {
 }
 
 /** Accept either a bare origin or one that already ends in /api/vN. */
-function normalizeBaseUrl(raw) {
+export function normalizeBaseUrl(raw) {
   const trimmed = String(raw || DEFAULT_BASE_URL).replace(/\/+$/, '') || DEFAULT_BASE_URL;
   return /\/api\/v\d+$/.test(trimmed) ? trimmed : `${trimmed}${API_PREFIX}`;
 }
@@ -180,7 +180,7 @@ export function createCloudClient({
     throw new TypeError('createCloudClient requires a tokenStore with get/set/clear');
   }
 
-  const root = normalizeBaseUrl(baseUrl);
+  let root = normalizeBaseUrl(baseUrl);
   const timeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
 
   // Memory-only session state.
@@ -369,6 +369,13 @@ export function createCloudClient({
 
   return {
     get baseUrl() {
+      return root;
+    },
+
+    /** Point this client at another relay-api instance. Session tokens are
+     *  intentionally not cleared here; the IPC layer signs out first. */
+    setBaseUrl(next) {
+      root = normalizeBaseUrl(next);
       return root;
     },
 
