@@ -33,11 +33,11 @@ test('cloud signup, attach workspace, and baseline push', async () => {
     await page.locator('#cloud-auth-form input[type="password"]').fill('password123');
     await page.locator('button[form="cloud-auth-form"]').click();
 
-    await expect(page.getByTestId('cloud-status')).toHaveText(/Local only/, { timeout: 20000 });
+    await expect(page.getByTestId('cloud-status')).toHaveAttribute('data-state', 'local', { timeout: 20000 });
 
     await page.locator('.ws-button').click();
     await page.locator('[data-testid^="ws-cloud-"]').first().click();
-    await expect(page.getByTestId('cloud-status')).toHaveText(/Synced/, { timeout: 30000 });
+    await expect(page.getByTestId('cloud-status')).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
 
     // Confirm against the real backend: the workspace exists and has entities.
     const loginRes = await fetch(`${API}/auth/login`, {

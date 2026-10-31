@@ -71,6 +71,11 @@ contextBridge.exposeInMainWorld('api', {
   mockStart: (payload) => ipcRenderer.invoke('mock:start', payload),
   mockStop: () => ipcRenderer.invoke('mock:stop'),
   mockStatus: () => ipcRenderer.invoke('mock:status'),
+  confluenceGetConfig: (workspaceId) => ipcRenderer.invoke('confluence:get-config', workspaceId),
+  confluenceSetConfig: (payload) => ipcRenderer.invoke('confluence:set-config', payload),
+  confluenceTest: (workspaceId) => ipcRenderer.invoke('confluence:test', workspaceId),
+  confluencePublish: (payload) => ipcRenderer.invoke('confluence:publish', payload),
+  openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
   loadData: () => ipcRenderer.invoke('store:get'),
   saveData: (data) => ipcRenderer.invoke('store:set', data),
   // Relay Cloud (relay-api). Credentials stay in the main process; these
