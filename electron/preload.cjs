@@ -82,6 +82,8 @@ contextBridge.exposeInMainWorld('api', {
   // calls only ever return user/workspace data.
   cloud: {
     status: () => ipcRenderer.invoke('cloud:status'),
+    getConfig: () => ipcRenderer.invoke('cloud:get-config'),
+    setBaseUrl: (payload) => ipcRenderer.invoke('cloud:set-base-url', payload),
     me: () => ipcRenderer.invoke('cloud:me'),
     login: (payload) => ipcRenderer.invoke('cloud:login', payload),
     register: (payload) => ipcRenderer.invoke('cloud:register', payload),

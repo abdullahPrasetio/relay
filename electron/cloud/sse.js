@@ -16,7 +16,7 @@ const DEFAULT_MAX_DELAY_MS = 30000;
 const DEFAULT_FACTOR = 2;
 
 /** Accept either a bare origin or one that already ends in /api/vN. */
-function normalizeBaseUrl(raw) {
+export function normalizeBaseUrl(raw) {
   const trimmed = String(raw || DEFAULT_BASE_URL).replace(/\/+$/, '') || DEFAULT_BASE_URL;
   return /\/api\/v\d+$/.test(trimmed) ? trimmed : `${trimmed}${API_PREFIX}`;
 }
@@ -50,7 +50,7 @@ export function createChangeStream({
     throw new TypeError('createChangeStream requires a fetch implementation');
   }
 
-  const root = normalizeBaseUrl(baseUrl);
+  let root = normalizeBaseUrl(baseUrl);
   const initialDelayMs = positive(reconnect.initialDelayMs, DEFAULT_INITIAL_DELAY_MS);
   const maxDelayMs = positive(reconnect.maxDelayMs, DEFAULT_MAX_DELAY_MS);
   const factor = positive(reconnect.factor, DEFAULT_FACTOR);
@@ -288,7 +288,12 @@ export function createChangeStream({
     notify(current, { state: 'closed' });
   }
 
-  return { start, stop };
+  function setBaseUrl(next) {
+    root = normalizeBaseUrl(next);
+    return root;
+  }
+
+  return { start, stop, setBaseUrl };
 }
 
 function positive(value, fallback) {

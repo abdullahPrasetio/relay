@@ -640,3 +640,34 @@ describe('createTokenStore', () => {
     await expect(store.get()).resolves.toBeNull();
   });
 });
+
+
+describe('cloud base URL switching', () => {
+  it('routes subsequent calls to the new origin', async () => {
+    const calls = [];
+    const fetchImpl = async (url) => {
+      calls.push(String(url));
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        text: async () => JSON.stringify({ data: { accessToken: 'a', refreshToken: 'r', user: {} } }),
+        json: async () => ({ data: { accessToken: 'a', refreshToken: 'r', user: {} } }),
+      };
+    };
+    const client = createCloudClient({
+      baseUrl: 'http://old.test',
+      fetchImpl,
+      tokenStore: {
+        get: async () => null,
+        set: async () => {},
+        clear: async () => {},
+      },
+    });
+    expect(client.baseUrl).toBe('http://old.test/api/v1');
+    client.setBaseUrl('http://new.test');
+    expect(client.baseUrl).toBe('http://new.test/api/v1');
+    await client.login({ email: 'a@b.test', password: 'pw' });
+    expect(calls[0]).toContain('http://new.test/api/v1/auth/login');
+  });
+});
