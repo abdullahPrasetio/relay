@@ -66,13 +66,15 @@ export default function AppHeader({
         {cloud && (
           <button
             type="button"
-            className={`sync-pill sync-${syncStatus}`}
+            className={`cloud-chip sync-${syncStatus}`}
             title={syncTitle}
+            aria-label={syncTitle}
             onClick={handleCloudClick}
             data-testid="cloud-status"
+            data-state={syncStatus}
           >
-            <span className="sync-dot" aria-hidden="true" />
-            {syncLabel}
+            <Icon name="cloud" size={15} />
+            <span className="cloud-chip-dot" aria-hidden="true" />
           </button>
         )}
         {cloud && (

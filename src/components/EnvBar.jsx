@@ -72,7 +72,11 @@ export default function EnvBar({ environments, activeEnvId, onSelect, onChange, 
         onClick={() => setMenuOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        title="Select or manage environments"
+        title={
+          active
+            ? `${active.name} — select or manage environments`
+            : 'No Environment — select or manage environments'
+        }
         data-testid="env-trigger"
       >
         <Icon name="globe" size={13} />

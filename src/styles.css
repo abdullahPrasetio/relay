@@ -639,7 +639,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  max-width: 220px;
+  min-width: 0;
+  max-width: min(180px, 18vw);
   background: var(--bg-3);
   border: 1px solid var(--border);
   color: var(--text);
@@ -652,6 +653,8 @@ body {
   border-color: var(--border-strong);
 }
 .env-trigger-label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2649,47 +2652,50 @@ body {
 }
 
 /* ===== Cloud sync ===== */
-.sync-pill {
+.cloud-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: var(--bg-3);
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   border: 1px solid var(--border);
-  color: var(--text-dim);
-  padding: 5px 10px;
   border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 600;
+  background: var(--bg-3);
+  color: var(--text-dim);
   cursor: pointer;
-  white-space: nowrap;
 }
-.sync-pill:hover {
+.cloud-chip:hover {
   border-color: var(--accent);
   color: var(--text);
 }
-.sync-dot {
+.cloud-chip-dot {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: currentColor;
-  opacity: 0.7;
+  box-shadow: 0 0 0 2px var(--bg-3);
 }
-.sync-pill.sync-synced {
+.cloud-chip.sync-synced {
   color: var(--ok-text);
   background: var(--ok-bg);
 }
-.sync-pill.sync-syncing {
+.cloud-chip.sync-syncing {
   color: var(--accent);
 }
-.sync-pill.sync-offline {
+.cloud-chip.sync-offline {
   color: var(--warn-text);
   background: var(--warn-bg);
 }
-.sync-pill.sync-conflict {
+.cloud-chip.sync-conflict {
   color: var(--red);
   background: var(--danger-bg);
 }
-.sync-pill.sync-signed_out {
+.cloud-chip.sync-signed_out {
   color: var(--text-dim);
 }
 

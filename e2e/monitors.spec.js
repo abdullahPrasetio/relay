@@ -88,11 +88,11 @@ test('create a monitor and run it from the UI', async () => {
     await page.getByPlaceholder('you@example.com').fill(email);
     await page.locator('#cloud-auth-form input[type="password"]').fill('password123');
     await page.locator('button[form="cloud-auth-form"]').click();
-    await expect(page.getByTestId('cloud-status')).toHaveText(/Local only/, { timeout: 20000 });
+    await expect(page.getByTestId('cloud-status')).toHaveAttribute('data-state', 'local', { timeout: 20000 });
 
     await page.locator('.ws-button').click();
     await page.locator('[data-testid="ws-cloud-ws_e2e_local"]').click();
-    await expect(page.getByTestId('cloud-status')).toHaveText(/Synced/, { timeout: 30000 });
+    await expect(page.getByTestId('cloud-status')).toHaveAttribute('data-state', 'synced', { timeout: 30000 });
 
     // Open monitors for the linked workspace.
     await page.locator('.ws-button').click();
