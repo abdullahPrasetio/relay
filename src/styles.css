@@ -3750,3 +3750,123 @@ body {
     gap: 6px;
   }
 }
+
+/* ---- Mock scenarios ---- */
+.mock-scenario-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mock-scenario-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.mock-scenario-toolbar select,
+.mock-scenario-editor select {
+  background: var(--input-bg, #171a21);
+  color: var(--fg, #e7e9ee);
+  border: 1px solid var(--border, #2b303b);
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+.mock-scenario-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.mock-scenario-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mock-scenario-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border, #2b303b);
+  border-radius: 6px;
+  padding: 4px;
+}
+
+.mock-scenario-item.active {
+  border-color: var(--accent, #f26b3a);
+}
+
+.mock-scenario-select {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mock-scenario-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mock-default {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--muted, #8b93a3);
+}
+
+.mock-scenario-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.mock-scenario-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mock-condition-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) 120px minmax(0, 1fr) 24px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.mock-condition-row input {
+  min-width: 0;
+}
+
+.mock-route-scenario-count {
+  color: var(--muted, #8b93a3);
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+.mock-route-scenario {
+  background: var(--input-bg, #171a21);
+  color: var(--fg, #e7e9ee);
+  border: 1px solid var(--border, #2b303b);
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin-left: auto;
+  max-width: 180px;
+}
+
+.mock-route-duplicate {
+  color: var(--warning, #a35c00);
+  font-size: 11px;
+  margin-left: 4px;
+}

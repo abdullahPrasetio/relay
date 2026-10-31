@@ -45,6 +45,37 @@ export default function MockServerModal({ store, onClose }) {
     };
   }, [refresh]);
 
+  const reload = async () => {
+    if (!hasBridge || !window.api.mockReload) {
+      setError('Mock server reload is only available in the desktop app.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const result = await window.api.mockReload({ collections });
+      if (!result?.ok) setError(result?.error || 'Could not reload mock routes');
+      else if (result.routes) setStatus((prev) => ({ ...prev, routes: result.routes }));
+      refresh();
+    } catch (err) {
+      setError(err?.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectScenario = async (requestId, scenarioId) => {
+    if (!hasBridge || !window.api.mockSelect) return;
+    try {
+      const result = await window.api.mockSelect({ requestId, scenarioId: scenarioId || null });
+      if (!result?.ok) setError(result?.error || 'Could not select scenario');
+      else if (result.routes) setStatus((prev) => ({ ...prev, routes: result.routes }));
+      refresh();
+    } catch (err) {
+      setError(err?.message || String(err));
+    }
+  };
+
   const start = async () => {
     if (!hasBridge) {
       setError('Mock server is only available in the desktop app.');
@@ -167,6 +198,16 @@ export default function MockServerModal({ store, onClose }) {
         <button
           type="button"
           className="mini-btn"
+          data-testid="mock-reload"
+          onClick={reload}
+          disabled={busy || !status.running}
+          title="Apply edited scenarios without restarting the server"
+        >
+          Reload routes
+        </button>
+        <button
+          type="button"
+          className="mini-btn"
           data-testid="mock-stop"
           onClick={stop}
           disabled={busy || !status.running}
@@ -207,6 +248,34 @@ export default function MockServerModal({ store, onClose }) {
                   <li key={`${route.method}-${route.path}-${index}`}>
                     <span className={`mock-method ${route.method.toLowerCase()}`}>{route.method}</span>
                     <code>{route.path}</code>
+                    {route.duplicate && (
+                      <span className="mock-route-duplicate" title="Another request has the same method and path">
+                        duplicate
+                      </span>
+                    )}
+                    {route.scenarios?.length > 0 && (
+                      <>
+                        <span className="mock-route-scenario-count">
+                          {route.scenarios.length} scenario{route.scenarios.length === 1 ? '' : 's'}
+                          {route.mode === 'manual' ? ' · manual' : ' · auto'}
+                        </span>
+                        <select
+                          className="mock-route-scenario"
+                          data-testid={`mock-route-scenario-${route.requestId}`}
+                          value={route.runtimeScenarioId || ''}
+                          onChange={(e) => selectScenario(route.requestId, e.target.value)}
+                          title="Runtime scenario override"
+                        >
+                          <option value="">Server default</option>
+                          {route.scenarios.map((scenario) => (
+                            <option key={scenario.id} value={scenario.id}>
+                              {scenario.name}
+                              {scenario.isDefault ? ' (default)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -230,6 +299,7 @@ export default function MockServerModal({ store, onClose }) {
                   <th>Method</th>
                   <th>Path</th>
                   <th>Status</th>
+                  <th>Scenario</th>
                   <th>ms</th>
                 </tr>
               </thead>
@@ -240,6 +310,7 @@ export default function MockServerModal({ store, onClose }) {
                     <td>{entry.method}</td>
                     <td className="mock-log-path">{entry.path}</td>
                     <td>{entry.status}</td>
+                    <td>{entry.scenarioName || '—'}</td>
                     <td>{entry.ms}</td>
                   </tr>
                 ))}

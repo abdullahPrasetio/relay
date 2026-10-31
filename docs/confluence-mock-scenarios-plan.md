@@ -1,10 +1,15 @@
 # Rencana: Confluence export + mock server dengan skenario
 
-Status: **Confluence (M1–M3) sudah diimplementasikan** di branch
-`feat/confluence-sync` (2026-10-31); mock scenarios (M4–M5) masih rencana dan
-akan menjadi branch/rilis terpisah. Baseline: Relay local-first (Electron main
-+ React, satu workspace JSON), sudah punya mock server berbasis saved example
-dan export docs HTML statis.
+Status: **Confluence (M1–M3) dan mock scenarios (M4–M5) sudah diimplementasikan**
+(2026-10-31). Confluence ada di branch `feat/confluence-sync`; mock ada di
+`feat/mock-scenarios` yang di-stack di atas branch Confluence agar tidak ada
+konflik schema/normalizer. Rilis tetap dipisah dan merge dilakukan berurutan.
+Baseline: Relay local-first (Electron main + React, satu workspace JSON),
+sudah punya mock server berbasis saved example dan export docs HTML statis.
+
+Catatan implementasi mock: editor memakai textarea (bukan Monaco), regex
+condition tetap ditunda, dan backup Postman menyimpan `_relayMock` hanya untuk
+workspace backup (export Postman biasa tetap bersih).
 
 ## 1. Keputusan arsitektur
 

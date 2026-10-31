@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('api', {
   mockStart: (payload) => ipcRenderer.invoke('mock:start', payload),
   mockStop: () => ipcRenderer.invoke('mock:stop'),
   mockStatus: () => ipcRenderer.invoke('mock:status'),
+  mockReload: (payload) => ipcRenderer.invoke('mock:reload', payload),
+  mockSelect: (payload) => ipcRenderer.invoke('mock:select', payload),
   confluenceGetConfig: (workspaceId) => ipcRenderer.invoke('confluence:get-config', workspaceId),
   confluenceSetConfig: (payload) => ipcRenderer.invoke('confluence:set-config', payload),
   confluenceTest: (workspaceId) => ipcRenderer.invoke('confluence:test', workspaceId),
