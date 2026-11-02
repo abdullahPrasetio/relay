@@ -52,7 +52,13 @@ export function registerMockIpc({ ipcMain, store }) {
   if (!store) throw new Error('registerMockIpc requires the main-process store');
 
   // Make registration idempotent so a repeated call cannot throw.
-  for (const channel of ['mock:start', 'mock:stop', 'mock:status']) {
+  for (const channel of [
+    'mock:start',
+    'mock:stop',
+    'mock:status',
+    'mock:reload',
+    'mock:select',
+  ]) {
     try {
       ipcMain.removeHandler(channel);
     } catch {
@@ -87,7 +93,7 @@ export function registerMockIpc({ ipcMain, store }) {
       ok: true,
       port: started.port,
       url: started.url,
-      routes: started.routes,
+      routes: started.getRoutes ? started.getRoutes() : started.routes,
     };
   });
 
@@ -102,9 +108,31 @@ export function registerMockIpc({ ipcMain, store }) {
       running: true,
       url: current.url,
       port: current.port,
-      routes: current.routes,
+      routes: current.getRoutes ? current.getRoutes() : current.routes,
       logs: current.getLogs(),
     };
+  });
+
+  // Apply edited scenarios while the listener (and its port/logs) stays alive.
+  ipcMain.handle('mock:reload', (_event, payload = {}) => {
+    if (!current) return { ok: false, error: 'Mock server is not running' };
+    const collections = Array.isArray(payload?.collections) ? payload.collections : null;
+    if (!collections) return { ok: false, error: 'collections must be an array' };
+    const routes = current.setRoutes ? current.setRoutes(collections) : [];
+    return { ok: true, routes };
+  });
+
+  // Runtime-only scenario switch (for demos); persisted manual mode lives in
+  // request.mock and is applied with mock:reload.
+  ipcMain.handle('mock:select', (_event, payload = {}) => {
+    if (!current) return { ok: false, error: 'Mock server is not running' };
+    const requestId = String(payload?.requestId || '');
+    if (!requestId) return { ok: false, error: 'requestId is required' };
+    const scenarioId = payload?.scenarioId == null ? null : String(payload.scenarioId);
+    const ok = current.selectScenario ? current.selectScenario(requestId, scenarioId) : false;
+    return ok
+      ? { ok: true, routes: current.getRoutes ? current.getRoutes() : current.routes }
+      : { ok: false, error: 'Unknown request or scenario' };
   });
 }
 

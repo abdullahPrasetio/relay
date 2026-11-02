@@ -1,4 +1,4 @@
-import { CloudError } from './client.js';
+import { CloudError, normalizeBaseUrl } from './client.js';
 import { WorkspaceKeyError } from './workspace-keys.js';
 
 // IPC surface for relay-api.
@@ -10,6 +10,8 @@ import { WorkspaceKeyError } from './workspace-keys.js';
 
 export const CLOUD_CHANNELS = [
   'cloud:status',
+  'cloud:get-config',
+  'cloud:set-base-url',
   'cloud:me',
   'cloud:login',
   'cloud:register',
@@ -59,7 +61,14 @@ function wireError(err) {
   };
 }
 
-export function registerCloudIpc({ ipcMain, client, stream = null, workspaceKeys = null }) {
+export function registerCloudIpc({
+  ipcMain,
+  client,
+  stream = null,
+  workspaceKeys = null,
+  store = null,
+  envBaseUrl = '',
+}) {
   if (!ipcMain) throw new Error('registerCloudIpc requires ipcMain');
   if (!client) throw new Error('registerCloudIpc requires a cloud client');
 
@@ -78,6 +87,56 @@ export function registerCloudIpc({ ipcMain, client, stream = null, workspaceKeys
       return { ok: false, error: wireError(err) };
     }
   };
+
+  function config() {
+    return {
+      baseUrl: client.baseUrl,
+      locked: Boolean(envBaseUrl),
+    };
+  }
+
+  ipcMain.handle('cloud:get-config', wrap(() => config()));
+
+  ipcMain.handle(
+    'cloud:set-base-url',
+    wrap(async (payload) => {
+      if (envBaseUrl) {
+        throw new CloudError(
+          'locked',
+          'The Relay API URL is fixed by the RELAY_API_URL environment variable.'
+        );
+      }
+      const raw = typeof payload.baseUrl === 'string' ? payload.baseUrl.trim() : '';
+      if (!raw) throw new CloudError('validation', 'Relay API URL is required.');
+      let url;
+      try {
+        url = new URL(raw);
+      } catch {
+        throw new CloudError('validation', 'Relay API URL is not a valid URL.');
+      }
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new CloudError('validation', 'Relay API URL must use http or https.');
+      }
+      if (url.username || url.password) {
+        throw new CloudError('validation', 'Relay API URL must not contain credentials.');
+      }
+      if (url.search || url.hash) {
+        throw new CloudError('validation', 'Relay API URL must not contain a query or fragment.');
+      }
+      const status = await client.status();
+      if (status.signedIn) {
+        throw new CloudError('signed_in', 'Sign out before changing the Relay API URL.');
+      }
+
+      const normalized = normalizeBaseUrl(raw);
+      stream?.stop?.();
+      client.setBaseUrl?.(normalized);
+      stream?.setBaseUrl?.(normalized);
+      workspaceKeys?.reset?.();
+      store?.setCloudBaseUrl?.(normalized);
+      return config();
+    })
+  );
 
   ipcMain.handle('cloud:status', wrap(() => client.status()));
   ipcMain.handle('cloud:me', wrap(() => client.me()));

@@ -6,6 +6,7 @@ import WorkspaceAuditModal from './WorkspaceAuditModal.jsx';
 import MonitorsModal from './MonitorsModal.jsx';
 import MentionsModal from './MentionsModal.jsx';
 import ConfluenceSettingsModal from './ConfluenceSettingsModal.jsx';
+import CloudServerModal from './CloudServerModal.jsx';
 import { filesToWorkspace, slugify, workspaceToFiles } from '../lib/gitWorkspace.js';
 
 function hasExportBridge() {
@@ -57,6 +58,7 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
   const [monitorsWorkspace, setMonitorsWorkspace] = useState(null);
   const [mentionsWorkspace, setMentionsWorkspace] = useState(null);
   const [confluenceWorkspace, setConfluenceWorkspace] = useState(null);
+  const [cloudServerOpen, setCloudServerOpen] = useState(false);
   const dialogs = useDialogs();
   const active = store.activeWorkspace;
   const cloudBridge = typeof window !== 'undefined' ? window.api?.cloud : null;
@@ -335,6 +337,16 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
             >
               Confluence settings…
             </button>
+            <button
+              className="ws-create"
+              data-testid="cloud-server"
+              onClick={() => {
+                setOpen(false);
+                setCloudServerOpen(true);
+              }}
+            >
+              Cloud server…
+            </button>
           </div>
         </>
       )}
@@ -374,6 +386,9 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
           workspace={confluenceWorkspace}
           onClose={() => setConfluenceWorkspace(null)}
         />
+      )}
+      {cloudServerOpen && (
+        <CloudServerModal cloud={cloud} onClose={() => setCloudServerOpen(false)} />
       )}
     </div>
   );

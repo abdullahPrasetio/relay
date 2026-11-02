@@ -39,6 +39,16 @@ describe('main-process store', () => {
     expect(createStore(file).getNetworkSettings().timeoutMs).toBe(4321);
   });
 
+  it('persists the selected cloud API URL across renderer saves', () => {
+    const store = createStore(file);
+    store.setCloudBaseUrl('http://relay.example/api/v1');
+
+    store.setAll({ workspaces: [], activeWorkspaceId: null });
+
+    expect(store.getCloudBaseUrl()).toBe('http://relay.example/api/v1');
+    expect(createStore(file).getCloudBaseUrl()).toBe('http://relay.example/api/v1');
+  });
+
   it('keeps the cookie jar when the renderer omits it', () => {
     const store = createStore(file);
     store.setCookieJar([{ name: 'a', value: 'b' }]);

@@ -186,12 +186,17 @@ app.whenReady().then(() => {
   // Cloud client: one instance for the app's lifetime. The refresh token is
   // persisted encrypted in userData; the access token never leaves memory.
   const tokenStore = createTokenStore();
+  // RELAY_API_URL is a test/dev override; otherwise use the URL chosen in the
+  // app (persisted main-side) or the local default.
+  const envBaseUrl = process.env.RELAY_API_URL || '';
+  const initialCloudBaseUrl =
+    envBaseUrl || store.getCloudBaseUrl() || 'http://127.0.0.1:8080';
   const cloudClient = createCloudClient({
-    baseUrl: process.env.RELAY_API_URL || 'http://127.0.0.1:8080',
+    baseUrl: initialCloudBaseUrl,
     tokenStore,
   });
   const changeStream = createChangeStream({
-    baseUrl: process.env.RELAY_API_URL || 'http://127.0.0.1:8080',
+    baseUrl: initialCloudBaseUrl,
     tokenProvider: () => cloudClient.ensureAccessToken(),
   });
   // Device identity and workspace-key provisioning stay in the main process:
@@ -207,6 +212,8 @@ app.whenReady().then(() => {
     client: cloudClient,
     stream: changeStream,
     workspaceKeys,
+    store,
+    envBaseUrl,
   });
 
   registerIpc();
@@ -762,6 +769,8 @@ function registerIpc() {
     const rendererData = { ...store.getAll() };
     // The renderer must never see main-owned Confluence ciphertext.
     delete rendererData.confluenceByWorkspace;
+    // Cloud server config is exposed through cloud:get-config instead.
+    delete rendererData.cloudBaseUrl;
     return rendererData;
   });
   ipcMain.handle('store:set', async (_event, data) => {

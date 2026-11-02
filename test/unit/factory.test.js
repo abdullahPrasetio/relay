@@ -27,3 +27,33 @@ describe('request settings defaults', () => {
     expect(newRequest().settings.useCookieJar).toBe(true);
   });
 });
+
+describe('request documentation defaults', () => {
+  it('starts with a description and empty validation sections', () => {
+    const req = newRequest();
+    expect(req.description).toBe('');
+    expect(req.fieldValidations).toEqual({
+      path: {},
+      params: {},
+      headers: {},
+      body: {},
+    });
+  });
+
+  it('normalizes Wapbolt snake_case validations and preserves descriptions', () => {
+    const req = normalizeRequest({
+      description: 'Creates a user.',
+      field_validations: {
+        headers: { 'X-Key': { rules: ['required'], description: 'API key' } },
+      },
+    });
+    expect(req.description).toBe('Creates a user.');
+    expect(req.fieldValidations.headers['X-Key']).toEqual({
+      rules: ['required'],
+      min: 0,
+      max: 0,
+      description: 'API key',
+    });
+    expect(req.fieldValidations.params).toEqual({});
+  });
+});

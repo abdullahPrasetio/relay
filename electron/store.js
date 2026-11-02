@@ -9,6 +9,8 @@ const EMPTY = {
   // Per-workspace Confluence connection. Secrets inside are safeStorage
   // ciphertext; the renderer never receives this map (see store:get).
   confluenceByWorkspace: {},
+  // Relay API origin selected in the UI. Empty means the default/env value.
+  cloudBaseUrl: '',
 };
 
 /**
@@ -78,12 +80,15 @@ export function createStore(filePath) {
         next.confluenceByWorkspace != null
           ? next.confluenceByWorkspace
           : data.confluenceByWorkspace;
+      const cloudBaseUrl =
+        next.cloudBaseUrl != null ? next.cloudBaseUrl : data.cloudBaseUrl;
       data = {
         ...EMPTY,
         ...next,
         cookieJar: jar || [],
         network: network || DEFAULT_NETWORK_SETTINGS,
         confluenceByWorkspace: confluence || {},
+        cloudBaseUrl: cloudBaseUrl || '',
       };
       persist();
     },
@@ -104,6 +109,14 @@ export function createStore(filePath) {
     getConfluenceConfig(workspaceId) {
       if (!workspaceId) return null;
       return data.confluenceByWorkspace?.[workspaceId] || null;
+    },
+    getCloudBaseUrl() {
+      return data.cloudBaseUrl || '';
+    },
+    setCloudBaseUrl(url) {
+      data.cloudBaseUrl = typeof url === 'string' ? url : '';
+      persist();
+      return data.cloudBaseUrl;
     },
     setConfluenceConfig(workspaceId, config) {
       if (!workspaceId) throw new Error('workspaceId is required');
