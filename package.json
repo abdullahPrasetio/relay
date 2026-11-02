@@ -102,6 +102,7 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.14.6",
     "@grpc/proto-loader": "^0.8.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@monaco-editor/react": "^4.6.0",
     "crypto-js": "^4.2.0",
     "electron-updater": "^6.8.11",
@@ -114,7 +115,8 @@
     "socket.io-client": "^4.8.4",
     "socks-proxy-agent": "^8.0.5",
     "uuid": "^11.0.3",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

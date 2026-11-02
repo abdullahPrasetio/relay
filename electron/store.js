@@ -11,6 +11,9 @@ const EMPTY = {
   confluenceByWorkspace: {},
   // Relay API origin selected in the UI. Empty means the default/env value.
   cloudBaseUrl: '',
+  // MCP endpoint configuration. Main-owned: the renderer only sees the
+  // sanitized shape (client token hashes never cross the bridge).
+  mcp: { enabled: false, port: 47821, clients: [] },
 };
 
 /**
@@ -82,6 +85,8 @@ export function createStore(filePath) {
           : data.confluenceByWorkspace;
       const cloudBaseUrl =
         next.cloudBaseUrl != null ? next.cloudBaseUrl : data.cloudBaseUrl;
+      // MCP config is main-owned: a renderer save must never overwrite it.
+      const mcp = next.mcp != null ? next.mcp : data.mcp;
       data = {
         ...EMPTY,
         ...next,
@@ -89,6 +94,7 @@ export function createStore(filePath) {
         network: network || DEFAULT_NETWORK_SETTINGS,
         confluenceByWorkspace: confluence || {},
         cloudBaseUrl: cloudBaseUrl || '',
+        mcp: mcp || EMPTY.mcp,
       };
       persist();
     },
@@ -112,6 +118,15 @@ export function createStore(filePath) {
     },
     getCloudBaseUrl() {
       return data.cloudBaseUrl || '';
+    },
+    // MCP endpoint configuration (main-process owned; contains token hashes).
+    getMcpConfig() {
+      return data.mcp || EMPTY.mcp;
+    },
+    setMcpConfig(next) {
+      data.mcp = next || EMPTY.mcp;
+      persist();
+      return data.mcp;
     },
     setCloudBaseUrl(url) {
       data.cloudBaseUrl = typeof url === 'string' ? url : '';

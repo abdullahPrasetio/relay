@@ -44,6 +44,8 @@ import { SCHEMA_VERSION } from '../shared/schema.js';
 import { encryptSecret, decryptSecret } from './secret-store.js';
 import { initAutoUpdate } from './updater.js';
 import { registerMockIpc, stopMockServer } from './mock-ipc.js';
+import { createMcpRuntime } from './mcp/runtime.js';
+import { registerMcpIpc } from './mcp/ipc.js';
 import { registerConfluenceIpc } from './confluence-ipc.js';
 import { createCloudClient } from './cloud/client.js';
 import { createTokenStore } from './cloud/token-store.js';
@@ -105,6 +107,10 @@ function getRuntimeNetwork() {
 }
 
 let mainWindow = null;
+
+// MCP endpoint runtime. Created in whenReady so it can outlive a window close
+// and be re-armed when macOS reactivates the app.
+let mcp = null;
 
 // Set once the renderer confirmed it is fine to quit (no unsaved work, or the
 // user chose to discard). Until then the close is vetoed so the renderer can
@@ -180,6 +186,13 @@ function createWindow() {
     mainWindow = null;
     allowWindowClose = false;
   });
+
+  // The MCP endpoint forwards every tool call to this renderer, so it may only
+  // listen once the page can answer. Starting here also covers the macOS
+  // reactivation path, where a fresh window needs a fresh did-finish-load.
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (mcp) mcp.startIfEnabled();
+  });
 }
 
 app.whenReady().then(() => {
@@ -217,6 +230,19 @@ app.whenReady().then(() => {
   });
 
   registerIpc();
+  // MCP: opt-in local endpoint. The server is disabled by default and only
+  // starts after the window finishes loading (see createWindow).
+  mcp = createMcpRuntime({
+    store,
+    getWindow: () => mainWindow,
+    appVersion: app.getVersion(),
+  });
+  registerMcpIpc({
+    ipcMain,
+    mcp,
+    getWindow: () => mainWindow,
+    bridgePath: path.join(__dirname, 'mcp-stdio.cjs'),
+  });
   createWindow();
 
   // Best-effort; no-op in dev and when RELAY_DISABLE_UPDATER=1.
@@ -237,6 +263,8 @@ app.on('window-all-closed', () => {
   closeAllSocketIoSessions();
   closeAllGrpcStreams();
   stopMockServer();
+  // The MCP endpoint cannot work without a renderer: stop listening.
+  if (mcp) mcp.stop();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -246,6 +274,7 @@ app.on('before-quit', () => {
   closeAllSocketIoSessions();
   closeAllGrpcStreams();
   stopMockServer();
+  if (mcp) mcp.dispose();
 });
 
 // ---- Git-friendly workspace export/import file helpers. ----
@@ -771,6 +800,8 @@ function registerIpc() {
     delete rendererData.confluenceByWorkspace;
     // Cloud server config is exposed through cloud:get-config instead.
     delete rendererData.cloudBaseUrl;
+    // MCP config (token hashes) is exposed through mcp:get-config instead.
+    delete rendererData.mcp;
     return rendererData;
   });
   ipcMain.handle('store:set', async (_event, data) => {

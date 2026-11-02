@@ -7,6 +7,7 @@ import MonitorsModal from './MonitorsModal.jsx';
 import MentionsModal from './MentionsModal.jsx';
 import ConfluenceSettingsModal from './ConfluenceSettingsModal.jsx';
 import CloudServerModal from './CloudServerModal.jsx';
+import McpSettingsModal from './McpSettingsModal.jsx';
 import { filesToWorkspace, slugify, workspaceToFiles } from '../lib/gitWorkspace.js';
 
 function hasExportBridge() {
@@ -59,6 +60,7 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
   const [mentionsWorkspace, setMentionsWorkspace] = useState(null);
   const [confluenceWorkspace, setConfluenceWorkspace] = useState(null);
   const [cloudServerOpen, setCloudServerOpen] = useState(false);
+  const [mcpOpen, setMcpOpen] = useState(false);
   const dialogs = useDialogs();
   const active = store.activeWorkspace;
   const cloudBridge = typeof window !== 'undefined' ? window.api?.cloud : null;
@@ -347,6 +349,16 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
             >
               Cloud server…
             </button>
+            <button
+              className="ws-create"
+              data-testid="ws-mcp"
+              onClick={() => {
+                setOpen(false);
+                setMcpOpen(true);
+              }}
+            >
+              MCP server…
+            </button>
           </div>
         </>
       )}
@@ -390,6 +402,7 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
       {cloudServerOpen && (
         <CloudServerModal cloud={cloud} onClose={() => setCloudServerOpen(false)} />
       )}
+      {mcpOpen && <McpSettingsModal onClose={() => setMcpOpen(false)} />}
     </div>
   );
 }
