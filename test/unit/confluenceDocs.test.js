@@ -28,11 +28,29 @@ function fixture() {
             type: 'request',
             name: 'List <Users>',
             method: 'GET',
-            url: 'https://api.test/users?q=1&page=2',
+            url: 'https://api.test/users/:id?q=1&page=2',
             description: 'Returns "users" & <script>alert(1)</script>',
             params: [{ key: 'q', value: 'a&b', enabled: true }],
             headers: [{ key: 'X-Test', value: '<value> & "quoted"' }],
-            body: { mode: 'json', raw: '{"a":1,"b":"<script>alert(1)</script>"}' },
+            body: {
+              mode: 'json',
+              raw: '{"a":1,"b":"<script>alert(1)</script>","user":{"email":"a@test.dev"}}',
+            },
+            fieldValidations: {
+              path: {
+                id: { rules: ['required', 'integer'], description: 'User id' },
+              },
+              params: {
+                q: { rules: ['required', 'string'], min: 1, max: 20, description: 'Search <term>' },
+              },
+              headers: {
+                'X-Test': { rules: ['required'], description: 'Tenant key & <id>' },
+              },
+              body: {
+                a: { rules: ['integer'], min: 1, max: 9, description: 'Page size' },
+                'user.email': { rules: ['email', 'required'], description: 'Primary email' },
+              },
+            },
             auth: { type: 'bearer', bearer: { token: 'auth-secret-token' } },
             examples: [
               {
@@ -76,6 +94,21 @@ describe('collectionToConfluenceStorage', () => {
     expect(out).toContain('Saved examples');
     expect(out).toContain('First &lt;example&gt; — 201 Created');
     expect(out).toContain('<ac:parameter ac:name="language">json</ac:parameter>');
+  });
+
+  it('renders request and field descriptions with validation text', () => {
+    const out = collectionToConfluenceStorage(fixture(), { generatedAt: '2026-10-27T12:00:00.000Z' });
+
+    expect(out).toContain('<h3>Path variables</h3>');
+    expect(out).toContain('<th>Validation</th>');
+    expect(out).toContain('<th>Description</th>');
+    expect(out).toContain('<td>REQUIRED INTEGER</td><td>User id</td>');
+    expect(out).toContain('<td>REQUIRED STRING MIN 1 MAX 20</td>');
+    expect(out).toContain('<td>Search &lt;term&gt;</td>');
+    expect(out).toContain('<td>REQUIRED</td><td>Tenant key &amp; &lt;id&gt;</td>');
+    expect(out).toContain('<h3>Body fields</h3>');
+    expect(out).toContain('<td>user.email</td>');
+    expect(out).toContain('<td>REQUIRED EMAIL</td><td>Primary email</td>');
   });
 
   it('never emits plaintext secrets or request auth credentials', () => {

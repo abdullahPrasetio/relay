@@ -4,6 +4,12 @@
 // the document and the main process publishes it. Everything interpolated is
 // escaped for XML; code payloads use CDATA with the `]]>` sequence split so a
 // value can never break out of the macro. Secrets are never emitted.
+import {
+  bodyValidationFields,
+  normalizeFieldValidations,
+  pathValidationFields,
+  validationTokens,
+} from './fieldValidations.js';
 
 // XML 1.0 forbids most C0 controls; strip them before escaping.
 // eslint-disable-next-line no-control-regex
@@ -56,6 +62,35 @@ function table(headers, rows, { enabled = false } = {}) {
   return `<table><tbody><tr>${head}</tr>${body}</tbody></table>`;
 }
 
+function validationText(rule) {
+  const tokens = validationTokens(rule);
+  return tokens.length ? tokens.join(' ') : '—';
+}
+
+// Field tables carry Wapbolt-style documentation columns. Values and rules
+// are escaped; descriptions may be custom error messages.
+function fieldTable(rows, { enabled = false, validations = {} } = {}) {
+  const headers = ['Key', 'Value'];
+  if (enabled) headers.push('Enabled');
+  headers.push('Validation', 'Description');
+  const body = (Array.isArray(rows) ? rows : [])
+    .map((row) => {
+      const rule = validations[row?.key];
+      const cells = [
+        `<td>${escapeXml(row?.key)}</td>`,
+        `<td>${escapeXml(row?.value)}</td>`,
+      ];
+      if (enabled) cells.push(`<td>${row?.enabled === false ? 'no' : 'yes'}</td>`);
+      cells.push(`<td>${escapeXml(validationText(rule))}</td>`);
+      cells.push(`<td>${escapeXml(rule?.description || '—')}</td>`);
+      return `<tr>${cells.join('')}</tr>`;
+    })
+    .join('');
+  return `<table><tbody><tr>${headers
+    .map((header) => `<th>${escapeXml(header)}</th>`)
+    .join('')}</tr>${body}</tbody></table>`;
+}
+
 function prettyJson(text) {
   if (typeof text !== 'string' || !text.trim()) return text ?? '';
   try {
@@ -65,25 +100,29 @@ function prettyJson(text) {
   }
 }
 
-function bodySection(body) {
+function bodySection(body, fieldValidations) {
   const mode = body?.mode || 'none';
   if (mode === 'none') return '';
+  const bodyValidations = fieldValidations?.body || {};
+  const fields = bodyValidationFields(body);
+  const fieldDocs = fields.length
+    ? `<h3>Body fields</h3>${fieldTable(fields, { validations: bodyValidations })}`
+    : '';
 
   if (mode === 'raw' || mode === 'json') {
     const raw = String(body?.raw ?? '');
     if (!raw.trim()) return '';
     const text = mode === 'json' ? prettyJson(raw) : raw;
-    return `<h3>Body</h3>${codeMacro(text, mode === 'json' ? 'json' : 'text')}`;
+    return `<h3>Body</h3>${codeMacro(text, mode === 'json' ? 'json' : 'text')}${fieldDocs}`;
   }
 
   if (mode === 'form-urlencoded' || mode === 'form-data') {
     const rows = Array.isArray(body?.form) ? body.form : [];
     if (!rows.length) return '';
-    return `<h3>Body (${escapeXml(mode)})</h3>${table(
-      ['Key', 'Value', 'Enabled'],
-      rows,
-      { enabled: true }
-    )}`;
+    return `<h3>Body (${escapeXml(mode)})</h3>${fieldTable(rows, {
+      enabled: true,
+      validations: bodyValidations,
+    })}`;
   }
 
   if (mode === 'graphql') {
@@ -92,7 +131,9 @@ function bodySection(body) {
     if (!query.trim() && !variables.trim()) return '';
     return [
       query.trim() ? `<h3>GraphQL query</h3>${codeMacro(query, 'graphql')}` : '',
-      variables.trim() ? `<h3>GraphQL variables</h3>${codeMacro(prettyJson(variables), 'json')}` : '',
+      variables.trim()
+        ? `<h3>GraphQL variables</h3>${codeMacro(prettyJson(variables), 'json')}${fieldDocs}`
+        : '',
     ].join('');
   }
 
@@ -145,6 +186,8 @@ function requestSection(request, depth, includeExamples) {
   const level = Math.min(6, 2 + depth);
   const h = `h${level}`;
   const url = String(request?.url || '');
+  const validations = normalizeFieldValidations(request?.fieldValidations);
+  const pathFields = pathValidationFields(request);
   return [
     `<${h}><span style="color:${methodColor(method)};">${escapeXml(method)}</span> ${escapeXml(
       request?.name || 'Untitled Request'
@@ -152,15 +195,23 @@ function requestSection(request, depth, includeExamples) {
     url ? `<p><code>${escapeXml(url)}</code></p>` : '',
     request?.description ? `<p>${escapeXml(request.description)}</p>` : '',
     `<p><em>Auth: ${escapeXml(request?.auth?.type || 'none')}</em></p>`,
+    pathFields.length
+      ? `<h3>Path variables</h3>${fieldTable(pathFields, {
+          validations: validations.path,
+        })}`
+      : '',
     Array.isArray(request?.params) && request.params.length
-      ? `<h3>Query parameters</h3>${table(['Key', 'Value', 'Enabled'], request.params, {
+      ? `<h3>Query parameters</h3>${fieldTable(request.params, {
           enabled: true,
+          validations: validations.params,
         })}`
       : '',
     Array.isArray(request?.headers) && request.headers.length
-      ? `<h3>Headers</h3>${table(['Key', 'Value'], request.headers)}`
+      ? `<h3>Headers</h3>${fieldTable(request.headers, {
+          validations: validations.headers,
+        })}`
       : '',
-    bodySection(request?.body),
+    bodySection(request?.body, validations),
     includeExamples ? examplesSection(request?.examples) : '',
   ].join('');
 }

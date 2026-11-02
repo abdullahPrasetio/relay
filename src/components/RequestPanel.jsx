@@ -4,12 +4,25 @@ import AuthPanel from './AuthPanel.jsx';
 import VarInput from './VarInput.jsx';
 import CodeEditor from './CodeEditor.jsx';
 import Icon from './Icon.jsx';
+import MockScenariosPanel from './MockScenariosPanel.jsx';
+import RequestDocsPanel from './RequestDocsPanel.jsx';
+import { countValidatedFields } from '../lib/fieldValidations.js';
 import { computeAutoHeaders } from '../../packages/core/src/autoHeaders.js';
 import { extractPathVars } from '../../packages/core/src/variables.js';
 import { buildIntrospectionRequest, parseIntrospection } from '../lib/graphql.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
-const TABS = ['Params', 'Authorization', 'Headers', 'Body', 'Pre-request', 'Tests', 'Examples'];
+const TABS = [
+  'Params',
+  'Authorization',
+  'Headers',
+  'Body',
+  'Pre-request',
+  'Tests',
+  'Examples',
+  'Docs',
+  'Mock',
+];
 
 // Methods that typically carry a body open on the Body tab by default; the
 // rest open on Params. (The key prop in App remounts this per request/tab, so
@@ -76,6 +89,7 @@ export default function RequestPanel({
 
   const authActive =
     request.auth && request.auth.type !== 'none' && request.auth.type !== 'inherit';
+  const documentedFields = countValidatedFields(request.fieldValidations);
   // (oauth2 counts as active too — covered by the type !== none/inherit check)
 
   return (
@@ -160,6 +174,12 @@ export default function RequestPanel({
             {t === 'Examples' && (request.examples?.length || 0) > 0 && (
               <span className="badge">{request.examples.length}</span>
             )}
+            {t === 'Docs' && documentedFields > 0 && (
+              <span className="badge">{documentedFields}</span>
+            )}
+            {t === 'Mock' && (request.mock?.scenarios?.length || 0) > 0 && (
+              <span className="badge">{request.mock.scenarios.length}</span>
+            )}
           </button>
         ))}
       </div>
@@ -197,6 +217,8 @@ export default function RequestPanel({
             onDelete={(id) => patch({ examples: request.examples.filter((e) => e.id !== id) })}
           />
         )}
+        {tab === 'Docs' && <RequestDocsPanel request={request} patch={patch} />}
+        {tab === 'Mock' && <MockScenariosPanel request={request} patch={patch} />}
       </div>
     </section>
   );

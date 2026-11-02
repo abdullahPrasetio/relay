@@ -108,6 +108,7 @@ function seedWorkspace() {
   const request = {
     id: 'req_cf',
     name: 'List payments',
+    description: 'Lists payments for the current tenant.',
     method: 'GET',
     url: '{{baseUrl}}/payments',
     params: [{ key: 'limit', value: '10', enabled: true }],
@@ -126,6 +127,19 @@ function seedWorkspace() {
     grpc: {},
     preRequest: '',
     tests: '',
+    fieldValidations: {
+      params: {
+        limit: {
+          rules: ['integer'],
+          min: 1,
+          max: 100,
+          description: 'Page size <limit>',
+        },
+      },
+      headers: {
+        Accept: { rules: ['required'], description: 'Response format' },
+      },
+    },
     examples: [],
   };
   return {
@@ -196,6 +210,12 @@ test('publishes update-only and create, and reports title conflicts', async () =
     expect(fake.state.posts).toHaveLength(1);
     expect(fake.state.posts[0].ancestors).toEqual([{ id: '9' }]);
     expect(fake.state.posts[0].title).toBe('Payments docs');
+    const storage = fake.state.posts[0].body.storage.value;
+    expect(storage).toContain('Lists payments for the current tenant.');
+    expect(storage).toContain('<th>Validation</th>');
+    expect(storage).toContain('<td>INTEGER MIN 1 MAX 100</td>');
+    expect(storage).toContain('<td>Page size &lt;limit&gt;</td>');
+    expect(storage).toContain('<td>REQUIRED</td><td>Response format</td>');
     await expect(page.getByTestId('confluence-linked-page')).toContainText('10');
 
     // Update: same title, version+1.
