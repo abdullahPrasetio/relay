@@ -260,6 +260,30 @@ sendiri; delay 0–10 s; log 200 entri `{at,method,path,status,ms}`.
 `electron/mock-ipc.js` menyimpan satu server aktif dan dipanggil dari
 `registerIpc()`; shutdown memanggil `stopMockServer()`.
 
+## MCP server
+
+Endpoint MCP lokal (opt-in, default mati) supaya klien AI bisa memakai data dan
+service yang sama dengan UI. `shared/mcpScopes.js` + `shared/mcpTools.js` adalah
+satu-satunya katalog: setiap aksi punya `scope` (`read`/`request`/`write`/`mock`/
+`confluence`/`cloud`/`settings`), flag `approval` (semua non-read), dan deskripsi
+param yang dipakai untuk validasi serta `relay_help`.
+`electron/mcp/config.js` menyimpan config di store main (`mcp`, tidak pernah
+dikirim ke renderer): token `relay_mcp_…` hanya dikembalikan sekali, yang
+dipersistensikan hanya SHA-256 + prefix; verifikasi memakai `timingSafeEqual`.
+`electron/mcp/server.js` memasang `McpServer` + `StreamableHTTPServerTransport`
+per sesi (`Mcp-Session-Id`, idle 30 menit) di `127.0.0.1`, menolak Host/Origin
+asing, mewajibkan bearer token, membatasi body 1 MiB dan output tool 256 KiB.
+Approval (60 s) dan eksekusi (5 menit) adalah round-trip IPC ke renderer:
+`mcp:invoke`/`mcp:invoke-result` dan `mcp:approval`/`mcp:approval-result`, hanya
+diterima dari main frame. `electron/mcp/runtime.js` mengatur lifecycle (start
+setelah `did-finish-load`, stop saat window hilang), `lastUsedAt` (maks 1×/menit),
+dan ring `recentCalls` tanpa param. `electron/mcp-stdio.cjs` adalah bridge stdio
+tanpa dependensi (dijalankan dengan `ELECTRON_RUN_AS_NODE=1`) yang mem-proxy
+JSON-RPC ke endpoint HTTP. Di renderer, `src/lib/mcpActions.js` menjalankan setiap
+aksi dengan helper yang sama seperti UI (`collectionTree`, `runner`, `apiDocs`,
+`confluenceDocs`, `postmanFormat`), dan `src/lib/mcpRedact.js` membuang ciphertext
+serta meredaksi secret/auth/proxy/cookie sebelum hasil dikirim.
+
 ## Workspace Git-friendly
 
 `src/lib/gitWorkspace.js` menulis satu workspace menjadi:
