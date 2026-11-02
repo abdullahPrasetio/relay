@@ -26,11 +26,18 @@ describe('normalizeMockConfig', () => {
       mode: 'manual',
       activeScenarioId: 'b',
       scenarios: [
-        { id: 'a', name: 'A', conditions: [{ source: 'query', key: 'x', operator: 'equals', value: '1' }] },
+        {
+          id: 'a',
+          name: 'A',
+          description: 'Healthy path',
+          conditions: [{ source: 'query', key: 'x', operator: 'equals', value: '1' }],
+        },
         { id: 'b', name: 'B', isDefault: true },
       ],
     }).scenarios;
     expect(scenarios.map((s) => s.name)).toEqual(['A', 'B']);
+    expect(scenarios[0].description).toBe('Healthy path');
+    expect(scenarios[1].description).toBe('');
     expect(scenarios[0].conditions[0]).toMatchObject({ source: 'query', key: 'x' });
     expect(scenarios[1].isDefault).toBe(true);
   });

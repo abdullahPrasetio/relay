@@ -9,10 +9,15 @@ function seed() {
     name: 'Order',
     method: 'GET',
     url: 'https://api.example.com/orders/:id',
-    params: [],
-    pathVars: [],
-    headers: [],
-    body: { mode: 'none', raw: '', form: [], graphql: { query: '', variables: '' } },
+    params: [{ key: 'state', value: 'ok', enabled: true }],
+    pathVars: [{ key: 'id', value: '42', enabled: true }],
+    headers: [{ key: 'X-Tenant', value: 'acme', enabled: true }],
+    body: {
+      mode: 'json',
+      raw: '{"customer":{"email":"dev@example.com"}}',
+      form: [],
+      graphql: { query: '', variables: '' },
+    },
     auth: { type: 'none' },
     settings: {
       timeoutMs: null,
@@ -34,6 +39,7 @@ function seed() {
         {
           id: 'ok',
           name: 'OK',
+          description: 'Healthy order',
           enabled: true,
           status: 200,
           statusText: 'OK',
@@ -47,6 +53,7 @@ function seed() {
         {
           id: 'down',
           name: 'Down',
+          description: 'Service unavailable',
           enabled: true,
           status: 503,
           statusText: 'Unavailable',
@@ -128,8 +135,34 @@ test('serves auto scenarios, runtime overrides, and reloaded defaults', async ()
     // Edit the default scenario in the request tab, then reload routes in place.
     await page.locator('.modal-head button[title="Close"]').first().click();
     await page.locator('.request-row', { hasText: 'Order' }).first().click();
+
+    // Docs: request description + field rules are editable and survive tab
+    // switches (the request object owns this state).
+    await page.locator('.tabs .tab', { hasText: 'Docs' }).click();
+    await page.getByTestId('request-description').fill('Order lookup with tenant isolation');
+    const stateField = page.getByTestId('validation-field-params-state');
+    await stateField.getByRole('button', { name: 'required', exact: true }).click();
+    await stateField.getByRole('button', { name: 'string', exact: true }).click();
+    await stateField.locator('.validation-description input').fill('Order state');
+    await stateField.locator('.validation-meta input').first().fill('2');
+    await expect(page.getByTestId('validation-count')).toHaveText('1 documented');
+    await expect(page.getByTestId('validation-field-body-customer_email')).toBeVisible();
+    await page.locator('.tabs .tab', { hasText: 'Params' }).click();
+    await page.locator('.tabs .tab', { hasText: 'Docs' }).click();
+    await expect(page.getByTestId('request-description')).toHaveValue(
+      'Order lookup with tenant isolation'
+    );
+    await expect(stateField.getByRole('button', { name: 'required', exact: true })).toHaveClass(
+      /active/
+    );
+
+    // Scenario description is shown in the list and editable.
     await page.locator('.tabs .tab', { hasText: 'Mock' }).click();
     await page.getByTestId('mock-scenario-down').click();
+    await expect(page.getByTestId('mock-scenario-description')).toHaveValue(
+      'Service unavailable'
+    );
+    await page.getByTestId('mock-scenario-description').fill('Service is down');
     await page.getByTestId('mock-scenario-body').fill('{"error":"changed"}');
 
     await page.getByTestId('mock-open').click();

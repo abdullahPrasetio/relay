@@ -447,6 +447,7 @@ describe('globals and workspace backup', () => {
         {
           id: 'scn_1',
           name: 'Success',
+          description: 'Healthy path',
           status: 200,
           contentType: 'application/json',
           body: '{"ok":true}',
@@ -470,6 +471,7 @@ describe('globals and workspace backup', () => {
     expect(exported._relayMock.scenarios[0]).toMatchObject({
       id: 'scn_1',
       name: 'Success',
+      description: 'Healthy path',
       body: '{"ok":true}',
     });
     expect(findExported(toPostmanCollection(collection).item)._relayMock).toBeUndefined();
@@ -482,7 +484,78 @@ describe('globals and workspace backup', () => {
     });
     expect(restoredRequest.mock.scenarios[0]).toMatchObject({
       id: 'scn_1',
+      description: 'Healthy path',
       conditions: [{ source: 'query', key: 'state', operator: 'equals', value: 'ok' }],
+    });
+  });
+
+  it('imports Wapbolt validations and preserves them in workspace backups', () => {
+    const collection = fromPostmanCollection({
+      info: { name: 'Validated', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' },
+      item: [
+        {
+          name: 'Create user',
+          description: 'Creates a user.',
+          request: {
+            method: 'POST',
+            url: 'https://api.test/users',
+            field_validations: {
+              headers: {
+                'X-Api-Key': { rules: ['required'], min: 8, max: 64, description: 'Tenant key' },
+              },
+              body: {
+                email: { rules: ['required', 'email'], description: 'Primary email' },
+              },
+            },
+          },
+        },
+      ],
+    });
+    const request = collection.items[0];
+    expect(request.description).toBe('Creates a user.');
+    expect(request.fieldValidations.headers['X-Api-Key']).toMatchObject({
+      rules: ['required'],
+      min: 8,
+      max: 64,
+      description: 'Tenant key',
+    });
+
+    const findRequest = (items) => {
+      for (const node of items || []) {
+        if (node.type === 'folder') {
+          const nested = findRequest(node.items);
+          if (nested) return nested;
+        } else if (node.method) return node;
+      }
+      return null;
+    };
+    const findExported = (items) => {
+      for (const item of items || []) {
+        if (Array.isArray(item.item)) {
+          const nested = findExported(item.item);
+          if (nested) return nested;
+        } else if (item.request) return item;
+      }
+      return null;
+    };
+
+    // Normal Postman export stays free of Relay-only metadata.
+    expect(findExported(toPostmanCollection(collection).item)._relayFieldValidations).toBeUndefined();
+
+    const backup = toWorkspaceBackup({ name: 'Team', collections: [collection] });
+    const exported = findExported(backup.collections[0].item);
+    expect(exported._relayFieldValidations.headers['X-Api-Key']).toMatchObject({
+      rules: ['required'],
+      min: 8,
+      max: 64,
+    });
+
+    const restored = fromWorkspaceBackup(JSON.parse(JSON.stringify(backup)));
+    const restoredRequest = findRequest(restored.collections[0].items);
+    expect(restoredRequest.description).toBe('Creates a user.');
+    expect(restoredRequest.fieldValidations.body.email).toMatchObject({
+      rules: ['required', 'email'],
+      description: 'Primary email',
     });
   });
 

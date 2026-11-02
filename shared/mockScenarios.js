@@ -87,6 +87,7 @@ export function normalizeScenario(raw, index = 0) {
   return {
     id: str(s.id) || `scn_${index + 1}`,
     name: str(s.name).trim() || `Scenario ${index + 1}`,
+    description: str(s.description),
     enabled: s.enabled !== false,
     status: (() => {
       const n = typeof s.status === 'number' ? s.status : Number(s.status);

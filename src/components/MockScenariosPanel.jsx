@@ -12,6 +12,7 @@ function scenarioDefaults(index) {
   return {
     id: uid('scn'),
     name: `Scenario ${index + 1}`,
+    description: '',
     enabled: true,
     status: 200,
     statusText: 'OK',
@@ -160,7 +161,14 @@ export default function MockScenariosPanel({ request, patch }) {
               data-testid={`mock-scenario-${scenario.id}`}
             >
               <button className="mock-scenario-select" onClick={() => setSelectedId(scenario.id)}>
-                <span className="mock-scenario-name">{scenario.name}</span>
+                <span className="mock-scenario-main">
+                  <span className="mock-scenario-name">{scenario.name}</span>
+                  {scenario.description && (
+                    <span className="mock-scenario-desc" title={scenario.description}>
+                      {scenario.description}
+                    </span>
+                  )}
+                </span>
                 <span className="badge">{scenario.status}</span>
                 {scenario.isDefault && <span className="mock-default">default</span>}
               </button>
@@ -205,6 +213,20 @@ export default function MockScenariosPanel({ request, patch }) {
                   data-testid="mock-scenario-name"
                   value={selected.name}
                   onChange={(e) => updateScenario(selectedIndex, { name: e.target.value })}
+                />
+              </div>
+              <div className="form-row">
+                <label>Description</label>
+                <textarea
+                  data-testid="mock-scenario-description"
+                  className="body-text"
+                  rows={2}
+                  style={{ minHeight: 60 }}
+                  placeholder="When this response applies and what it represents"
+                  value={selected.description || ''}
+                  onChange={(e) =>
+                    updateScenario(selectedIndex, { description: e.target.value })
+                  }
                 />
               </div>
               <div className="form-row">

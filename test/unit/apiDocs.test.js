@@ -35,7 +35,22 @@ function fixture() {
               { key: 'page', value: '2', enabled: false },
             ],
             headers: [{ key: 'X-Test', value: '<value> & "quoted"' }],
-            body: { mode: 'json', raw: '{"a":1,"b":"<script>alert(1)</script>"}' },
+            body: {
+              mode: 'json',
+              raw: '{"a":1,"b":"<script>alert(1)</script>","user":{"email":"a@test.dev"}}',
+            },
+            fieldValidations: {
+              params: {
+                q: { rules: ['required', 'string'], min: 1, max: 20, description: 'Search <term>' },
+              },
+              headers: {
+                'X-Test': { rules: ['required'], description: 'Tenant key & <id>' },
+              },
+              body: {
+                a: { rules: ['integer'], min: 1, max: 9, description: 'Page size' },
+                'user.email': { rules: ['email', 'required'], description: 'Primary email' },
+              },
+            },
             auth: { type: 'bearer', bearer: { token: 'auth-secret-token' } },
             examples: [
               {
@@ -80,6 +95,9 @@ function fixture() {
             { key: 'name', value: 'A & B', enabled: true },
             { key: 'skip', value: 'me', enabled: false },
           ],
+        },
+        fieldValidations: {
+          path: { id: { rules: ['required'], description: 'Resource id' } },
         },
         auth: { type: 'apikey', apikey: { key: 'k', value: 'v' } },
         examples: [],
@@ -156,6 +174,25 @@ describe('collectionToHtml', () => {
     expect(html).toContain('<h4>Body (form-urlencoded)</h4>');
     expect(html).toContain('<td>name</td><td>A &amp; B</td><td>yes</td>');
     expect(html).toContain('<td>skip</td><td>me</td><td>no</td>');
+  });
+
+  it('renders request and field descriptions with validation badges', () => {
+    const html = collectionToHtml(fixture(), { generatedAt: '2026-10-27T12:00:00.000Z' });
+
+    expect(html).toContain('<h4>Path variables</h4>');
+    expect(html).toContain('<td>id</td><td></td><td>');
+    expect(html).toContain('<td class="field-description">Resource id</td>');
+    expect(html).toContain('<th>Validation</th>');
+    expect(html).toContain('<th>Description</th>');
+    expect(html).toContain('<span class="validation-token">REQUIRED</span>');
+    expect(html).toContain('<span class="validation-token">MIN 1</span>');
+    expect(html).toContain('<span class="validation-token">MAX 20</span>');
+    expect(html).toContain('<td class="field-description">Search &lt;term&gt;</td>');
+    expect(html).toContain('<td class="field-description">Tenant key &amp; &lt;id&gt;</td>');
+    expect(html).toContain('<h4>Body fields</h4>');
+    expect(html).toContain('<td>user.email</td>');
+    expect(html).toContain('<td class="field-description">Primary email</td>');
+    expect(html).toContain('Returns &quot;users&quot; &amp; &lt;script&gt;alert(1)&lt;/script&gt;');
   });
 
   it('shows the auth type but never credentials', () => {
