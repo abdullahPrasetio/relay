@@ -20,6 +20,7 @@ import AppHeader from './components/AppHeader.jsx';
 import SetVariableModal from './components/SetVariableModal.jsx';
 import CookiesModal from './components/CookiesModal.jsx';
 import MockServerModal from './components/MockServerModal.jsx';
+import McpApprovalModal from './components/McpApprovalModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import AppearanceModal from './components/AppearanceModal.jsx';
 import RequestSettingsModal from './components/RequestSettingsModal.jsx';
@@ -34,6 +35,7 @@ import { useCloudSync } from './lib/useCloudSync.js';
 import { useRealtimeSync } from './lib/useRealtimeSync.js';
 import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { useAppearance } from './lib/useAppearance.js';
+import { useMcpBridge } from './lib/useMcpBridge.js';
 import { newRequest, normalizeRequest, uid } from './lib/factory.js';
 import { isWebSocket, isMqtt, isSocketIo, isGrpc, isGrpcTls } from './lib/protocol.js';
 import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from '../packages/core/src/variables.js';
@@ -222,6 +224,9 @@ export default function App() {
   const cloud = useCloudSync(store);
   const network = useNetworkSettings();
   const appearance = useAppearance();
+  // Answers MCP tool calls forwarded by the main process and queues approval
+  // prompts for non-read actions.
+  const mcp = useMcpBridge({ store, cloud, appearance });
   const dialogs = useDialogs();
   const [tabs, setTabs] = useState(() => [newTab()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0].tabId);
@@ -1995,6 +2000,8 @@ export default function App() {
           onClose={() => setMockOpen(false)}
         />
       )}
+
+      <McpApprovalModal pending={mcp.pendingApproval} onDecision={mcp.resolveApproval} />
 
       {confluenceSyncCollectionId &&
         (() => {

@@ -460,7 +460,12 @@ describe('runner response snapshots', () => {
     });
 
     const snapshot = out.results[0].response;
-    expect(snapshot).toEqual({ status: 200, contentType: 'image/png', body: null });
+    expect(snapshot).toEqual({
+      status: 200,
+      contentType: 'image/png',
+      headers: [{ key: 'Content-Type', value: 'image/png' }],
+      body: null,
+    });
     expect(JSON.stringify(snapshot)).not.toContain('iVBORw0KGgo');
   });
 

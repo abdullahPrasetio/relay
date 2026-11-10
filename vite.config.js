@@ -5,13 +5,14 @@ import renderer from 'vite-plugin-electron-renderer';
 import fs from 'node:fs';
 import path from 'node:path';
 
-// Copies hand-written CommonJS files (preload + script runner) into
-// dist-electron so Electron can load them. The main bundle requires
-// ./script-runner.cjs at runtime, and the preload must stay CommonJS.
-// Runs on both dev server start and production build.
+// Copies hand-written CommonJS files (preload + MCP stdio bridge) into
+// dist-electron so Electron can load them. The preload must stay CommonJS,
+// and mcp-stdio.cjs is executed verbatim by the Electron binary in Node mode
+// (ELECTRON_RUN_AS_NODE=1), so it must not be bundled. Runs on both dev server
+// start and production build.
 function copyPreload() {
   const outDir = path.resolve(__dirname, 'dist-electron');
-  const files = ['preload.cjs']; // script runner is now bundled into main.js
+  const files = ['preload.cjs', 'mcp-stdio.cjs']; // script runner is now bundled into main.js
   const copy = () => {
     fs.mkdirSync(outDir, { recursive: true });
     for (const f of files) {

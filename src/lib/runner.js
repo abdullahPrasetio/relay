@@ -60,6 +60,7 @@ function isTextualContentType(contentType) {
 
 // Keep only a small, report-safe view of the response. Binary payloads are
 // never copied, and textual bodies are truncated to the snapshot limit.
+// Response headers are kept so an MCP `send` result shows them.
 function snapshotResponse(response) {
   const contentType = headerValue(response.headers, 'content-type');
   const textual = response.isBinary === false
@@ -70,7 +71,12 @@ function snapshotResponse(response) {
       ? response.body.slice(0, RESPONSE_SNAPSHOT_LIMIT)
       : response.body;
   }
-  return { status: response.status ?? null, contentType, body };
+  return {
+    status: response.status ?? null,
+    contentType,
+    headers: Array.isArray(response.headers) ? response.headers : [],
+    body,
+  };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

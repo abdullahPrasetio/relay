@@ -6,6 +6,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 //
 // This file is intentionally .cjs (CommonJS): Electron preload scripts must
 // be CommonJS, and the package is otherwise "type": "module".
+// Shared event-bridge helper: subscribe to a main->renderer channel and return
+// an unsubscribe function.
+function subscribe(channel, cb) {
+  const handler = (_event, payload) => cb(payload);
+  ipcRenderer.on(channel, handler);
+  return () => ipcRenderer.removeListener(channel, handler);
+}
+
 contextBridge.exposeInMainWorld('api', {
   sendRequest: (request, requestId) => ipcRenderer.invoke('http:send', { request, requestId }),
   abortRequest: (requestId) => ipcRenderer.invoke('http:abort', requestId),
@@ -71,6 +79,28 @@ contextBridge.exposeInMainWorld('api', {
   mockStart: (payload) => ipcRenderer.invoke('mock:start', payload),
   mockStop: () => ipcRenderer.invoke('mock:stop'),
   mockStatus: () => ipcRenderer.invoke('mock:status'),
+  mockReload: (payload) => ipcRenderer.invoke('mock:reload', payload),
+  mockSelect: (payload) => ipcRenderer.invoke('mock:select', payload),
+  // Mock binding mode + one-time access token (never readable back).
+  mockGetConfig: () => ipcRenderer.invoke('mock:get-config'),
+  mockSetConfig: (payload) => ipcRenderer.invoke('mock:set-config', payload),
+  mockRotateToken: () => ipcRenderer.invoke('mock:rotate-token'),
+  // MCP endpoint settings + the renderer side of a forwarded tool call.
+  // No token getter exists: a token is returned once by create/rotate only.
+  mcp: {
+    getConfig: () => ipcRenderer.invoke('mcp:get-config'),
+    status: () => ipcRenderer.invoke('mcp:status'),
+    setEnabled: (enabled) => ipcRenderer.invoke('mcp:set-enabled', enabled),
+    setPort: (port) => ipcRenderer.invoke('mcp:set-port', port),
+    createClient: (payload) => ipcRenderer.invoke('mcp:create-client', payload),
+    updateClient: (payload) => ipcRenderer.invoke('mcp:update-client', payload),
+    revokeClient: (id) => ipcRenderer.invoke('mcp:revoke-client', id),
+    rotateToken: (id) => ipcRenderer.invoke('mcp:rotate-token', id),
+    onInvoke: (cb) => subscribe('mcp:invoke', cb),
+    respondInvoke: (payload) => ipcRenderer.send('mcp:invoke-result', payload),
+    onApproval: (cb) => subscribe('mcp:approval', cb),
+    respondApproval: (payload) => ipcRenderer.send('mcp:approval-result', payload),
+  },
   confluenceGetConfig: (workspaceId) => ipcRenderer.invoke('confluence:get-config', workspaceId),
   confluenceSetConfig: (payload) => ipcRenderer.invoke('confluence:set-config', payload),
   confluenceTest: (workspaceId) => ipcRenderer.invoke('confluence:test', workspaceId),
@@ -82,6 +112,8 @@ contextBridge.exposeInMainWorld('api', {
   // calls only ever return user/workspace data.
   cloud: {
     status: () => ipcRenderer.invoke('cloud:status'),
+    getConfig: () => ipcRenderer.invoke('cloud:get-config'),
+    setBaseUrl: (payload) => ipcRenderer.invoke('cloud:set-base-url', payload),
     me: () => ipcRenderer.invoke('cloud:me'),
     login: (payload) => ipcRenderer.invoke('cloud:login', payload),
     register: (payload) => ipcRenderer.invoke('cloud:register', payload),

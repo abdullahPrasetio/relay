@@ -1,4 +1,6 @@
 // Factory helpers for creating default request / collection / environment shapes.
+import { normalizeMockConfig } from '../../shared/mockScenarios.js';
+import { normalizeFieldValidations } from './fieldValidations.js';
 
 let idCounter = 0;
 export function uid(prefix = 'id') {
@@ -10,6 +12,7 @@ export function newRequest(overrides = {}) {
   return {
     id: uid('req'),
     name: 'Untitled Request',
+    description: '',
     method: 'GET',
     url: '',
     params: [],
@@ -22,6 +25,9 @@ export function newRequest(overrides = {}) {
     preRequest: '',
     tests: '',
     examples: [], // saved request/response snapshots
+    mock: normalizeMockConfig({}),
+    // Optional documentation metadata, keyed by section then field name.
+    fieldValidations: normalizeFieldValidations({}),
     ...overrides,
   };
 }
@@ -185,7 +191,13 @@ export function normalizeRequest(req) {
       awsv4: { ...newAuth().awsv4, ...(req.auth?.awsv4 || {}) },
       jwt: { ...newAuth().jwt, ...(req.auth?.jwt || {}) },
     },
+    description: typeof req.description === 'string' ? req.description : '',
     settings: { ...newRequestSettings(), ...(req.settings || {}) },
+    mock: normalizeMockConfig(req.mock),
+    // Accept Wapbolt's snake_case alias when a request is pasted/imported.
+    fieldValidations: normalizeFieldValidations(
+      req.fieldValidations ?? req.field_validations
+    ),
     grpc: {
       ...newGrpcConfig(),
       ...(req.grpc || {}),

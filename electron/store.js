@@ -9,6 +9,14 @@ const EMPTY = {
   // Per-workspace Confluence connection. Secrets inside are safeStorage
   // ciphertext; the renderer never receives this map (see store:get).
   confluenceByWorkspace: {},
+  // Relay API origin selected in the UI. Empty means the default/env value.
+  cloudBaseUrl: '',
+  // MCP endpoint configuration. Main-owned: the renderer only sees the
+  // sanitized shape (client token hashes never cross the bridge).
+  mcp: { enabled: false, port: 47821, clients: [] },
+  // Local mock server binding mode. Main-owned: the access token is stored as
+  // a SHA-256 digest and never sent back to the renderer.
+  mockServer: { mode: 'local', host: '0.0.0.0', tokenHash: '', tokenPrefix: '' },
 };
 
 /**
@@ -78,12 +86,21 @@ export function createStore(filePath) {
         next.confluenceByWorkspace != null
           ? next.confluenceByWorkspace
           : data.confluenceByWorkspace;
+      const cloudBaseUrl =
+        next.cloudBaseUrl != null ? next.cloudBaseUrl : data.cloudBaseUrl;
+      // MCP config is main-owned: a renderer save must never overwrite it.
+      const mcp = next.mcp != null ? next.mcp : data.mcp;
+      // Same for the mock server binding/token.
+      const mockServer = next.mockServer != null ? next.mockServer : data.mockServer;
       data = {
         ...EMPTY,
         ...next,
         cookieJar: jar || [],
         network: network || DEFAULT_NETWORK_SETTINGS,
         confluenceByWorkspace: confluence || {},
+        cloudBaseUrl: cloudBaseUrl || '',
+        mcp: mcp || EMPTY.mcp,
+        mockServer: mockServer || EMPTY.mockServer,
       };
       persist();
     },
@@ -104,6 +121,32 @@ export function createStore(filePath) {
     getConfluenceConfig(workspaceId) {
       if (!workspaceId) return null;
       return data.confluenceByWorkspace?.[workspaceId] || null;
+    },
+    getCloudBaseUrl() {
+      return data.cloudBaseUrl || '';
+    },
+    // MCP endpoint configuration (main-process owned; contains token hashes).
+    getMcpConfig() {
+      return data.mcp || EMPTY.mcp;
+    },
+    setMcpConfig(next) {
+      data.mcp = next || EMPTY.mcp;
+      persist();
+      return data.mcp;
+    },
+    // Mock server binding mode + access-token digest (main-process owned).
+    getMockServerConfig() {
+      return data.mockServer || EMPTY.mockServer;
+    },
+    setMockServerConfig(next) {
+      data.mockServer = next || EMPTY.mockServer;
+      persist();
+      return data.mockServer;
+    },
+    setCloudBaseUrl(url) {
+      data.cloudBaseUrl = typeof url === 'string' ? url : '';
+      persist();
+      return data.cloudBaseUrl;
     },
     setConfluenceConfig(workspaceId, config) {
       if (!workspaceId) throw new Error('workspaceId is required');

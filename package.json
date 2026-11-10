@@ -27,7 +27,8 @@
     "dist:linux": "vite build && electron-builder --linux AppImage --x64",
     "release": "vite build && electron-builder --mac --arm64 --publish always",
     "cli": "node cli/relay.mjs",
-    "build:core": "npx esbuild packages/core/src/cli.js --bundle --platform=node --format=esm --outfile=dist-core/relay-core.mjs --external:electron --banner:js=\"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);\""
+    "build:core": "npx esbuild packages/core/src/cli.js --bundle --platform=node --format=esm --outfile=dist-core/relay-core.mjs --external:electron --banner:js=\"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);\"",
+    "migrate:wapbolt": "node cli/wapbolt-migrate.mjs"
   },
   "build": {
     "appId": "com.relay.apiclient",
@@ -102,6 +103,7 @@
   "dependencies": {
     "@grpc/grpc-js": "^1.14.6",
     "@grpc/proto-loader": "^0.8.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@monaco-editor/react": "^4.6.0",
     "crypto-js": "^4.2.0",
     "electron-updater": "^6.8.11",
@@ -114,7 +116,8 @@
     "socket.io-client": "^4.8.4",
     "socks-proxy-agent": "^8.0.5",
     "uuid": "^11.0.3",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",

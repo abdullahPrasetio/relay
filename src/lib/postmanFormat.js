@@ -11,6 +11,8 @@
 //   `url.raw` are deduped by key+value in both directions.
 import { newRequest, newCollection, newAuth, uid } from './factory.js';
 import { newFolder } from './collectionTree.js';
+import { normalizeMockConfig } from '../../shared/mockScenarios.js';
+import { hasFieldValidations, normalizeFieldValidations } from './fieldValidations.js';
 import { toPostmanEnvironment, fromPostmanEnvironment } from './environmentFormat.js';
 
 const COLLECTION_SCHEMA =
@@ -496,6 +498,19 @@ function itemToRequest(item) {
     ? item.response.map((response, index) => responseToExample(response, index))
     : [];
 
+  // Field docs accept both Relay's backup extension and Wapbolt's
+  // snake_case field_validations payload.
+  const rawValidations =
+    item._relayFieldValidations ??
+    item.field_validations ??
+    r.field_validations ??
+    r.fieldValidations;
+  req.fieldValidations = normalizeFieldValidations(rawValidations);
+
+  // Relay-only backup metadata (mock scenarios). Normal Postman imports do
+  // not carry this field, so the default empty mock config stays in place.
+  if (item._relayMock != null) req.mock = normalizeMockConfig(item._relayMock);
+
   return req;
 }
 
@@ -845,6 +860,49 @@ function confluenceBackupMeta(collection) {
   return Object.values(meta).some((value) => value != null && value !== '') ? meta : null;
 }
 
+function mockBackupMeta(mock) {
+  const m = normalizeMockConfig(mock);
+  if (
+    m.enabled &&
+    m.mode === 'auto' &&
+    !m.activeScenarioId &&
+    m.scenarios.length === 0
+  ) {
+    return null;
+  }
+  return m;
+}
+
+function attachMockMetadata(postmanItems, sourceItems) {
+  const list = Array.isArray(postmanItems) ? postmanItems : [];
+  const source = Array.isArray(sourceItems) ? sourceItems : [];
+  list.forEach((item, index) => {
+    const node = source[index];
+    if (!item || !node) return;
+    if (node.type === 'folder') {
+      attachMockMetadata(item.item, node.items);
+      return;
+    }
+    const meta = mockBackupMeta(node.mock);
+    if (meta) item._relayMock = meta;
+  });
+}
+
+function attachValidationMetadata(postmanItems, sourceItems) {
+  const list = Array.isArray(postmanItems) ? postmanItems : [];
+  const source = Array.isArray(sourceItems) ? sourceItems : [];
+  list.forEach((item, index) => {
+    const node = source[index];
+    if (!item || !node) return;
+    if (node.type === 'folder') {
+      attachValidationMetadata(item.item, node.items);
+      return;
+    }
+    if (!hasFieldValidations(node.fieldValidations)) return;
+    item._relayFieldValidations = normalizeFieldValidations(node.fieldValidations);
+  });
+}
+
 function applyConfluenceBackupMeta(collection, meta) {
   if (!collection || !meta || typeof meta !== 'object') return collection;
   if (typeof meta.pageId === 'string') collection.confluencePageId = meta.pageId;
@@ -874,6 +932,8 @@ export function toWorkspaceBackup(workspace) {
       const out = toPostmanCollection(collection);
       const meta = confluenceBackupMeta(collection);
       if (meta) out._relayConfluence = meta;
+      attachMockMetadata(out.item, collection.items);
+      attachValidationMetadata(out.item, collection.items);
       return out;
     }),
     environments: (workspace?.environments || []).map(toPostmanEnvironment),

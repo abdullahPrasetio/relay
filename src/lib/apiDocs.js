@@ -5,6 +5,12 @@
 // assets, so it can be saved and opened anywhere. Secrets are never emitted:
 // `type: 'secret'` variables are rendered as `(secret)` and request auth shows
 // only the scheme name.
+import {
+  bodyValidationFields,
+  normalizeFieldValidations,
+  pathValidationFields,
+  validationTokens,
+} from './fieldValidations.js';
 
 export function escapeHtml(value) {
   return String(value ?? '')
@@ -73,35 +79,65 @@ function headerValue(headers, name) {
   return row?.value != null ? String(row.value) : '';
 }
 
-function kvTable(rows, { enabled = false } = {}) {
+function validationCell(rule) {
+  const tokens = validationTokens(rule);
+  if (!tokens.length) return '<td class="muted">—</td>';
+  return `<td>${tokens
+    .map((token) => `<span class="validation-token">${escapeHtml(token)}</span>`)
+    .join(' ')}</td>`;
+}
+
+function descriptionCell(rule) {
+  return rule?.description
+    ? `<td class="field-description">${escapeHtml(rule.description)}</td>`
+    : '<td class="muted">—</td>';
+}
+
+function kvTable(rows, { enabled = false, validations = {} } = {}) {
   const list = Array.isArray(rows) ? rows : [];
   if (list.length === 0) return '';
-  const head = enabled
-    ? '<tr><th>Key</th><th>Value</th><th>Enabled</th></tr>'
-    : '<tr><th>Key</th><th>Value</th></tr>';
+  const head = `<tr><th>Key</th><th>Value</th>${enabled ? '<th>Enabled</th>' : ''}<th>Validation</th><th>Description</th></tr>`;
   const body = list
     .map((row) => {
-      const cells = `<td>${escapeHtml(row?.key)}</td><td>${escapeHtml(row?.value)}</td>`;
-      return enabled
-        ? `<tr>${cells}<td>${row?.enabled === false ? 'no' : 'yes'}</td></tr>`
-        : `<tr>${cells}</tr>`;
+      const rule = validations[row?.key];
+      return [
+        '<tr>',
+        `<td>${escapeHtml(row?.key)}</td>`,
+        `<td>${escapeHtml(row?.value)}</td>`,
+        enabled ? `<td>${row?.enabled === false ? 'no' : 'yes'}</td>` : '',
+        validationCell(rule),
+        descriptionCell(rule),
+        '</tr>',
+      ].join('');
     })
     .join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 
-function renderBody(body) {
+// Body fields are flattened (dot paths) so nested JSON and GraphQL variables
+// can be documented with the same field metadata as headers and params.
+function fieldTable(fields, validations = {}) {
+  return kvTable(fields, { validations });
+}
+
+function renderBody(body, fieldValidations) {
   const mode = body?.mode || 'none';
   if (mode === 'none') return '';
+  const bodyValidations = fieldValidations?.body || {};
+  const fields = bodyValidationFields(body);
+  const fieldDocs = fields.length ? `<h4>Body fields</h4>${fieldTable(fields, bodyValidations)}` : '';
 
   if (mode === 'raw' || mode === 'json') {
     const raw = body?.raw ?? '';
     if (!String(raw).trim()) return '';
-    return `<h4>Body</h4><pre>${escapeHtml(prettyJson(String(raw)))}</pre>`;
+    return [
+      `<h4>Body</h4><pre>${escapeHtml(prettyJson(String(raw)))}</pre>`,
+      fieldDocs,
+    ].join('');
   }
 
   if (mode === 'form-urlencoded' || mode === 'form-data') {
-    const table = kvTable(body?.form, { enabled: true });
+    const table = kvTable(body?.form, { enabled: true, validations: bodyValidations });
     if (!table) return '';
     return `<h4>Body (${escapeHtml(mode)})</h4>${table}`;
   }
@@ -114,7 +150,7 @@ function renderBody(body) {
       '<h4>GraphQL query</h4>',
       `<pre>${escapeHtml(String(query))}</pre>`,
       String(variables).trim()
-        ? `<h4>GraphQL variables</h4><pre>${escapeHtml(prettyJson(String(variables)))}</pre>`
+        ? `<h4>GraphQL variables</h4><pre>${escapeHtml(prettyJson(String(variables)))}</pre>${fieldDocs}`
         : '',
     ].join('');
   }
@@ -154,6 +190,8 @@ function renderRequestCard(request, id, includeExamples) {
   const headers = Array.isArray(request?.headers) ? request.headers : [];
   const method = String(request?.method || 'GET').toUpperCase();
   const url = request?.url || '';
+  const validations = normalizeFieldValidations(request?.fieldValidations);
+  const pathFields = pathValidationFields(request);
 
   return [
     `<article class="request" id="${escapeHtml(id)}">`,
@@ -166,9 +204,21 @@ function renderRequestCard(request, id, includeExamples) {
       ? `<p class="description">${escapeHtml(request.description)}</p>`
       : '',
     `<p class="auth">Auth: <code>${escapeHtml(authType)}</code></p>`,
-    params.length ? `<h4>Query parameters</h4>${kvTable(params, { enabled: true })}` : '',
-    headers.length ? `<h4>Headers</h4>${kvTable(headers)}` : '',
-    renderBody(request?.body),
+    pathFields.length
+      ? `<h4>Path variables</h4>${kvTable(pathFields, {
+          validations: validations.path,
+        })}`
+      : '',
+    params.length
+      ? `<h4>Query parameters</h4>${kvTable(params, {
+          enabled: true,
+          validations: validations.params,
+        })}`
+      : '',
+    headers.length
+      ? `<h4>Headers</h4>${kvTable(headers, { validations: validations.headers })}`
+      : '',
+    renderBody(request?.body, validations),
     includeExamples ? renderExamples(request?.examples) : '',
     '</article>',
   ].join('');
@@ -233,6 +283,8 @@ const STYLE = `
   .example { margin-top: .75rem; padding-top: .75rem; border-top: 1px dashed #dde1e7; }
   .example h4 { margin-top: 0; text-transform: none; letter-spacing: 0; font-size: .95rem; color: #1d2433; }
   .status { font-weight: 600; }
+  .validation-token { display: inline-block; margin: 0 .2rem .15rem 0; padding: .05rem .3rem; border: 1px solid #cbd5e1; border-radius: 3px; font-size: .7rem; font-weight: 600; letter-spacing: .02em; color: #334155; }
+  .field-description { white-space: pre-wrap; }
   .meta, .muted { color: #5b6475; font-size: .85rem; }
   footer.docs-footer { color: #5b6475; font-size: .8rem; text-align: center; margin-top: 2rem; }
 `;
