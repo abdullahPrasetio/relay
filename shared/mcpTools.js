@@ -310,10 +310,10 @@ export const MCP_TOOLS = {
   relay_mock: {
     name: 'relay_mock',
     description:
-      'Control the local mock server. Call relay_help for the exact params of each action.',
+      'Control the mock server (uses the configured local/server binding and access token). Call relay_help for the exact params of each action.',
     actions: {
-      status: action('read', 'Mock server status, routes and recent logs.', {}),
-      start: action('mock', 'Start (or restart) the mock server.', {
+      status: action('read', 'Mock server status, binding mode, routes and recent logs.', {}),
+      start: action('mock', 'Start (or restart) the mock server in the configured mode.', {
         collectionId: str('Serve only this collection; omit to serve all.'),
         port: num('Port to listen on (default 0 picks a free port).'),
         delayMs: num('Artificial response delay in ms.'),

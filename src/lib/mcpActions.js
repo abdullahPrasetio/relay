@@ -323,6 +323,18 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
 
   // ---- actions ----
 
+  // Bridge calls return `{ok,error}` envelopes; MCP clients need the failure to
+  // surface as `ok:false` on the tool result, not as nested data.
+  function assertBridge(result, fallbackCode = 'renderer_error') {
+    if (result && typeof result === 'object' && result.ok === false) {
+      fail(
+        typeof result.code === 'string' && result.code ? result.code : fallbackCode,
+        result.error || 'The action failed.'
+      );
+    }
+    return result;
+  }
+
   const handlers = {
     relay_help: {
       // The main process answers `relay_help` without a scope or approval
@@ -931,24 +943,28 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
     relay_mock: {
       status: async () => requireApi('mockStatus')(),
       start: async (p) =>
-        requireApi('mockStart')({
-          collectionId: p.collectionId,
-          port: p.port,
-          delayMs: p.delayMs,
-        }),
-      stop: async () => requireApi('mockStop')(),
+        assertBridge(
+          await requireApi('mockStart')({
+            collectionId: p.collectionId,
+            port: p.port,
+            delayMs: p.delayMs,
+          })
+        ),
+      stop: async () => assertBridge(await requireApi('mockStop')()),
       reload: async (p) => {
         const workspace = needWorkspace();
         const collections = p.collectionId
           ? [needCollection(workspace, p.collectionId)]
           : workspace.collections || [];
-        return requireApi('mockReload')({ collections });
+        return assertBridge(await requireApi('mockReload')({ collections }));
       },
       select_scenario: async (p) =>
-        requireApi('mockSelect')({
-          requestId: p.requestId,
-          scenarioId: p.scenarioId == null ? null : String(p.scenarioId),
-        }),
+        assertBridge(
+          await requireApi('mockSelect')({
+            requestId: p.requestId,
+            scenarioId: p.scenarioId == null ? null : String(p.scenarioId),
+          })
+        ),
     },
 
     relay_confluence: {
@@ -958,18 +974,20 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
       },
       set_config: async (p) => {
         const workspace = needWorkspace(p.workspaceId);
-        return requireApi('confluenceSetConfig')({
-          workspaceId: workspace.id,
-          baseUrl: p.baseUrl,
-          authMethod: p.authMethod,
-          email: p.email,
-          token: p.token,
-          allowInsecureTls: p.allowInsecureTls,
-        });
+        return assertBridge(
+          await requireApi('confluenceSetConfig')({
+            workspaceId: workspace.id,
+            baseUrl: p.baseUrl,
+            authMethod: p.authMethod,
+            email: p.email,
+            token: p.token,
+            allowInsecureTls: p.allowInsecureTls,
+          })
+        );
       },
       test: async (p) => {
         const workspace = needWorkspace(p.workspaceId);
-        return requireApi('confluenceTest')(workspace.id);
+        return assertBridge(await requireApi('confluenceTest')(workspace.id));
       },
       publish: async (p) => {
         const workspace = needWorkspace(p.workspaceId);
@@ -977,16 +995,18 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
         const content = collectionToConfluenceStorage(collection, {
           workspaceName: workspace.name,
         });
-        return requireApi('confluencePublish')({
-          workspaceId: workspace.id,
-          collectionId: collection.id,
-          pageId: p.pageId || collection.confluencePageId || '',
-          title: p.title || collection.confluenceTitle || collection.name,
-          spaceKey: p.spaceKey || collection.confluenceSpaceKey || '',
-          parentPageId: p.parentPageId || collection.confluenceParentPageId || '',
-          force: p.force === true,
-          content,
-        });
+        return assertBridge(
+          await requireApi('confluencePublish')({
+            workspaceId: workspace.id,
+            collectionId: collection.id,
+            pageId: p.pageId || collection.confluencePageId || '',
+            title: p.title || collection.confluenceTitle || collection.name,
+            spaceKey: p.spaceKey || collection.confluenceSpaceKey || '',
+            parentPageId: p.parentPageId || collection.confluenceParentPageId || '',
+            force: p.force === true,
+            content,
+          })
+        );
       },
     },
 

@@ -254,11 +254,28 @@ completion provider scoped.
 
 `electron/mock-server.js` (pure Node) melayani collection yang sedang aktif:
 route = `METHOD + pathname` request (dengan `:param` sebagai wildcard segmen),
-respons = `examples[last]` (status/content-type/body). Tanpa example → `501`,
-tidak ada route → `404` beserta daftar route; CORS `*` dan preflight dijawab
-sendiri; delay 0–10 s; log 200 entri `{at,method,path,status,ms}`.
-`electron/mock-ipc.js` menyimpan satu server aktif dan dipanggil dari
-`registerIpc()`; shutdown memanggil `stopMockServer()`.
+respons = scenario terpilih, fallback `examples[last]` (status/content-type/body).
+Tanpa example → `501`, tidak ada route → `404` beserta daftar route; CORS `*`
+dan preflight dijawab sendiri; delay 0–10 s; log 200 entri
+`{at,method,path,status,ms}`. `electron/mock-ipc.js` menyimpan satu server aktif
+dan dipanggil dari `registerIpc()`; shutdown memanggil `stopMockServer()`.
+
+Dua mode binding (disimpan main-side di `store.mockServer`, tidak dikirim ke
+renderer):
+
+- `local` — bind `127.0.0.1`, tanpa token (perilaku lama).
+- `server` — bind `0.0.0.0` atau salah satu IPv4 interface, **wajib token**.
+  Token `relay_mock_…` dibuat lewat `mock:rotate-token` dan hanya ditampilkan
+  sekali; yang dipersistensi hanya SHA-256 + prefix, dan verifikasinya memakai
+  `timingSafeEqual`. Token diterima lewat `Authorization: Bearer`,
+  `x-relay-mock-token`, atau `?__token=` (preflight `OPTIONS` tetap terbuka).
+  `mock:status` mengembalikan `urls` (semua alamat yang bisa dipakai) dan
+  `mode`/`tokenRequired`.
+
+Scenario dipilih per request: `mode auto|manual` + conditions, override runtime
+dari modal (`mock:select`), dan override **per panggilan** lewat
+`?__scenario=<id>` (hanya id yang `enabled` pada route itu; menang atas
+override runtime, tercatat sebagai `reason: 'query'` di log).
 
 ## MCP server
 

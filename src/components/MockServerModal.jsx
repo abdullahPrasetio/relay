@@ -20,9 +20,19 @@ export default function MockServerModal({ store, onClose }) {
   const [port, setPort] = useState('0');
   const [delayMs, setDelayMs] = useState('0');
   const [status, setStatus] = useState({ running: false, url: null, port: null, routes: [], logs: [] });
+  const [config, setConfig] = useState({
+    mode: 'local',
+    host: '0.0.0.0',
+    tokenRequired: false,
+    tokenPrefix: '',
+    hosts: [],
+  });
+  const [issuedToken, setIssuedToken] = useState('');
+  const [confirmRotate, setConfirmRotate] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
   const aliveRef = useRef(true);
 
   const refresh = useCallback(async () => {
@@ -35,15 +45,26 @@ export default function MockServerModal({ store, onClose }) {
     }
   }, []);
 
+  const refreshConfig = useCallback(async () => {
+    if (!hasBridge || typeof window.api.mockGetConfig !== 'function') return;
+    try {
+      const next = await window.api.mockGetConfig();
+      if (aliveRef.current && next) setConfig(next);
+    } catch {
+      /* the modal still works with the last known config */
+    }
+  }, []);
+
   useEffect(() => {
     aliveRef.current = true;
     refresh();
+    refreshConfig();
     const timer = setInterval(refresh, 1000);
     return () => {
       aliveRef.current = false;
       clearInterval(timer);
     };
-  }, [refresh]);
+  }, [refresh, refreshConfig]);
 
   const reload = async () => {
     if (!hasBridge || !window.api.mockReload) {
@@ -76,6 +97,77 @@ export default function MockServerModal({ store, onClose }) {
     }
   };
 
+  const changeMode = async (mode) => {
+    if (!hasBridge || typeof window.api.mockSetConfig !== 'function') return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await window.api.mockSetConfig({ mode });
+      if (!result?.ok) setError(result?.error || 'Could not change the binding mode');
+      else setConfig(result.config);
+      setIssuedToken('');
+      setConfirmRotate(false);
+      refresh();
+    } catch (err) {
+      setError(err?.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeHost = async (host) => {
+    if (!hasBridge || typeof window.api.mockSetConfig !== 'function') return;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await window.api.mockSetConfig({ host });
+      if (!result?.ok) setError(result?.error || 'Could not change the interface');
+      else setConfig(result.config);
+      refresh();
+    } catch (err) {
+      setError(err?.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Generates the first token or rotates an existing one; the plaintext is
+  // shown once and the old token stops working immediately.
+  const rotateToken = async () => {
+    if (!hasBridge || typeof window.api.mockRotateToken !== 'function') return;
+    if (config.tokenRequired && !confirmRotate) {
+      setConfirmRotate(true);
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const result = await window.api.mockRotateToken();
+      if (!result?.ok) setError(result?.error || 'Could not create an access token');
+      else {
+        setConfig(result.config);
+        setIssuedToken(result.token || '');
+      }
+      setConfirmRotate(false);
+      refresh();
+    } catch (err) {
+      setError(err?.message || String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyToken = async () => {
+    if (!issuedToken) return;
+    try {
+      await navigator.clipboard.writeText(issuedToken);
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 1500);
+    } catch (err) {
+      setError(err?.message || 'Could not copy the token');
+    }
+  };
+
   const start = async () => {
     if (!hasBridge) {
       setError('Mock server is only available in the desktop app.');
@@ -95,7 +187,10 @@ export default function MockServerModal({ store, onClose }) {
         setStatus({
           running: true,
           url: result.url,
+          urls: result.urls || [],
           port: result.port,
+          mode: result.mode,
+          tokenRequired: result.tokenRequired,
           routes: result.routes || [],
           logs: [],
         });
@@ -114,7 +209,7 @@ export default function MockServerModal({ store, onClose }) {
     setError('');
     try {
       await window.api.mockStop();
-      setStatus({ running: false, url: null, port: null, routes: [], logs: [] });
+      setStatus({ running: false, url: null, urls: [], port: null, routes: [], logs: [] });
     } catch (err) {
       setError(err?.message || String(err));
     } finally {
@@ -158,6 +253,101 @@ export default function MockServerModal({ store, onClose }) {
 
       <div className="mock-fields">
         <div className="form-row">
+          <label htmlFor="mock-mode">Mode</label>
+          <select
+            id="mock-mode"
+            data-testid="mock-mode"
+            value={config.mode}
+            onChange={(e) => changeMode(e.target.value)}
+            disabled={busy}
+            title="Local keeps the listener on 127.0.0.1; server exposes it on the network with a token"
+          >
+            <option value="local">Local only (127.0.0.1)</option>
+            <option value="server">Server (LAN + token)</option>
+          </select>
+        </div>
+        {config.mode === 'server' && (
+          <div className="form-row">
+            <label htmlFor="mock-host">Interface</label>
+            <select
+              id="mock-host"
+              data-testid="mock-host"
+              value={config.host}
+              onChange={(e) => changeHost(e.target.value)}
+              disabled={busy}
+            >
+              {(config.hosts || []).map((entry) => (
+                <option key={entry.address} value={entry.address}>
+                  {entry.address}
+                  {entry.label ? ` · ${entry.label}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {config.mode === 'server' && (
+        <div className="mock-token-row">
+          {issuedToken ? (
+            <>
+              <input
+                className="mock-token"
+                data-testid="mock-token"
+                value={issuedToken}
+                readOnly
+                onFocus={(e) => e.target.select()}
+              />
+              <button
+                type="button"
+                className="mini-btn"
+                data-testid="mock-token-copy"
+                onClick={copyToken}
+              >
+                {copiedToken ? 'Copied' : 'Copy'}
+              </button>
+              <span className="auth-hint">Shown once — copy it now.</span>
+            </>
+          ) : config.tokenRequired ? (
+            <>
+              <code className="mock-token-prefix" data-testid="mock-token-prefix">
+                {config.tokenPrefix}…
+              </code>
+              <button
+                type="button"
+                className="mini-btn"
+                data-testid="mock-rotate-token"
+                onClick={rotateToken}
+                disabled={busy}
+              >
+                {confirmRotate ? 'Confirm rotate' : 'Rotate token'}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="mini-btn"
+              data-testid="mock-generate-token"
+              onClick={rotateToken}
+              disabled={busy}
+            >
+              Generate access token
+            </button>
+          )}
+        </div>
+      )}
+
+      {config.mode === 'server' && (
+        <p className="auth-hint">
+          Anyone on this network with the token can call these routes. There is no TLS:
+          share the URL and token only with people you trust, and rotate the token when
+          that changes. For access from outside the network, put the app behind your own
+          tunnel or reverse proxy.
+        </p>
+      )}
+
+      <div className="mock-fields">
+        <div className="form-row">
           <label htmlFor="mock-port">Port (0 = random)</label>
           <input
             id="mock-port"
@@ -191,7 +381,12 @@ export default function MockServerModal({ store, onClose }) {
           className="send-btn"
           data-testid="mock-start"
           onClick={start}
-          disabled={busy || status.running}
+          disabled={busy || status.running || (config.mode === 'server' && !config.tokenRequired)}
+          title={
+            config.mode === 'server' && !config.tokenRequired
+              ? 'Generate an access token first'
+              : undefined
+          }
         >
           <Icon name="play" size={12} /> Start
         </button>
@@ -235,6 +430,24 @@ export default function MockServerModal({ store, onClose }) {
               {copied ? 'Copied' : 'Copy'}
             </button>
           </div>
+
+          {Array.isArray(status.urls) && status.urls.length > 1 && (
+            <ul className="mock-urls" data-testid="mock-urls">
+              {status.urls.map((url) => (
+                <li key={url}>
+                  <code>{url}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {status.mode === 'server' && (
+            <p className="auth-hint">
+              Token required: send <code>Authorization: Bearer &lt;token&gt;</code> or append{' '}
+              <code>?__token=&lt;token&gt;</code>. Force a scenario per call with{' '}
+              <code>?__scenario=&lt;id&gt;</code>.
+            </p>
+          )}
 
           <div className="mock-section">
             <div className="mock-section-title">

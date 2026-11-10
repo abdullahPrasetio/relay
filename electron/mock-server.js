@@ -1,4 +1,5 @@
 import http from 'node:http';
+import crypto from 'node:crypto';
 import {
   configNeedsBody,
   normalizeMockConfig,
@@ -54,6 +55,27 @@ function applyCors(headers) {
 
 function jsonBody(payload) {
   return Buffer.from(JSON.stringify(payload), 'utf8');
+}
+
+// Compare the presented token against the stored SHA-256 digest in constant
+// time. The plaintext token is never kept in memory or on disk.
+function tokenMatches(presented, expectedHash) {
+  const digest = crypto.createHash('sha256').update(String(presented || ''), 'utf8').digest();
+  const expected = Buffer.from(String(expectedHash || ''), 'hex');
+  if (expected.length !== digest.length) return false;
+  return crypto.timingSafeEqual(digest, expected);
+}
+
+// Accepted token carriers, in order: Authorization: Bearer, x-relay-mock-token,
+// and ?__token= (browsers and simple curl calls cannot always set headers).
+function requestToken(req, parsedUrl) {
+  const header = req.headers.authorization;
+  const value = Array.isArray(header) ? header[0] : header;
+  const bearer = /^Bearer\s+(\S+)\s*$/i.exec(String(value || ''));
+  if (bearer) return bearer[1];
+  const custom = req.headers['x-relay-mock-token'];
+  if (typeof custom === 'string' && custom) return custom;
+  return parsedUrl.searchParams.get('__token') || '';
 }
 
 function collectRequests(collections, out = []) {
@@ -229,10 +251,12 @@ export function startMockServer({
   port = 0,
   delayMs = 0,
   host = '127.0.0.1',
+  tokenHash = '',
   onLog,
 } = {}) {
   const serverDelay = clampDelay(delayMs);
   const bindHost = String(host || '127.0.0.1');
+  const authHash = /^[0-9a-f]{64}$/i.test(String(tokenHash || '')) ? String(tokenHash) : '';
 
   let routes = buildRoutes(collections);
   let sortedRoutes = sortRoutes(routes);
@@ -337,6 +361,26 @@ export function startMockServer({
       return;
     }
 
+    // Server mode: every real request needs the token. Preflight stays open so
+    // browsers can negotiate CORS before sending credentials.
+    if (authHash && !tokenMatches(requestToken(req, parsedUrl), authHash)) {
+      req.resume();
+      const headers = {
+        'Content-Type': 'application/json; charset=utf-8',
+        'WWW-Authenticate': 'Bearer realm="Relay mock"',
+      };
+      applyCors(headers);
+      respond(
+        401,
+        headers,
+        jsonBody({
+          error: 'Unauthorized',
+          hint: 'Send Authorization: Bearer <token>, x-relay-mock-token, or ?__token=<token>',
+        })
+      );
+      return;
+    }
+
     const matched = matchRoutes(sortedRoutes, method, path);
     if (!matched) {
       req.resume();
@@ -357,9 +401,22 @@ export function startMockServer({
 
     const { route, params } = matched;
     const overrideId = overrides.get(route.requestId) || null;
-    const effectiveMock = overrideId
-      ? { ...route.mock, mode: 'manual', activeScenarioId: overrideId }
-      : route.mock;
+    // `?__scenario=<id>` forces one scenario for this call only. It is
+    // validated against the route's own enabled scenarios, so a consumer can
+    // never reach a scenario the owner did not define.
+    const requestedScenario = parsedUrl.searchParams.get('__scenario');
+    const forcedId =
+      requestedScenario &&
+      (route.mock.scenarios || []).some(
+        (scenario) => scenario.id === requestedScenario && scenario.enabled !== false
+      )
+        ? requestedScenario
+        : null;
+    const effectiveMock = forcedId
+      ? { ...route.mock, mode: 'manual', activeScenarioId: forcedId }
+      : overrideId
+        ? { ...route.mock, mode: 'manual', activeScenarioId: overrideId }
+        : route.mock;
 
     (async () => {
       let body = null;
@@ -416,7 +473,7 @@ export function startMockServer({
               matched: true,
               scenarioId: scenario.id,
               scenarioName: scenario.name,
-              reason: selected?.reason || '',
+              reason: forcedId ? 'query' : selected?.reason || '',
             }
           : undefined,
         wait
@@ -510,6 +567,8 @@ export function startMockServer({
         ok: true,
         port: actualPort,
         url: `http://${bindHost}:${actualPort}`,
+        host: bindHost,
+        tokenRequired: Boolean(authHash),
         routes: routesSummary,
         stop,
         getLogs: () => logs.map((entry) => ({ ...entry })),

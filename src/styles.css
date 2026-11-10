@@ -4353,3 +4353,45 @@ body {
   margin-top: 8px;
   max-height: 220px;
 }
+
+/* ===== Mock server: local/server mode, access token, shared URLs ===== */
+.mock-token-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 10px;
+}
+.mock-token {
+  flex: 1 1 320px;
+  min-width: 220px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-3);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.mock-token-prefix {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--code-bg);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.mock-urls {
+  list-style: none;
+  margin: 2px 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mock-urls code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}

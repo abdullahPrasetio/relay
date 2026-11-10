@@ -81,6 +81,10 @@ contextBridge.exposeInMainWorld('api', {
   mockStatus: () => ipcRenderer.invoke('mock:status'),
   mockReload: (payload) => ipcRenderer.invoke('mock:reload', payload),
   mockSelect: (payload) => ipcRenderer.invoke('mock:select', payload),
+  // Mock binding mode + one-time access token (never readable back).
+  mockGetConfig: () => ipcRenderer.invoke('mock:get-config'),
+  mockSetConfig: (payload) => ipcRenderer.invoke('mock:set-config', payload),
+  mockRotateToken: () => ipcRenderer.invoke('mock:rotate-token'),
   // MCP endpoint settings + the renderer side of a forwarded tool call.
   // No token getter exists: a token is returned once by create/rotate only.
   mcp: {
