@@ -233,6 +233,51 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
         <>
           <div className="kebab-backdrop" onClick={() => setOpen(false)} />
           <div className="ws-menu">
+            {cloud && (
+              <div className="ws-account">
+                {cloud.signedIn ? (
+                  <>
+                    <span className="ws-account-label">
+                      Signed in as <strong>{cloud.user?.email || cloud.user?.name || 'Relay Cloud'}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      className="mini-btn"
+                      onClick={async () => {
+                        setOpen(false);
+                        const res = await cloud.signOut();
+                        if (res && res.ok === false) {
+                          await dialogs.alert(res?.error?.message || 'Could not sign out.', {
+                            title: 'Relay Cloud',
+                          });
+                        }
+                      }}
+                    >
+                      Sign out
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="ws-account-label">Relay Cloud is not connected.</span>
+                    <button
+                      type="button"
+                      className="mini-btn"
+                      onClick={() => {
+                        setOpen(false);
+                        onOpenCloud?.();
+                      }}
+                    >
+                      Sign in
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+            {cloud?.signedIn && !active?.cloud?.remoteId && (
+              <div className="ws-cloud-hint">
+                Click the globe icon next to a workspace to sync it to Relay Cloud.
+              </div>
+            )}
             <div className="ws-menu-title">Workspaces</div>
             {store.workspaces.map((ws) => (
               <div key={ws.id} className={`ws-item ${ws.id === store.activeWorkspaceId ? 'active' : ''}`}>

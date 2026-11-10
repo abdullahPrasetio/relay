@@ -39,6 +39,17 @@ export const CLOUD_CHANNELS = [
   'cloud:update-comment',
   'cloud:delete-comment',
   'cloud:mentions',
+  'cloud:mocks',
+  'cloud:create-mock',
+  'cloud:update-mock',
+  'cloud:delete-mock',
+  'cloud:mock-logs',
+  'cloud:mock-from-request',
+  'cloud:mock-from-collection',
+  'cloud:mock-scenarios',
+  'cloud:create-mock-scenario',
+  'cloud:update-mock-scenario',
+  'cloud:delete-mock-scenario',
   'cloud:stream-start',
   'cloud:stream-stop',
   'cloud:presence',
@@ -198,6 +209,51 @@ export function registerCloudIpc({ ipcMain, client, stream = null, workspaceKeys
         limit: payload.limit,
       })
     )
+  );
+
+  // Server-side mocks. The workspace id is the public capability, but every
+  // management call still carries the bearer token held in main.
+  ipcMain.handle('cloud:mocks', wrap((payload) => client.mocks(payload.workspaceId)));
+  ipcMain.handle(
+    'cloud:create-mock',
+    wrap((payload) => client.createMock(payload.workspaceId, payload.mock))
+  );
+  ipcMain.handle(
+    'cloud:update-mock',
+    wrap((payload) => client.updateMock(payload.id, payload.patch))
+  );
+  ipcMain.handle('cloud:delete-mock', wrap((payload) => client.deleteMock(payload.id)));
+  ipcMain.handle(
+    'cloud:mock-logs',
+    wrap((payload) => client.mockLogs(payload.workspaceId, { limit: payload.limit }))
+  );
+  ipcMain.handle(
+    'cloud:mock-from-request',
+    wrap((payload) =>
+      client.mockFromRequest(payload.workspaceId, payload.requestId, payload.override)
+    )
+  );
+  ipcMain.handle(
+    'cloud:mock-from-collection',
+    wrap((payload) =>
+      client.mockFromCollection(payload.workspaceId, payload.collectionId, payload.override)
+    )
+  );
+  ipcMain.handle(
+    'cloud:mock-scenarios',
+    wrap((payload) => client.mockScenarios(payload.mockId))
+  );
+  ipcMain.handle(
+    'cloud:create-mock-scenario',
+    wrap((payload) => client.createMockScenario(payload.mockId, payload.scenario))
+  );
+  ipcMain.handle(
+    'cloud:update-mock-scenario',
+    wrap((payload) => client.updateMockScenario(payload.scenarioId, payload.patch))
+  );
+  ipcMain.handle(
+    'cloud:delete-mock-scenario',
+    wrap((payload) => client.deleteMockScenario(payload.scenarioId))
   );
 
   ipcMain.handle('cloud:stream-start', async (event, payload) => {

@@ -310,7 +310,7 @@ Target produk tetap **local-first**. Keputusan dan status implementasinya:
 
 | Item | Keputusan | Status |
 |---|---|---|
-| Mock server lokal | **Dikerjakan** — server dari collection + saved examples, CORS, delay, route `:vars`, 404 dengan daftar route | ✅ `electron/mock-server.js` + `MockServerModal` (IPC `mock:start/stop/status`), smoke end-to-end lulus |
+| Mock server lokal + cloud | **Dikerjakan** — Local: server dari collection + saved examples, CORS, delay, route `:vars`, 404 dengan daftar route. Cloud: endpoint/CRUD, log, skenario auto/manual, generate dari collection/request di relay-api | ✅ Local: `electron/mock-server.js` + tab Local (IPC `mock:start/stop/status`). Cloud: `electron/cloud/client.js` + tab Cloud (`window.api.cloud.mocks*`), unit test payload/client. Cloud mocks tidak ikut workspace JSON (server sumber kebenaran); URL mock adalah capability publik |
 | Generated API docs | **Dikerjakan** — HTML statis mandiri per collection (ToC, request cards, examples, variables; secret diredaksi) | ✅ `src/lib/apiDocs.js` + menu “Export docs (HTML)” di Sidebar |
 | Git-friendly workspace | **Dikerjakan** — satu file per collection + environment/globals + manifest, export/import folder, secret tidak pernah ditulis | ✅ `src/lib/gitWorkspace.js`, IPC `workspace:export/import`, menu di Workspace Switcher; id collision di-remap |
 | Cloud sync + collaboration | **Ditunda** — butuh backend/auth/role/conflict resolution di luar repo | ⏸ belum ada kode; jangan mulai tanpa backend |
@@ -318,7 +318,7 @@ Target produk tetap **local-first**. Keputusan dan status implementasinya:
 | Performance testing | **Ditunda** — bisa memakai core runner + worker, tetapi belum ada target produk | ⏸ |
 | Signing/notarization + auto-update | **Pipeline disiapkan** (pilihan produk): `hardenedRuntime` + entitlements, publish GitHub, `electron/updater.js`, CI secrets opsional | ⚠️ aktif hanya setelah secrets Apple/Windows diisi; build unsigned tetap jalan |
 
-Batas yang diketahui untuk item yang dikerjakan: mock server hanya melayani `examples` terbaru (tanpa proxy/script/dinamis), docs tidak menyertakan screenshot/live example, dan secret pada workspace Git harus diisi ulang setelah import (plaintext maupun ciphertext tidak pernah ikut ditulis).
+Batas yang diketahui untuk item yang dikerjakan: mock lokal hanya melayani `examples` terbaru (tanpa proxy/script/dinamis); mock cloud memakai URL capability tanpa token per-workspace dan tidak ikut export/import workspace JSON; docs tidak menyertakan screenshot/live example; secret pada workspace Git harus diisi ulang setelah import (plaintext maupun ciphertext tidak pernah ikut ditulis).
 
 ## Milestone
 

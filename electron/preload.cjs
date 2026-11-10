@@ -125,6 +125,30 @@ contextBridge.exposeInMainWorld('api', {
         before: options?.before,
         limit: options?.limit,
       }),
+    // Server-side mocks. The workspace id is public capability data, but
+    // management calls still go through the authenticated main-process client.
+    mocks: (workspaceId) => ipcRenderer.invoke('cloud:mocks', { workspaceId }),
+    createMock: (workspaceId, mock) =>
+      ipcRenderer.invoke('cloud:create-mock', { workspaceId, mock }),
+    updateMock: (id, patch) => ipcRenderer.invoke('cloud:update-mock', { id, patch }),
+    deleteMock: (id) => ipcRenderer.invoke('cloud:delete-mock', { id }),
+    mockLogs: (workspaceId, options = {}) =>
+      ipcRenderer.invoke('cloud:mock-logs', { workspaceId, limit: options?.limit }),
+    mockFromRequest: (workspaceId, requestId, override = {}) =>
+      ipcRenderer.invoke('cloud:mock-from-request', { workspaceId, requestId, override }),
+    mockFromCollection: (workspaceId, collectionId, override = {}) =>
+      ipcRenderer.invoke('cloud:mock-from-collection', {
+        workspaceId,
+        collectionId,
+        override,
+      }),
+    mockScenarios: (mockId) => ipcRenderer.invoke('cloud:mock-scenarios', { mockId }),
+    createMockScenario: (mockId, scenario) =>
+      ipcRenderer.invoke('cloud:create-mock-scenario', { mockId, scenario }),
+    updateMockScenario: (scenarioId, patch) =>
+      ipcRenderer.invoke('cloud:update-mock-scenario', { scenarioId, patch }),
+    deleteMockScenario: (scenarioId) =>
+      ipcRenderer.invoke('cloud:delete-mock-scenario', { scenarioId }),
     // End-to-end secrets: only envelope strings and decrypted values cross
     // this bridge. Keys never do. One payload object per call, matching the
     // renderer's call(method, payload) adapter.

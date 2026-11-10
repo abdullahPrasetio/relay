@@ -1,4 +1,9 @@
 import os from 'node:os';
+import {
+  buildMockOverridePayload,
+  buildMockPayload,
+  buildScenarioPayload,
+} from '../../src/lib/mockPayload.js';
 
 // Main-process client for relay-api.
 //
@@ -722,6 +727,97 @@ export function createCloudClient({
 
     async deleteComment(id) {
       await call(`/comments/${requireId(id)}`, { method: 'DELETE' });
+      return null;
+    },
+
+    // --- Server-side mocks (relay-api) ------------------------------------
+    // Endpoints are workspace data; the public URL is a capability, not a
+    // secret. Every payload is validated here as well as in the renderer.
+
+    async mocks(workspaceId) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/mocks`);
+      return {
+        mockBaseUrl: typeof data?.mockBaseUrl === 'string' ? data.mockBaseUrl : '',
+        endpoints: Array.isArray(data?.endpoints) ? data.endpoints : [],
+      };
+    },
+
+    async createMock(workspaceId, payload) {
+      const data = await call(`/workspaces/${requireId(workspaceId)}/mocks`, {
+        method: 'POST',
+        body: buildMockPayload(payload),
+      });
+      return data ?? null;
+    },
+
+    async updateMock(id, patch) {
+      const data = await call(`/mocks/${requireId(id)}`, {
+        method: 'PATCH',
+        body: buildMockPayload(patch, { partial: true }),
+      });
+      return data ?? null;
+    },
+
+    async deleteMock(id) {
+      await call(`/mocks/${requireId(id)}`, { method: 'DELETE' });
+      return null;
+    },
+
+    async mockLogs(workspaceId, { limit } = {}) {
+      const params = new URLSearchParams();
+      params.set('limit', String(requirePositiveInt(limit, 'limit', 50)));
+      const data = await call(
+        `/workspaces/${requireId(workspaceId)}/mock-logs?${params}`
+      );
+      return {
+        mockBaseUrl: typeof data?.mockBaseUrl === 'string' ? data.mockBaseUrl : '',
+        logs: Array.isArray(data?.logs) ? data.logs : [],
+      };
+    },
+
+    async mockFromRequest(workspaceId, requestId, override = {}) {
+      const data = await call(
+        `/workspaces/${requireId(workspaceId)}/mocks/from-request/${requireId(requestId)}`,
+        { method: 'POST', body: buildMockOverridePayload(override) }
+      );
+      return data ?? null;
+    },
+
+    async mockFromCollection(workspaceId, collectionId, override = {}) {
+      const data = await call(
+        `/workspaces/${requireId(workspaceId)}/mocks/from-collection/${requireId(collectionId)}`,
+        { method: 'POST', body: buildMockOverridePayload(override) }
+      );
+      return {
+        mockBaseUrl: typeof data?.mockBaseUrl === 'string' ? data.mockBaseUrl : '',
+        created: Array.isArray(data?.created) ? data.created : [],
+        skipped: Array.isArray(data?.skipped) ? data.skipped : [],
+      };
+    },
+
+    async mockScenarios(mockId) {
+      const data = await call(`/mocks/${requireId(mockId)}/scenarios`);
+      return Array.isArray(data) ? data : [];
+    },
+
+    async createMockScenario(mockId, payload) {
+      const data = await call(`/mocks/${requireId(mockId)}/scenarios`, {
+        method: 'POST',
+        body: buildScenarioPayload(payload),
+      });
+      return data ?? null;
+    },
+
+    async updateMockScenario(scenarioId, patch) {
+      const data = await call(`/scenarios/${requireId(scenarioId)}`, {
+        method: 'PATCH',
+        body: buildScenarioPayload(patch, { partial: true }),
+      });
+      return data ?? null;
+    },
+
+    async deleteMockScenario(scenarioId) {
+      await call(`/scenarios/${requireId(scenarioId)}`, { method: 'DELETE' });
       return null;
     },
 

@@ -66,7 +66,7 @@ export default function AppHeader({
         {cloud && (
           <button
             type="button"
-            className={`cloud-chip sync-${syncStatus}`}
+            className={`cloud-chip sync-${syncStatus}${cloud.signedIn ? ' signed-in' : ''}`}
             title={syncTitle}
             aria-label={syncTitle}
             onClick={handleCloudClick}
@@ -76,6 +76,15 @@ export default function AppHeader({
             <Icon name="cloud" size={15} />
             <span className="cloud-chip-dot" aria-hidden="true" />
           </button>
+        )}
+        {cloud?.signedIn && (
+          <span
+            className="cloud-account-email"
+            title={cloud.user?.email || 'Relay Cloud'}
+            data-testid="cloud-account"
+          >
+            {cloud.user?.email || cloud.user?.name || 'Relay Cloud'}
+          </span>
         )}
         {cloud && (
           <button

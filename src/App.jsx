@@ -1983,7 +1983,18 @@ export default function App() {
         />
       )}
 
-      {mockOpen && <MockServerModal store={store} onClose={() => setMockOpen(false)} />}
+      {mockOpen && (
+        <MockServerModal
+          store={store}
+          cloud={cloud}
+          remoteWorkspaceId={remoteWorkspaceId}
+          onOpenCloud={() => {
+            setMockOpen(false);
+            setCloudAuthOpen(true);
+          }}
+          onClose={() => setMockOpen(false)}
+        />
+      )}
 
       {confluenceSyncCollectionId &&
         (() => {

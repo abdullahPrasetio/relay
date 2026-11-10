@@ -1,10 +1,17 @@
 # Rencana: Confluence export + mock server dengan skenario
 
 Status: **Confluence (M1–M3) sudah diimplementasikan** di branch
-`feat/confluence-sync` (2026-10-31); mock scenarios (M4–M5) masih rencana dan
-akan menjadi branch/rilis terpisah. Baseline: Relay local-first (Electron main
-+ React, satu workspace JSON), sudah punya mock server berbasis saved example
-dan export docs HTML statis.
+`feat/confluence-sync` (2026-10-31). Server-side mock relay-api sudah
+diimplementasikan terpisah dan dipakai lewat tab **Cloud** di `MockServerModal`
+(2026-11-10); mock lokal `request.mock` di dokumen ini tetap menjadi jalur
+offline dan tidak diubah.
+
+> Catatan integrasi server (2026-11-10): relay-api sekarang memiliki
+> `mock_endpoints`/`mock_scenarios`, chaos/file response, regex condition, dan
+> generate dari collection/request. Relay client memakai endpoint tersebut lewat
+> main process (`window.api.cloud.mocks*`). Cloud mocks **tidak** dimirror ke
+> workspace JSON; lihat `docs/server-mocks-integration-plan.md`.
+
 
 ## 1. Keputusan arsitektur
 
