@@ -1770,13 +1770,6 @@ export default function App() {
         cloud={cloud}
         searchQuery={globalSearch}
         onSearch={setGlobalSearch}
-        onOpenCookies={() => setCookiesOpen(true)}
-        onOpenMock={() => setMockOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenAppearance={() => setAppearanceOpen(true)}
-        onOpenDonation={() => setDonationOpen(true)}
-        onOpenCloud={() => setCloudAuthOpen(true)}
-        onOpenDevices={() => setDevicesOpen(true)}
       />
 
       {store.saveError && (
@@ -1824,7 +1817,18 @@ export default function App() {
       )}
 
       <div className="body">
-        <ActivityRail active={railView} onSelect={setRailView} />
+        <ActivityRail
+          active={railView}
+          onSelect={setRailView}
+          cloud={cloud}
+          onOpenCloud={() => setCloudAuthOpen(true)}
+          onOpenDevices={() => setDevicesOpen(true)}
+          onOpenCookies={() => setCookiesOpen(true)}
+          onOpenMock={() => setMockOpen(true)}
+          onOpenDonation={() => setDonationOpen(true)}
+          onOpenAppearance={() => setAppearanceOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
         <Sidebar
           view={railView}
           query={globalSearch}
@@ -1835,6 +1839,8 @@ export default function App() {
           onChangeEnvironments={store.setEnvironments}
           activeEnvId={store.activeEnvId}
           onSelectEnv={store.setActiveEnvId}
+          globals={store.globals}
+          onChangeGlobals={store.setGlobals}
           history={store.history}
           onClearHistory={() => store.setHistory([])}
           historyLimit={store.historyLimit}

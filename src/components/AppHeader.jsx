@@ -1,49 +1,10 @@
 import React from 'react';
-import EnvBar from './EnvBar.jsx';
 import WorkspaceSwitcher from './WorkspaceSwitcher.jsx';
-import Icon from './Icon.jsx';
 
-// Top application bar: brand, a centered (decorative) search field, and the
-// environment selector on the right -- echoing Postman's header layout.
-const SYNC_LABELS = {
-  local: 'Local only',
-  synced: 'Synced',
-  syncing: 'Syncing…',
-  offline: 'Offline',
-  conflict: 'Conflict',
-  signed_out: 'Signed out',
-};
-
-export default function AppHeader({
-  store,
-  cloud,
-  searchQuery,
-  onSearch,
-  onOpenCookies,
-  onOpenMock,
-  onOpenSettings,
-  onOpenAppearance,
-  onOpenDonation,
-  onOpenCloud,
-  onOpenDevices,
-}) {
-  const syncStatus = cloud?.status || 'local';
-  const syncLabel = SYNC_LABELS[syncStatus] || 'Local only';
-  const syncTitle = !cloud?.signedIn
-    ? 'Sign in to Relay Cloud'
-    : syncStatus === 'local'
-      ? 'This workspace is not linked to Relay Cloud'
-      : `${syncLabel}${cloud.user?.email ? ` — ${cloud.user.email}` : ''}`;
-
-  function handleCloudClick() {
-    if (!cloud) return;
-    if (!cloud.signedIn) {
-      onOpenCloud?.();
-      return;
-    }
-    cloud.syncNow?.();
-  }
-
+// Top application bar: brand, workspace switcher, a centered search field, and
+// the signed-in account label. App-level actions live in the activity rail so
+// the header stays uncluttered.
+export default function AppHeader({ store, cloud, searchQuery, onSearch }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -51,7 +12,7 @@ export default function AppHeader({
           <span className="brand-dot" />
           Relay
         </span>
-        <WorkspaceSwitcher store={store} cloud={cloud} onOpenCloud={onOpenCloud} />
+        <WorkspaceSwitcher store={store} cloud={cloud} />
       </div>
 
       <div className="topbar-center">
@@ -64,20 +25,6 @@ export default function AppHeader({
       </div>
 
       <div className="topbar-right">
-        {cloud && (
-          <button
-            type="button"
-            className={`cloud-chip sync-${syncStatus}${cloud.signedIn ? ' signed-in' : ''}`}
-            title={syncTitle}
-            aria-label={syncTitle}
-            onClick={handleCloudClick}
-            data-testid="cloud-status"
-            data-state={syncStatus}
-          >
-            <Icon name="cloud" size={15} />
-            <span className="cloud-chip-dot" aria-hidden="true" />
-          </button>
-        )}
         {cloud?.signedIn && (
           <span
             className="cloud-account-email"
@@ -87,72 +34,6 @@ export default function AppHeader({
             {cloud.user?.email || cloud.user?.name || 'Relay Cloud'}
           </span>
         )}
-        {cloud && (
-          <button
-            type="button"
-            className="mini-btn icon-only"
-            onClick={onOpenDevices}
-            title="Devices"
-            aria-label="Devices"
-            data-testid="devices-open"
-          >
-            <Icon name="monitor" size={15} />
-          </button>
-        )}
-        <EnvBar
-          environments={store.environments}
-          activeEnvId={store.activeEnvId}
-          onSelect={store.setActiveEnvId}
-          onChange={store.setEnvironments}
-          globals={store.globals}
-          onChangeGlobals={store.setGlobals}
-        />
-        <span className="topbar-divider" aria-hidden="true" />
-        <button
-          className="mini-btn icon-only"
-          onClick={onOpenCookies}
-          title="Cookies"
-          aria-label="Cookies"
-          data-testid="cookies-open"
-        >
-          <Icon name="cookie" size={15} />
-        </button>
-        <button
-          className="mini-btn icon-only"
-          onClick={onOpenMock}
-          title="Mock server"
-          aria-label="Mock server"
-          data-testid="mock-open"
-        >
-          <Icon name="globe" size={15} />
-        </button>
-        <button
-          className="mini-btn icon-only donation-btn"
-          onClick={onOpenDonation}
-          title="Support Relay"
-          aria-label="Support Relay"
-          data-testid="donation-open"
-        >
-          <Icon name="heart" size={15} />
-        </button>
-        <button
-          className="mini-btn icon-only"
-          onClick={onOpenAppearance}
-          title="Appearance"
-          aria-label="Appearance"
-          data-testid="appearance-open"
-        >
-          <Icon name="palette" size={15} />
-        </button>
-        <button
-          className="mini-btn icon-only"
-          onClick={onOpenSettings}
-          title="Network settings"
-          aria-label="Network settings"
-          data-testid="settings-open"
-        >
-          <Icon name="gear" size={15} />
-        </button>
       </div>
     </header>
   );

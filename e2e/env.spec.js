@@ -1,10 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { closeApp, launchApp } from './helpers/app.js';
 
-// The environment switcher used to be three buttons + a select in the header.
-// It is now one pill with a menu; this covers the create/select flow so the
-// header stays compact without losing functionality.
-test('creates and selects an environment from the header menu', async () => {
+// The environment switcher is one pill with a menu in the sidebar. This
+// covers the create/select flow after moving it out of the header.
+test('creates and selects an environment from the sidebar menu', async () => {
   const session = await launchApp();
   const { page } = session;
 

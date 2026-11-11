@@ -19,6 +19,7 @@ import { toPostmanEnvironment, fromPostmanEnvironment } from '../lib/environment
 import TreeNode from './TreeNode.jsx';
 import ContextMenu from './ContextMenu.jsx';
 import Icon from './Icon.jsx';
+import EnvBar from './EnvBar.jsx';
 import { useDialogs } from './Dialogs.jsx';
 
 export default function Sidebar({
@@ -28,6 +29,8 @@ export default function Sidebar({
   onChangeEnvironments,
   activeEnvId,
   onSelectEnv,
+  globals,
+  onChangeGlobals,
   history,
   onClearHistory,
   historyLimit = 100,
@@ -257,6 +260,17 @@ export default function Sidebar({
           {view === 'environments' && 'Environments'}
           {view === 'history' && 'History'}
         </span>
+      </div>
+
+      <div className="sidebar-env">
+        <EnvBar
+          environments={environments}
+          activeEnvId={activeEnvId}
+          onSelect={onSelectEnv}
+          onChange={onChangeEnvironments}
+          globals={globals}
+          onChangeGlobals={onChangeGlobals}
+        />
       </div>
 
       {view === 'environments' && (

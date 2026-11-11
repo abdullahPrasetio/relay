@@ -233,6 +233,85 @@ body {
   font-size: 9.5px;
 }
 
+.rail-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.rail-actions {
+  margin-top: auto;
+  padding: 8px 0 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.rail-action {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.rail-action:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.rail-dot {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.rail-action.sync-synced .rail-dot {
+  background: var(--green);
+}
+
+.rail-action.sync-offline .rail-dot,
+.rail-action.sync-conflict .rail-dot {
+  background: var(--red);
+}
+
+.sidebar-env {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-env .envbar {
+  width: 100%;
+}
+
+.sidebar-env .env-trigger {
+  width: 100%;
+  max-width: none;
+}
+
+.sidebar-env .env-menu {
+  left: 0;
+  right: auto;
+  width: 100%;
+}
+
+.sidebar-env .env-popover {
+  left: 0;
+  right: auto;
+  width: min(420px, calc(100vw - 90px));
+}
+
 /* Sidebar header (panel title) */
 .sidebar-header {
   display: flex;
@@ -1036,6 +1115,11 @@ body {
 }
 .example-row .tree-label {
   font-size: 12px;
+}
+.example-row .tree-icon {
+  display: flex;
+  align-items: center;
+  width: 38px;
 }
 .example-status {
   flex: 0 0 auto;
@@ -4193,6 +4277,9 @@ body {
   .env-trigger-label,
   .cloud-account-email {
     display: none;
+  }
+  .sidebar-env .env-trigger-label {
+    display: inline;
   }
   .env-trigger {
     padding: 6px 8px;

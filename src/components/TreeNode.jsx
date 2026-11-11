@@ -170,7 +170,7 @@ export default function TreeNode({
             <div
               key={example.id}
               className="tree-row example-row"
-              style={{ paddingLeft: 8 + (depth + 1) * 14 }}
+              style={{ paddingLeft: 8 + depth * 14 + 22 }}
               title={`${example.request?.method || node.method || 'GET'} ${
                 example.request?.url || node.url || ''
               }`}
