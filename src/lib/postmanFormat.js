@@ -856,6 +856,8 @@ function confluenceBackupMeta(collection) {
     parentPageId: c.confluenceParentPageId || '',
     syncedAt: c.confluenceSyncedAt || null,
     version: c.confluenceVersion ?? null,
+    contentMode: c.confluenceContentMode || 'documentation',
+    contentOrder: c.confluenceContentOrder || 'doc_first',
   };
   return Object.values(meta).some((value) => value != null && value !== '') ? meta : null;
 }
@@ -918,6 +920,8 @@ function applyConfluenceBackupMeta(collection, meta) {
   if (Number.isInteger(meta.version) && meta.version > 0) {
     collection.confluenceVersion = meta.version;
   }
+  if (typeof meta.contentMode === 'string') collection.confluenceContentMode = meta.contentMode;
+  if (typeof meta.contentOrder === 'string') collection.confluenceContentOrder = meta.contentOrder;
   return collection;
 }
 

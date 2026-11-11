@@ -356,6 +356,12 @@ export const MCP_TOOLS = {
         spaceKey: str('Space key for a new page.'),
         parentPageId: str('Parent page id for a new page.'),
         force: bool('Publish even when the local copy is not newer.'),
+        contentMode: field('string', 'Page content to publish.', {
+          enum: ['documentation', 'openapi', 'swagger', 'both'],
+        }),
+        contentOrder: field('string', 'Section order for contentMode=both.', {
+          enum: ['doc_first', 'openapi_first'],
+        }),
       }),
     },
   },
@@ -496,6 +502,12 @@ export const MCP_TOOLS = {
         workspaceId: str('Workspace id; defaults to the active workspace.'),
         collectionId: strReq('Collection id.'),
         includeExamples: bool('Include saved examples.'),
+        contentMode: field('string', 'Page content to render.', {
+          enum: ['documentation', 'openapi', 'swagger', 'both'],
+        }),
+        contentOrder: field('string', 'Section order for contentMode=both.', {
+          enum: ['doc_first', 'openapi_first'],
+        }),
       }),
     },
   },

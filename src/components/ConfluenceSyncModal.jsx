@@ -1,11 +1,45 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Modal from './Modal.jsx';
-import { collectionToConfluenceStorage } from '../lib/confluenceDocs.js';
+import {
+  collectionToConfluenceStorage,
+  normalizeConfluenceContentMode,
+  normalizeConfluenceContentOrder,
+} from '../lib/confluenceDocs.js';
 import {
   formatSyncTime,
   pageLink,
   parsePageId,
 } from '../lib/confluenceUi.js';
+
+const MODE_OPTIONS = [
+  {
+    value: 'documentation',
+    label: 'Documentation Only',
+    description: 'Full API documentation: headers, body, examples and cURL.',
+  },
+  {
+    value: 'openapi',
+    label: 'OpenAPI 3.0 (Raw JSON)',
+    description: 'The generated OpenAPI 3.0 spec inside a JSON code block.',
+  },
+  {
+    value: 'swagger',
+    label: 'Swagger UI (Interactive)',
+    description: 'Embeds the spec with the “Open API (Swagger) Integration” macro.',
+    badge: 'Requires App',
+  },
+  {
+    value: 'both',
+    label: 'Documentation + Swagger UI',
+    description: 'Documentation and interactive Swagger UI on one page, in the order you pick.',
+    badge: 'Requires App',
+  },
+];
+
+const ORDER_OPTIONS = [
+  { value: 'doc_first', label: 'Documentation → Swagger UI' },
+  { value: 'openapi_first', label: 'Swagger UI → Documentation' },
+];
 
 // Publish one collection to Confluence. Update-only is the default: a page ID
 // is enough. Create is opt-in and requires a space + explicit parent so a page
@@ -23,6 +57,12 @@ export default function ConfluenceSyncModal({ workspace, collection, onChange, o
     collection.confluenceParentPageId || ''
   );
   const [includeExamples, setIncludeExamples] = useState(true);
+  const [contentMode, setContentMode] = useState(() =>
+    normalizeConfluenceContentMode(collection.confluenceContentMode)
+  );
+  const [contentOrder, setContentOrder] = useState(() =>
+    normalizeConfluenceContentOrder(collection.confluenceContentOrder)
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -92,6 +132,8 @@ export default function ConfluenceSyncModal({ workspace, collection, onChange, o
         workspaceName: workspace.name,
         includeExamples,
         generatedAt: new Date().toISOString(),
+        contentMode,
+        contentOrder,
       });
       const res = await bridge.confluencePublish({
         workspaceId: workspace.id,
@@ -116,6 +158,8 @@ export default function ConfluenceSyncModal({ workspace, collection, onChange, o
           confluenceParentPageId: res.parentPageId || effParent,
           confluenceSyncedAt: now,
           confluenceVersion: res.version ?? null,
+          confluenceContentMode: contentMode,
+          confluenceContentOrder: contentOrder,
         });
         setNotice(
           `${res.created ? 'Created' : 'Updated'} page${res.version ? ` (v${res.version})` : ''}.`
@@ -233,6 +277,63 @@ export default function ConfluenceSyncModal({ workspace, collection, onChange, o
             />
             Include saved examples
           </label>
+
+          <fieldset className="confluence-mode-list">
+            <legend className="mock-section-title">What to sync</legend>
+            {MODE_OPTIONS.map((option) => (
+              <label
+                key={option.value}
+                className={`confluence-mode-option ${
+                  contentMode === option.value ? 'active' : ''
+                }`}
+                data-testid={`confluence-mode-${option.value}`}
+              >
+                <input
+                  type="radio"
+                  name="confluence-content-mode"
+                  value={option.value}
+                  checked={contentMode === option.value}
+                  onChange={() => setContentMode(option.value)}
+                />
+                <span className="confluence-mode-copy">
+                  <strong>{option.label}</strong>
+                  {option.badge && <span className="confluence-mode-badge">{option.badge}</span>}
+                  <small>{option.description}</small>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+
+          {contentMode === 'both' && (
+            <fieldset className="confluence-order-list">
+              <legend className="mock-section-title">Content order</legend>
+              {ORDER_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className={`confluence-order-option ${
+                    contentOrder === option.value ? 'active' : ''
+                  }`}
+                  data-testid={`confluence-order-${option.value}`}
+                >
+                  <input
+                    type="radio"
+                    name="confluence-content-order"
+                    value={option.value}
+                    checked={contentOrder === option.value}
+                    onChange={() => setContentOrder(option.value)}
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </fieldset>
+          )}
+
+          {(contentMode === 'swagger' || contentMode === 'both') && (
+            <p className="auth-hint" data-testid="confluence-swagger-hint">
+              Swagger UI requires the “Open API (Swagger) Integration for Confluence” app.
+              Without it the page shows an unknown-macro placeholder.
+            </p>
+          )}
 
           {conflict?.code === 'title' && (
             <div className="confluence-conflict" data-testid="confluence-title-conflict">

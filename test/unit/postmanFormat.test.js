@@ -400,6 +400,8 @@ describe('globals and workspace backup', () => {
     collection.confluenceParentPageId = '654';
     collection.confluenceSyncedAt = '2026-10-31T00:00:00.000Z';
     collection.confluenceVersion = 3;
+    collection.confluenceContentMode = 'both';
+    collection.confluenceContentOrder = 'openapi_first';
 
     const backup = toWorkspaceBackup({ name: 'Team', collections: [collection] });
     expect(backup.collections[0]._relayConfluence).toEqual({
@@ -410,6 +412,8 @@ describe('globals and workspace backup', () => {
       parentPageId: '654',
       syncedAt: '2026-10-31T00:00:00.000Z',
       version: 3,
+      contentMode: 'both',
+      contentOrder: 'openapi_first',
     });
 
     const restored = fromWorkspaceBackup(JSON.parse(JSON.stringify(backup)));
@@ -421,6 +425,8 @@ describe('globals and workspace backup', () => {
       confluenceParentPageId: '654',
       confluenceSyncedAt: '2026-10-31T00:00:00.000Z',
       confluenceVersion: 3,
+      confluenceContentMode: 'both',
+      confluenceContentOrder: 'openapi_first',
     });
 
     // Normal Postman export must stay clean.

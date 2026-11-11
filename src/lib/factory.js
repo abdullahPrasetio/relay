@@ -145,6 +145,8 @@ export function newCollection(name = 'New Collection') {
     confluenceParentPageId: '',
     confluenceSyncedAt: null,
     confluenceVersion: null,
+    confluenceContentMode: 'documentation',
+    confluenceContentOrder: 'doc_first',
   };
 }
 

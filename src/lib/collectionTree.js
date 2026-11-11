@@ -9,6 +9,10 @@
 // stay immutable.
 
 import { newRequest, newCollection, normalizeRequest, uid } from './factory.js';
+import {
+  normalizeConfluenceContentMode,
+  normalizeConfluenceContentOrder,
+} from './confluenceDocs.js';
 
 export function newFolder(name = 'New Folder') {
   return {
@@ -77,6 +81,8 @@ export function normalizeCollection(collection) {
       Number.isInteger(collection.confluenceVersion) && collection.confluenceVersion > 0
         ? collection.confluenceVersion
         : null,
+    confluenceContentMode: normalizeConfluenceContentMode(collection.confluenceContentMode),
+    confluenceContentOrder: normalizeConfluenceContentOrder(collection.confluenceContentOrder),
     items: [],
   };
   if (Array.isArray(collection.items)) {

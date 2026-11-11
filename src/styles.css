@@ -4017,6 +4017,101 @@ body {
   word-break: break-all;
 }
 
+.confluence-mode-list,
+.confluence-order-list {
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.confluence-mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.confluence-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  background: var(--bg-2);
+}
+
+.confluence-mode-option:hover {
+  background: var(--bg-3);
+}
+
+.confluence-mode-option.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-2));
+}
+
+.confluence-mode-option input {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+.confluence-mode-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.confluence-mode-copy strong {
+  font-size: 12.5px;
+}
+
+.confluence-mode-copy small {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.confluence-mode-badge {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning, #a35c00) 15%, transparent);
+  color: var(--warning, #a35c00);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.confluence-order-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.confluence-order-list legend {
+  width: 100%;
+}
+
+.confluence-order-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  background: var(--bg-2);
+}
+
+.confluence-order-option.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-2));
+}
+
 .confluence-conflict {
   margin: 12px 0;
   padding: 12px;

@@ -91,6 +91,8 @@ function collectionFile(collection) {
     confluenceParentPageId: collection.confluenceParentPageId || '',
     confluenceSyncedAt: collection.confluenceSyncedAt || null,
     confluenceVersion: collection.confluenceVersion ?? null,
+    confluenceContentMode: collection.confluenceContentMode || 'documentation',
+    confluenceContentOrder: collection.confluenceContentOrder || 'doc_first',
   };
 }
 
@@ -315,6 +317,8 @@ export function filesToWorkspace(
       confluenceParentPageId: json.confluenceParentPageId || '',
       confluenceSyncedAt: json.confluenceSyncedAt || null,
       confluenceVersion: Number.isInteger(json.confluenceVersion) ? json.confluenceVersion : null,
+      confluenceContentMode: json.confluenceContentMode || 'documentation',
+      confluenceContentOrder: json.confluenceContentOrder || 'doc_first',
     });
     collections.push(collection);
   }

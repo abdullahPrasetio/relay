@@ -33,6 +33,8 @@ describe('collection normalization', () => {
       confluenceParentPageId: '456',
       confluenceSyncedAt: '2026-10-31T00:00:00.000Z',
       confluenceVersion: 4,
+      confluenceContentMode: 'both',
+      confluenceContentOrder: 'openapi_first',
     });
     expect(collection).toMatchObject({
       confluencePageId: '123',
@@ -42,7 +44,16 @@ describe('collection normalization', () => {
       confluenceParentPageId: '456',
       confluenceSyncedAt: '2026-10-31T00:00:00.000Z',
       confluenceVersion: 4,
+      confluenceContentMode: 'both',
+      confluenceContentOrder: 'openapi_first',
     });
+    expect(normalizeCollection({ name: 'Plain' })).toMatchObject({
+      confluenceContentMode: 'documentation',
+      confluenceContentOrder: 'doc_first',
+    });
+    expect(
+      normalizeCollection({ name: 'Bad', confluenceContentMode: 'nope' }).confluenceContentMode
+    ).toBe('documentation');
     expect(normalizeCollection({ name: 'Plain' }).confluencePageId).toBe('');
     expect(normalizeCollection({ name: 'Bad', confluenceVersion: -1 }).confluenceVersion).toBeNull();
   });

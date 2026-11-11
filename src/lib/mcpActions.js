@@ -994,6 +994,8 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
         const collection = needCollection(workspace, p.collectionId);
         const content = collectionToConfluenceStorage(collection, {
           workspaceName: workspace.name,
+          contentMode: p.contentMode,
+          contentOrder: p.contentOrder,
         });
         return assertBridge(
           await requireApi('confluencePublish')({
@@ -1122,6 +1124,8 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
           content: collectionToConfluenceStorage(collection, {
             workspaceName: workspace.name,
             includeExamples: p.includeExamples !== false,
+            contentMode: p.contentMode,
+            contentOrder: p.contentOrder,
           }),
         };
       },
