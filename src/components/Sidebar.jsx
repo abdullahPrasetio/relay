@@ -17,6 +17,7 @@ import { collectionToHtml, suggestDocsName } from '../lib/apiDocs.js';
 import { importAny } from '../lib/import/index.js';
 import { toPostmanEnvironment, fromPostmanEnvironment } from '../lib/environmentFormat.js';
 import TreeNode from './TreeNode.jsx';
+import ContextMenu from './ContextMenu.jsx';
 import Icon from './Icon.jsx';
 import { useDialogs } from './Dialogs.jsx';
 
@@ -55,6 +56,7 @@ export default function Sidebar({
   const [historyQuery, setHistoryQuery] = useState('');
   const [historyMethod, setHistoryMethod] = useState('all');
   const [historyStatus, setHistoryStatus] = useState('all');
+  const [collectionMenu, setCollectionMenu] = useState(null); // { id, x, y }
 
   const dnd = {
     onDragStart(collectionId, nodeId) {
@@ -213,6 +215,32 @@ export default function Sidebar({
     },
   };
 
+  // Shared by the kebab and right-click menus so both entry points stay in
+  // sync.
+  function collectionItems(collection) {
+    return [
+      { label: 'Run Collection', onClick: () => onRun(collection.id, null) },
+      { label: 'Edit Collection', onClick: () => onOpenCollection(collection.id) },
+      { label: 'Add Request', onClick: () => actions.addRequest(collection.id, null) },
+      { label: 'Add Folder', onClick: () => actions.addFolder(collection.id, null) },
+      {
+        label: 'Rename',
+        onClick: async () => {
+          const name = await dialogs.prompt('Collection name', collection.name, {
+            title: 'Rename Collection',
+            okLabel: 'Rename',
+          });
+          if (name == null) return;
+          onChangeCollections(renameCollection(collections, collection.id, name));
+        },
+      },
+      { label: 'Export (Postman v2.1)', onClick: () => exportCollection(collection) },
+      { label: 'Export docs (HTML)', onClick: () => exportDocs(collection) },
+      { label: 'Sync to Confluence…', onClick: () => onSyncConfluence?.(collection.id) },
+      { label: 'Delete', danger: true, onClick: () => deleteCollection(collection.id, collection.name) },
+    ];
+  }
+
   const historyMethods = [...new Set((history || []).map((h) => h.method).filter(Boolean))].sort();
   const filteredHistory = filterHistory(history || [], {
     query: historyQuery,
@@ -284,6 +312,11 @@ export default function Sidebar({
                 <div
                   className="tree-row collection-row"
                   onDragOver={(e) => e.preventDefault()}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setCollectionMenu({ id: c.id, x: e.clientX, y: e.clientY });
+                  }}
                   onDrop={(e) => {
                     e.preventDefault();
                     dnd.onDrop(c.id, null);
@@ -299,24 +332,7 @@ export default function Sidebar({
                   >
                     {c.name}
                   </span>
-                  <CollectionKebab
-                    collection={c}
-                    actions={actions}
-                    onExport={() => exportCollection(c)}
-                    onExportDocs={() => exportDocs(c)}
-                    onSyncConfluence={() => onSyncConfluence?.(c.id)}
-                    onDelete={() => deleteCollection(c.id, c.name)}
-                    onRename={async () => {
-                      const name = await dialogs.prompt('Collection name', c.name, {
-                        title: 'Rename Collection',
-                        okLabel: 'Rename',
-                      });
-                      if (name == null) return;
-                      onChangeCollections(renameCollection(collections, c.id, name));
-                    }}
-                    onEditCollection={() => onOpenCollection(c.id)}
-                    onRun={() => onRun(c.id, null)}
-                  />
+                  <CollectionKebab items={collectionItems(c)} />
                 </div>
                 {!isCollapsed && (
                   <div className="tree-children">
@@ -338,6 +354,14 @@ export default function Sidebar({
                       />
                     ))}
                   </div>
+                )}
+                {collectionMenu?.id === c.id && (
+                  <ContextMenu
+                    x={collectionMenu.x}
+                    y={collectionMenu.y}
+                    items={collectionItems(c)}
+                    onClose={() => setCollectionMenu(null)}
+                  />
                 )}
               </div>
             );
@@ -656,19 +680,8 @@ function EnvironmentsPanel({ environments, activeEnvId, onSelectEnv, onChangeEnv
   );
 }
 
-function CollectionKebab({ collection, actions, onExport, onExportDocs, onSyncConfluence, onDelete, onRename, onEditCollection, onRun }) {
+function CollectionKebab({ items }) {
   const [open, setOpen] = useState(false);
-  const items = [
-    { label: 'Run Collection', onClick: onRun },
-    { label: 'Edit Collection', onClick: onEditCollection },
-    { label: 'Add Request', onClick: () => actions.addRequest(collection.id, null) },
-    { label: 'Add Folder', onClick: () => actions.addFolder(collection.id, null) },
-    { label: 'Rename', onClick: onRename },
-    { label: 'Export (Postman v2.1)', onClick: onExport },
-    { label: 'Export docs (HTML)', onClick: onExportDocs },
-    { label: 'Sync to Confluence…', onClick: onSyncConfluence },
-    { label: 'Delete', danger: true, onClick: onDelete },
-  ];
   return (
     <span className="kebab-wrap" onClick={(e) => e.stopPropagation()}>
       <button className="kebab-btn" title="Collection actions" onClick={() => setOpen((v) => !v)}>

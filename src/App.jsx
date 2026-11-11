@@ -192,6 +192,8 @@ function newTab(request) {
     grpcError: null,
     dirty: false,
     savedCollectionId: null,
+    // Transient UI intent, e.g. opening a saved example from the sidebar.
+    view: null,
   };
 }
 
@@ -1544,17 +1546,21 @@ export default function App() {
     [tabs, activeTabId, store, updateTab]
   );
   const openRequest = useCallback(
-    (req) => {
+    (req, view = null) => {
       const existing = tabs.find((t) => t.request.id === req.id);
       if (existing) {
         setActiveTabId(existing.tabId);
+        // A fresh object per call makes the panel react even when the same
+        // example is clicked again.
+        if (view) updateTab(existing.tabId, { view: { ...view } });
         return;
       }
       const tab = newTab(req);
+      if (view) tab.view = { ...view };
       setTabs((prev) => [...prev, tab]);
       setActiveTabId(tab.tabId);
     },
-    [tabs]
+    [tabs, updateTab]
   );
 
   const addTab = useCallback(() => {
@@ -1824,6 +1830,7 @@ export default function App() {
             <RequestPanel
               key={activeTab.tabId}
               request={activeTab.request}
+              view={activeTab.view}
               onChange={setActiveRequest}
               onSend={send}
               onSave={save}

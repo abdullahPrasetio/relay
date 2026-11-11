@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import KeyValueEditor from './KeyValueEditor.jsx';
 import AuthPanel from './AuthPanel.jsx';
 import VarInput from './VarInput.jsx';
@@ -31,6 +31,7 @@ const BODY_METHODS = ['POST', 'PUT', 'PATCH'];
 
 export default function RequestPanel({
   request,
+  view = null,
   onChange,
   onSend,
   onSave,
@@ -45,8 +46,13 @@ export default function RequestPanel({
   dirty,
 }) {
   const [tab, setTab] = useState(() =>
-    BODY_METHODS.includes((request.method || 'GET').toUpperCase()) ? 'Body' : 'Params'
+    view?.tab ||
+    (BODY_METHODS.includes((request.method || 'GET').toUpperCase()) ? 'Body' : 'Params')
   );
+  // The sidebar can ask an already-open tab to reveal a specific example.
+  useEffect(() => {
+    if (view?.tab) setTab(view.tab);
+  }, [view]);
   // GraphQL schema fetched by the Body tab. State only: it is never persisted
   // to the request or the store.
   const [schemaState, setSchemaState] = useState({
@@ -214,6 +220,7 @@ export default function RequestPanel({
         {tab === 'Examples' && (
           <ExamplesList
             examples={request.examples || []}
+            focus={view}
             onDelete={(id) => patch({ examples: request.examples.filter((e) => e.id !== id) })}
           />
         )}
@@ -224,8 +231,11 @@ export default function RequestPanel({
   );
 }
 
-function ExamplesList({ examples, onDelete }) {
-  const [openId, setOpenId] = useState(null);
+function ExamplesList({ examples, focus = null, onDelete }) {
+  const [openId, setOpenId] = useState(focus?.exampleId || null);
+  useEffect(() => {
+    if (focus?.exampleId) setOpenId(focus.exampleId);
+  }, [focus]);
   if (examples.length === 0) {
     return (
       <p className="auth-hint">

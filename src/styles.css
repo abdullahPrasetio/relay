@@ -1023,6 +1023,29 @@ body {
   color: var(--red);
 }
 
+/* Right-click menu shares .kebab-menu but is positioned at the pointer. */
+.kebab-menu.context-menu {
+  position: fixed;
+  right: auto;
+  top: auto;
+}
+
+/* Saved examples nested under their request. */
+.example-row {
+  color: var(--text-dim);
+}
+.example-row .tree-label {
+  font-size: 12px;
+}
+.example-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  color: var(--text-dim);
+}
+
 /* ===== Split pane ===== */
 .split-pane {
   flex: 1;
