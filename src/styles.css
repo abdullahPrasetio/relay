@@ -4004,6 +4004,44 @@ body {
   }
 }
 
+/* ---- Donation ---- */
+.donation-btn:hover {
+  color: var(--red, #e5484d);
+}
+
+.donation-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.donation-body p {
+  margin: 0;
+}
+
+.donation-qr {
+  width: 260px;
+  max-width: 100%;
+  padding: 10px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.donation-qr img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.donation-links a {
+  color: var(--accent);
+  word-break: break-all;
+}
+
 /* ---- Confluence sync ---- */
 .confluence-page {
   margin-top: 16px;

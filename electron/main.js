@@ -782,6 +782,16 @@ function registerIpc() {
     }
   });
 
+  // Read-only app metadata. The renderer uses `isPackaged` to avoid showing
+  // release-only prompts (such as the daily donation reminder) in dev/tests.
+  ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    isPackaged: app.isPackaged,
+    // Shown in dev too so the prompt can be checked locally; E2E sets the
+    // env var to keep unrelated specs free of an unsolicited modal.
+    donationPrompt: process.env.RELAY_DISABLE_DONATION_PROMPT !== '1',
+  }));
+
   // The renderer finished its unsaved-work prompt and allows the close.
   ipcMain.handle('app:close-confirmed', () => {
     allowWindowClose = true;

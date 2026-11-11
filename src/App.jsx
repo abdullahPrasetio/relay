@@ -23,6 +23,8 @@ import MockServerModal from './components/MockServerModal.jsx';
 import McpApprovalModal from './components/McpApprovalModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import AppearanceModal from './components/AppearanceModal.jsx';
+import DonationModal from './components/DonationModal.jsx';
+import { markDonationPromptShown, shouldShowDonationPrompt } from './lib/donationPrompt.js';
 import RequestSettingsModal from './components/RequestSettingsModal.jsx';
 import CloudAuthModal from './components/CloudAuthModal.jsx';
 import CloudDevicesModal from './components/CloudDevicesModal.jsx';
@@ -245,7 +247,35 @@ export default function App() {
   const [mockOpen, setMockOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [donationOpen, setDonationOpen] = useState(false);
   const [cloudAuthOpen, setCloudAuthOpen] = useState(false);
+
+  // Daily reminder. E2E launches set RELAY_DISABLE_DONATION_PROMPT=1 so only
+  // the specs that opt in see it; the header button always opens the modal.
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api?.getAppInfo) return undefined;
+    let alive = true;
+    let timer = null;
+    (async () => {
+      try {
+        const info = await api.getAppInfo();
+        if (!alive || !info?.donationPrompt) return;
+        if (!shouldShowDonationPrompt()) return;
+        timer = setTimeout(() => {
+          if (!alive) return;
+          markDonationPromptShown();
+          setDonationOpen(true);
+        }, 2000);
+      } catch {
+        /* best-effort: never block startup */
+      }
+    })();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, []);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const [requestSettingsOpen, setRequestSettingsOpen] = useState(false);
@@ -1744,6 +1774,7 @@ export default function App() {
         onOpenMock={() => setMockOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenAppearance={() => setAppearanceOpen(true)}
+        onOpenDonation={() => setDonationOpen(true)}
         onOpenCloud={() => setCloudAuthOpen(true)}
         onOpenDevices={() => setDevicesOpen(true)}
       />
@@ -2063,6 +2094,8 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      {donationOpen && <DonationModal onClose={() => setDonationOpen(false)} />}
 
       {codeModal && <CodeModal request={codeModal.request} onClose={() => setCodeModal(null)} />}
 

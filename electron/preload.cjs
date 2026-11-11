@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('app:close-requested', handler);
   },
   confirmClose: () => ipcRenderer.invoke('app:close-confirmed'),
+  getAppInfo: () => ipcRenderer.invoke('app:info'),
   getNetworkSettings: () => ipcRenderer.invoke('network:get'),
   setNetworkSettings: (settings) => ipcRenderer.invoke('network:set', settings),
   mockStart: (payload) => ipcRenderer.invoke('mock:start', payload),

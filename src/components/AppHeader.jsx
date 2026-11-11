@@ -23,6 +23,7 @@ export default function AppHeader({
   onOpenMock,
   onOpenSettings,
   onOpenAppearance,
+  onOpenDonation,
   onOpenCloud,
   onOpenDevices,
 }) {
@@ -124,6 +125,15 @@ export default function AppHeader({
           data-testid="mock-open"
         >
           <Icon name="globe" size={15} />
+        </button>
+        <button
+          className="mini-btn icon-only donation-btn"
+          onClick={onOpenDonation}
+          title="Support Relay"
+          aria-label="Support Relay"
+          data-testid="donation-open"
+        >
+          <Icon name="heart" size={15} />
         </button>
         <button
           className="mini-btn icon-only"

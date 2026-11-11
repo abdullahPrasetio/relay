@@ -15,7 +15,12 @@ export function makeUserData() {
 export async function launchAppAt(userData, extraEnv = {}) {
   const app = await electron.launch({
     args: ['.'],
-    env: { ...process.env, ...extraEnv, RELAY_TEST_USER_DATA: userData },
+    env: {
+      ...process.env,
+      RELAY_DISABLE_DONATION_PROMPT: '1',
+      ...extraEnv,
+      RELAY_TEST_USER_DATA: userData,
+    },
   });
   const page = await app.firstWindow();
   await page.waitForSelector('.url-input', { timeout: 30000 });
