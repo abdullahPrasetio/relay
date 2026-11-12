@@ -1,16 +1,33 @@
 import React, { useMemo, useState } from 'react';
 import { diffLines, prettyForDiff } from '../lib/textDiff.js';
 
-export default function ResponseDiff({ response, examples = [] }) {
-  const candidates = useMemo(
-    () => examples.filter((example) => typeof example?.response?.body === 'string'),
-    [examples]
-  );
+export default function ResponseDiff({ response, examples = [], history = [] }) {
+  const candidates = useMemo(() => {
+    const saved = examples
+      .filter((example) => typeof example?.response?.body === 'string')
+      .map((example) => ({
+        id: `example:${example.id}`,
+        name: example.name || 'Example',
+        response: example.response,
+      }));
+    const previous = history
+      .filter((entry) => typeof entry?.body === 'string')
+      .map((entry) => ({
+        id: `history:${entry.id}`,
+        name: `Previous · ${new Date(entry.at).toLocaleTimeString([], { hour12: false })}`,
+        response: {
+          body: entry.body,
+          contentType: entry.contentType,
+          status: entry.status,
+        },
+      }));
+    return [...saved, ...previous];
+  }, [examples, history]);
   const [selectedId, setSelectedId] = useState(
     () => candidates[candidates.length - 1]?.id || ''
   );
   const selected =
-    candidates.find((example) => example.id === selectedId) ||
+    candidates.find((candidate) => candidate.id === selectedId) ||
     candidates[candidates.length - 1] ||
     null;
 

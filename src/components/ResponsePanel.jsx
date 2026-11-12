@@ -18,6 +18,7 @@ export default function ResponsePanel({
   sending,
   testResults,
   examples = [],
+  history = [],
   onSaveExample,
   onSetVariable,
 }) {
@@ -69,7 +70,12 @@ export default function ResponsePanel({
   const tabs = ['Body', 'Headers', 'Cookies', 'Request'];
   if (testResults?.ran) tabs.push('Tests');
   if (testResults?.visualizer) tabs.push('Visualizer');
-  if (examples.some((example) => typeof example?.response?.body === 'string')) tabs.push('Diff');
+  if (
+    examples.some((example) => typeof example?.response?.body === 'string') ||
+    history.some((entry) => typeof entry?.body === 'string')
+  ) {
+    tabs.push('Diff');
+  }
   if ((response.consoleLogs?.length || 0) > 0) tabs.push('Console');
 
   return (
@@ -146,7 +152,9 @@ export default function ResponsePanel({
         {tab === 'Request' && <SentRequest sent={response.sent} />}
         {tab === 'Tests' && <TestResults results={testResults?.results} />}
         {tab === 'Visualizer' && <VisualizerPanel visualizer={testResults.visualizer} />}
-        {tab === 'Diff' && <ResponseDiff response={response} examples={examples} />}
+        {tab === 'Diff' && (
+          <ResponseDiff response={response} examples={examples} history={history} />
+        )}
         {tab === 'Console' && <ConsoleOutput logs={response.consoleLogs} />}
       </div>
     </section>

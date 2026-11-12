@@ -120,6 +120,28 @@ function maskVisualizer(visualizer, secrets) {
   };
 }
 
+const RESPONSE_HISTORY_LIMIT = 20;
+const RESPONSE_HISTORY_BODY_LIMIT = 512 * 1024;
+
+function responseSnapshot(response) {
+  if (!response || !response.ok) return null;
+  const body =
+    typeof response.body === 'string' && response.body.length <= RESPONSE_HISTORY_BODY_LIMIT
+      ? response.body
+      : '';
+  return {
+    id: `res_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    at: Date.now(),
+    status: response.status,
+    statusText: response.statusText,
+    contentType: response.contentType,
+    body,
+    headers: Array.isArray(response.headers) ? response.headers : [],
+    timeMs: response.timeMs,
+    size: response.size,
+  };
+}
+
 const WS_LOG_LIMIT = 500;
 
 // The renderer keeps its own copy of the conversation (outgoing frames are
@@ -200,6 +222,7 @@ function newTab(request) {
     tabId: uid('tab'),
     request: req,
     response: null,
+    responseHistory: [],
     testResults: null,
     sending: false,
     sendingId: null,
@@ -1441,10 +1464,15 @@ export default function App() {
     }
 
     const requestId = newRequestId();
+    const previousSnapshot = responseSnapshot(tab.response);
+    const responseHistory = previousSnapshot
+      ? [...(tab.responseHistory || []), previousSnapshot].slice(-RESPONSE_HISTORY_LIMIT)
+      : tab.responseHistory || [];
     updateTab(activeTabId, {
       sending: true,
       sendingId: requestId,
       response: null,
+      responseHistory,
       testResults: null,
     });
 
@@ -2410,6 +2438,7 @@ export default function App() {
                 sending={activeTab.sending}
                 testResults={activeTab.testResults}
                 examples={activeTab.request.examples || []}
+                history={activeTab.responseHistory || []}
                 onSaveExample={saveExample}
                 onSetVariable={openSetVariable}
               />
