@@ -15,6 +15,7 @@ export default [
   {
     ignores: [
       'dist/**',
+      'dist-core/**',
       'dist-electron/**',
       'release/**',
       'build/**',
