@@ -1,7 +1,7 @@
 import React from 'react';
 import Modal from './Modal.jsx';
 import Icon from './Icon.jsx';
-import { ACCENTS, MODES } from '../lib/theme.js';
+import { ACCENTS, MODES, normalizeHex } from '../lib/theme.js';
 
 const MODE_ICONS = { system: 'monitor', light: 'sun', dark: 'moon' };
 
@@ -9,6 +9,13 @@ const MODE_ICONS = { system: 'monitor', light: 'sun', dark: 'moon' };
 // color. Colors are defined in styles.css per accent id; the swatch element
 // carries the same data-accent attribute, so it previews the real palette.
 export default function AppearanceModal({ appearance, onChange, onClose }) {
+  const customAccent = normalizeHex(appearance.customAccent) || '#ff6c37';
+
+  function chooseCustom(value) {
+    const hex = normalizeHex(value);
+    if (hex) onChange({ accent: 'custom', customAccent: hex });
+  }
+
   return (
     <Modal title="Appearance" onClose={onClose} width={480}>
       <div className="appearance-section">
@@ -53,6 +60,37 @@ export default function AppearanceModal({ appearance, onChange, onClose }) {
               )}
             </button>
           ))}
+          <button
+            type="button"
+            className={`appearance-accent ${appearance.accent === 'custom' ? 'active' : ''}`}
+            onClick={() => chooseCustom(customAccent)}
+            data-testid="appearance-accent-custom"
+            aria-pressed={appearance.accent === 'custom'}
+            title="Custom color"
+          >
+            <span
+              className="appearance-swatch"
+              style={{ background: customAccent }}
+              aria-hidden="true"
+            />
+            <span className="appearance-accent-label">Custom</span>
+            {appearance.accent === 'custom' && (
+              <span className="appearance-check" aria-hidden="true">
+                <Icon name="check" size={12} />
+              </span>
+            )}
+          </button>
+        </div>
+        <div className="appearance-custom">
+          <input
+            type="color"
+            data-testid="appearance-custom-color"
+            value={customAccent}
+            aria-label="Custom accent color"
+            onChange={(e) => chooseCustom(e.target.value)}
+          />
+          <span className="appearance-custom-value">{customAccent}</span>
+          <span className="appearance-hint">Pick any color for a custom accent.</span>
         </div>
       </div>
 

@@ -4,6 +4,7 @@ import {
   DEFAULT_APPEARANCE,
   MODES,
   normalizeAppearance,
+  normalizeHex,
   readAppearance,
   resolveThemeMode,
   writeAppearance,
@@ -34,6 +35,20 @@ describe('appearance preferences', () => {
     }
   });
 
+  it('accepts a custom hex accent and normalizes shorthand', () => {
+    expect(normalizeHex('#ABC')).toBe('#aabbcc');
+    expect(normalizeHex('#12ab34')).toBe('#12ab34');
+    expect(normalizeHex('not-a-color')).toBeNull();
+    expect(normalizeAppearance({ mode: 'dark', accent: 'custom', customAccent: '#12ab34' })).toEqual({
+      mode: 'dark',
+      accent: 'custom',
+      customAccent: '#12ab34',
+    });
+    expect(normalizeAppearance({ accent: 'custom', customAccent: 'nope' })).toEqual(
+      DEFAULT_APPEARANCE
+    );
+  });
+
   it('resolves system mode from the OS preference only', () => {
     expect(resolveThemeMode('system', true)).toBe('light');
     expect(resolveThemeMode('system', false)).toBe('dark');
@@ -54,6 +69,13 @@ describe('appearance preferences', () => {
 
     writeAppearance({ mode: 'light', accent: 'postman' });
     expect(readAppearance()).toEqual({ mode: 'light', accent: 'postman' });
+
+    writeAppearance({ mode: 'dark', accent: 'custom', customAccent: '#12ab34' });
+    expect(readAppearance()).toEqual({
+      mode: 'dark',
+      accent: 'custom',
+      customAccent: '#12ab34',
+    });
 
     // Corrupt payloads degrade to defaults instead of throwing.
     store.set('relay-appearance', '{not json');

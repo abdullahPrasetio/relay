@@ -98,6 +98,12 @@
 [data-accent='rose'] { --accent: #f43f5e; --accent-2: #fb7185; --accent-rgb: 244 63 94; }
 [data-accent='amber'] { --accent: #f59e0b; --accent-2: #fbbf24; --accent-rgb: 245 158 11; }
 [data-accent='slate'] { --accent: #64748b; --accent-2: #94a3b8; --accent-rgb: 100 116 139; }
+[data-accent='teal'] { --accent: #14b8a6; --accent-2: #5eead4; --accent-rgb: 20 184 166; }
+[data-accent='cyan'] { --accent: #06b6d4; --accent-2: #67e8f9; --accent-rgb: 6 182 212; }
+[data-accent='blue'] { --accent: #3b82f6; --accent-2: #93c5fd; --accent-rgb: 59 130 246; }
+[data-accent='fuchsia'] { --accent: #d946ef; --accent-2: #f0abfc; --accent-rgb: 217 70 239; }
+[data-accent='pink'] { --accent: #ec4899; --accent-2: #f9a8d4; --accent-rgb: 236 72 153; }
+[data-accent='red'] { --accent: #ef4444; --accent-2: #fca5a5; --accent-rgb: 239 68 68; }
 
 html {
   background: var(--bg);
@@ -3214,6 +3220,30 @@ body {
   display: flex;
   color: var(--accent);
 }
+.appearance-custom {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.appearance-custom input[type='color'] {
+  width: 38px;
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-3);
+  cursor: pointer;
+}
+
+.appearance-custom-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .appearance-preview {
   display: flex;
   align-items: center;

@@ -17,6 +17,21 @@
     root.dataset.theme = resolved;
     root.dataset.accent = accent;
     root.style.colorScheme = resolved;
+
+    var custom = pref && typeof pref.customAccent === 'string' ? pref.customAccent : '';
+    if (accent === 'custom' && /^#[0-9a-f]{6}$/i.test(custom)) {
+      var r = parseInt(custom.slice(1, 3), 16);
+      var g = parseInt(custom.slice(3, 5), 16);
+      var b = parseInt(custom.slice(5, 7), 16);
+      var light = function (channel) {
+        return Math.round(channel + (255 - channel) * 0.28)
+          .toString(16)
+          .padStart(2, '0');
+      };
+      root.style.setProperty('--accent', custom);
+      root.style.setProperty('--accent-2', '#' + light(r) + light(g) + light(b));
+      root.style.setProperty('--accent-rgb', r + ' ' + g + ' ' + b);
+    }
   } catch (err) {
     /* preference unreadable: the default dark palette applies */
   }
