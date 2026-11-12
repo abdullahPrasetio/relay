@@ -38,6 +38,8 @@ export default function WorkspaceDashboard({
   activeEnv = null,
   pinnedRequests = [],
   onStartRequest,
+  onNewCollection,
+  onOpenEnvironments,
   onOpenRequest,
   onOpenCollection,
 }) {
@@ -158,6 +160,28 @@ export default function WorkspaceDashboard({
                 <span>
                   <strong>New request</strong>
                   <small>Open a blank request editor</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="dashboard-action"
+                onClick={onNewCollection}
+              >
+                <Icon name="collection" size={15} />
+                <span>
+                  <strong>New collection</strong>
+                  <small>Create an empty collection</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                className="dashboard-action"
+                onClick={onOpenEnvironments}
+              >
+                <Icon name="globe" size={15} />
+                <span>
+                  <strong>Environments</strong>
+                  <small>Manage variables and active environment</small>
                 </span>
               </button>
               <div className="dashboard-tip">

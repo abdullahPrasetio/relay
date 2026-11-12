@@ -5935,3 +5935,34 @@ select:not([multiple])::-ms-expand {
 .mcp-call-ok { color: var(--green); }
 .mcp-call-error { color: var(--red); }
 .mcp-call-time { color: var(--text-dim); }
+
+/* WebSocket reconnect + heartbeat controls */
+.ws-state-reconnecting {
+  color: var(--warn-text);
+  background: var(--warn-bg);
+}
+.ws-settings {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 2px 0;
+}
+.ws-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.ws-system-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 4px;
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  opacity: 0.8;
+}

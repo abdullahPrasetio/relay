@@ -7,12 +7,15 @@ import { WebSocket } from 'ws';
 // Limits:
 // - 10 s connect timeout (handshake failure or a server that never answers).
 // - Per-session history: 500 messages / 1 MB, oldest dropped first.
-// - No automatic reconnect, no heartbeat/ping, no per-message compression
-//   configuration. Those are deliberate Phase 5 limits.
+// - Optional heartbeat ping/pong (renderer opts in); reconnect is orchestrated
+//   by the renderer so the tab can keep its conversation log.
+// - No per-message compression configuration.
 
 const CONNECT_TIMEOUT_MS = 10000;
 const MAX_HISTORY_MESSAGES = 500;
 const MAX_HISTORY_BYTES = 1024 * 1024;
+const MIN_HEARTBEAT_MS = 1000;
+const MAX_HEARTBEAT_MS = 300000;
 
 const sessions = new Map();
 
@@ -94,6 +97,7 @@ export async function openSession({
   protocols,
   onEvent,
   connectTimeoutMs = CONNECT_TIMEOUT_MS,
+  heartbeatMs = 0,
 } = {}) {
   const sessionId = typeof id === 'string' ? id : '';
   if (!sessionId) throw new Error('WebSocket session id is required');
@@ -107,6 +111,7 @@ export async function openSession({
   // leaking it.
   if (sessions.has(sessionId)) await closeSession(sessionId, 1000, 'Replaced');
 
+  const beatMs = Number(heartbeatMs);
   const session = {
     id: sessionId,
     onEvent,
@@ -116,6 +121,12 @@ export async function openSession({
     history: [],
     historyBytes: 0,
     dropped: 0,
+    heartbeat: null,
+    lastPong: now(),
+    heartbeatMs:
+      Number.isFinite(beatMs) && beatMs >= MIN_HEARTBEAT_MS
+        ? Math.min(MAX_HEARTBEAT_MS, Math.round(beatMs))
+        : 0,
   };
   sessions.set(sessionId, session);
 
@@ -160,12 +171,45 @@ export async function openSession({
     ws.on('open', () => {
       if (session.closed) return;
       session.opened = true;
+      session.lastPong = now();
       if (!settled) {
         settled = true;
         clearTimeout(timer);
         resolve();
       }
       emit(session, { type: 'open', at: now() });
+
+      if (session.heartbeatMs > 0) {
+        session.heartbeat = setInterval(() => {
+          if (session.closed || ws.readyState !== WebSocket.OPEN) return;
+          if (now() - session.lastPong > session.heartbeatMs * 2) {
+            emit(session, {
+              type: 'error',
+              message: `WebSocket heartbeat missed after ${session.heartbeatMs}ms`,
+              at: now(),
+            });
+            try {
+              ws.terminate();
+            } catch {
+              /* already gone */
+            }
+            return;
+          }
+          try {
+            ws.ping();
+            emit(session, { type: 'ping', at: now() });
+          } catch {
+            /* the close event will follow */
+          }
+        }, session.heartbeatMs);
+        session.heartbeat.unref?.();
+      }
+    });
+
+    ws.on('pong', () => {
+      if (session.closed) return;
+      session.lastPong = now();
+      emit(session, { type: 'pong', at: now() });
     });
 
     ws.on('message', (data, isBinary) => {
@@ -197,6 +241,7 @@ export async function openSession({
 
     ws.on('close', (code, reasonBuffer) => {
       clearTimeout(timer);
+      if (session.heartbeat) clearInterval(session.heartbeat);
       const reason = reasonBuffer ? reasonBuffer.toString() : '';
       session.closed = true;
       if (sessions.get(sessionId) === session) sessions.delete(sessionId);
@@ -247,6 +292,7 @@ export async function closeSession(id, code = 1000, reason = '') {
   if (!session) return false;
 
   sessions.delete(id);
+  if (session.heartbeat) clearInterval(session.heartbeat);
   const ws = session.ws;
   if (!ws) return true;
 
@@ -279,6 +325,7 @@ export function getHistory(id) {
 export function closeAll() {
   for (const [id, session] of sessions) {
     sessions.delete(id);
+    if (session.heartbeat) clearInterval(session.heartbeat);
     try {
       session.ws?.terminate();
     } catch {

@@ -541,13 +541,14 @@ function registerIpc() {
   // 'ws:event'. Connect failures are returned as data, never as an IPC
   // rejection, so the panel can show a banner instead of crashing.
   ipcMain.handle('ws:connect', async (_event, payload) => {
-    const { id, url, headers, protocols } = payload || {};
+    const { id, url, headers, protocols, heartbeatMs } = payload || {};
     try {
       await openWsSession({
         id,
         url,
         headers,
         protocols,
+        heartbeatMs,
         onEvent: (event) => forwardWsEvent(id, event),
       });
       return { ok: true };

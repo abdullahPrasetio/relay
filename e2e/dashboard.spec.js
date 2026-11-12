@@ -96,6 +96,10 @@ test('workspace dashboard and collection bulk expansion', async () => {
     await expect(page.getByTestId('workspace-dashboard')).toBeVisible();
     await expect(page.locator('.req-tab-label')).toHaveText('Workspace');
     await expect(page.getByText('Welcome to Relay')).toBeVisible();
+    await expect(page.getByTestId('workspace-dashboard').getByText('New collection')).toBeVisible();
+    await expect(
+      page.getByTestId('workspace-dashboard').getByRole('button', { name: /^Environments/ })
+    ).toBeVisible();
     await expect(
       page.getByTestId('workspace-dashboard').getByText('Brigate PO Sandbox', { exact: true })
     ).toBeVisible();

@@ -23,6 +23,10 @@ function formatTime(at) {
 function statusLabel(status) {
   if (!status) return 'Not connected';
   if (status.state === 'connecting') return 'Connecting…';
+  if (status.state === 'reconnecting') {
+    const seconds = Math.max(1, Math.ceil((status.retryIn || 1000) / 1000));
+    return `Reconnecting in ${seconds}s…`;
+  }
   if (status.state === 'open') return 'Open';
   if (status.state === 'closed') {
     const code = status.code != null ? ` ${status.code}` : '';
@@ -37,6 +41,11 @@ export default function WebSocketPanel({
   error,
   onSend,
   onDisconnect,
+  onReconnect,
+  autoReconnect = true,
+  onToggleAutoReconnect,
+  heartbeatMs = 0,
+  onHeartbeatChange,
   onClear,
 }) {
   const [draft, setDraft] = useState('');
@@ -92,6 +101,11 @@ export default function WebSocketPanel({
               Disconnect
             </button>
           )}
+          {(state === 'closed' || state === 'reconnecting') && onReconnect && (
+            <button className="mini-btn" data-testid="ws-reconnect" onClick={onReconnect}>
+              Reconnect
+            </button>
+          )}
         </div>
       </div>
 
@@ -100,6 +114,27 @@ export default function WebSocketPanel({
           {error}
         </div>
       )}
+
+      <div className="ws-settings">
+        <label className="ws-toggle">
+          <input
+            type="checkbox"
+            checked={autoReconnect}
+            onChange={(event) => onToggleAutoReconnect?.(event.target.checked)}
+            data-testid="ws-auto-reconnect"
+          />
+          Auto reconnect
+        </label>
+        <label className="ws-toggle">
+          <input
+            type="checkbox"
+            checked={heartbeatMs > 0}
+            onChange={(event) => onHeartbeatChange?.(event.target.checked ? 30000 : 0)}
+            data-testid="ws-heartbeat"
+          />
+          Heartbeat 30s
+        </label>
+      </div>
 
       <div className="ws-log" ref={logRef} data-testid="ws-log">
         {entries.length === 0 ? (
@@ -110,6 +145,14 @@ export default function WebSocketPanel({
           </div>
         ) : (
           entries.map((entry, index) => {
+            if (entry.direction === 'sys') {
+              return (
+                <div key={`${entry.at || 0}-${index}`} className="ws-system-line">
+                  <span>{entry.data}</span>
+                  <span className="ws-time">{formatTime(entry.at)}</span>
+                </div>
+              );
+            }
             const outgoing = entry.direction === 'out';
             const isBinary = entry.type === 'binary';
             return (

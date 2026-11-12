@@ -44,7 +44,7 @@ import { useRealtimeSync } from './lib/useRealtimeSync.js';
 import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { useAppearance } from './lib/useAppearance.js';
 import { useMcpBridge } from './lib/useMcpBridge.js';
-import { newRequest, normalizeRequest, uid } from './lib/factory.js';
+import { newCollection, newRequest, normalizeRequest, uid } from './lib/factory.js';
 import { isWebSocket, isMqtt, isSocketIo, isGrpc, isGrpcTls } from './lib/protocol.js';
 import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from '../packages/core/src/variables.js';
 import { collectSecretValues } from './lib/secretVars.js';
@@ -230,6 +230,10 @@ function newTab(request) {
     wsStatus: null,
     wsLog: [],
     wsError: null,
+    wsAutoReconnect: true,
+    wsReconnectAttempts: 0,
+    wsClosedByUser: false,
+    wsHeartbeatMs: 30000,
     streamKind: null,
     streamSessionId: null,
     streamStatus: null,
@@ -310,6 +314,10 @@ export default function App() {
     workspaceId: store.activeWorkspaceId,
     ids: readPinned(store.activeWorkspaceId),
   }));
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const openWebSocketRef = useRef(null);
+  const wsReconnectTimers = useRef(new Map());
   const [saveModal, setSaveModal] = useState(null); // {request}
   const [varsModalCollectionId, setVarsModalCollectionId] = useState(null);
   const [collectionEditorId, setCollectionEditorId] = useState(null);
@@ -591,7 +599,7 @@ export default function App() {
   // is open so RequestPanel's Send button becomes Stop; a close event (local
   // or remote) clears it.
   const openWebSocket = useCallback(
-    async (tab) => {
+    async (tab, options = {}) => {
       if (!hasBridge || typeof window.api.wsConnect !== 'function') {
         updateTab(tab.tabId, {
           sending: false,
@@ -608,8 +616,10 @@ export default function App() {
         sendingId: sessionId,
         wsSessionId: sessionId,
         wsStatus: { state: 'connecting', at: Date.now() },
-        wsLog: [],
+        wsLog: options.reconnect ? tab.wsLog : [],
         wsError: null,
+        wsClosedByUser: false,
+        wsReconnectAttempts: options.reconnect ? tab.wsReconnectAttempts || 0 : 0,
         response: null,
         testResults: null,
       });
@@ -635,6 +645,7 @@ export default function App() {
           url: buildWebSocketUrl(resolved),
           headers,
           protocols: wsProtocolsFor(tab.request),
+          heartbeatMs: tab.wsHeartbeatMs || 0,
         });
 
         if (!result?.ok) {
@@ -658,6 +669,35 @@ export default function App() {
     },
     [activeEnv, store, updateTab]
   );
+  openWebSocketRef.current = openWebSocket;
+
+  const reconnectWebSocket = useCallback(() => {
+    const tab = tabs.find((entry) => entry.tabId === activeTabId);
+    if (!tab) return;
+    openWebSocket(tab, { reconnect: true });
+  }, [activeTabId, openWebSocket, tabs]);
+
+  const setWsAutoReconnect = useCallback(
+    (enabled) => {
+      const tab = tabs.find((entry) => entry.tabId === activeTabId);
+      const patch = { wsAutoReconnect: enabled };
+      if (!enabled && tab?.wsStatus?.state === 'reconnecting') {
+        const timer = wsReconnectTimers.current.get(tab.tabId);
+        if (timer) {
+          clearTimeout(timer);
+          wsReconnectTimers.current.delete(tab.tabId);
+        }
+        patch.wsStatus = { ...tab.wsStatus, state: 'closed', retryIn: 0 };
+      }
+      updateTab(activeTabId, patch);
+    },
+    [activeTabId, tabs, updateTab]
+  );
+
+  const setWsHeartbeat = useCallback(
+    (ms) => updateTab(activeTabId, { wsHeartbeatMs: Number(ms) || 0 }),
+    [activeTabId, updateTab]
+  );
 
   // Close a session without waiting for the close event. Used for tab
   // switches/closes, where the tab stops being visible and its state no
@@ -680,6 +720,7 @@ export default function App() {
               wsSessionId: null,
               sending: false,
               sendingId: null,
+              wsClosedByUser: true,
               wsStatus: { state: 'closed', reason, at: Date.now() },
             }
           : tab
@@ -730,6 +771,7 @@ export default function App() {
       wsSessionId: null,
       sending: false,
       sendingId: null,
+      wsClosedByUser: true,
       wsStatus: { state: 'closed', reason: 'Closed by user', at: Date.now() },
     });
     if (!hasBridge || typeof window.api.wsClose !== 'function') return;
@@ -1207,7 +1249,17 @@ export default function App() {
         prev.map((tab) => {
           if (tab.wsSessionId !== id) return tab;
           if (event.type === 'open') {
-            return { ...tab, wsStatus: { state: 'open', at: event.at } };
+            const timer = wsReconnectTimers.current.get(tab.tabId);
+            if (timer) {
+              clearTimeout(timer);
+              wsReconnectTimers.current.delete(tab.tabId);
+            }
+            return {
+              ...tab,
+              wsStatus: { state: 'open', at: event.at },
+              wsReconnectAttempts: 0,
+              wsError: null,
+            };
           }
           if (event.type === 'text' || event.type === 'binary') {
             return {
@@ -1215,7 +1267,57 @@ export default function App() {
               wsLog: appendWsLog(tab.wsLog, { direction: 'in', ...event }),
             };
           }
+          if (event.type === 'ping' || event.type === 'pong') {
+            return {
+              ...tab,
+              wsLog: appendWsLog(tab.wsLog, {
+                direction: 'sys',
+                type: 'system',
+                data: event.type,
+                size: 0,
+                at: event.at,
+              }),
+            };
+          }
           if (event.type === 'close') {
+            const attempts = tab.wsReconnectAttempts || 0;
+            const canRetry =
+              tab.wsAutoReconnect !== false &&
+              !tab.wsClosedByUser &&
+              event.code !== 1000 &&
+              attempts < 5;
+            if (canRetry) {
+              const attempt = attempts + 1;
+              const delay = Math.min(30000, 1000 * 2 ** attempt);
+              const timer = setTimeout(() => {
+                wsReconnectTimers.current.delete(tab.tabId);
+                const current = tabsRef.current.find((entry) => entry.tabId === tab.tabId);
+                if (
+                  !current ||
+                  current.wsSessionId ||
+                  current.wsClosedByUser ||
+                  current.wsAutoReconnect === false
+                ) {
+                  return;
+                }
+                openWebSocketRef.current?.(current, { reconnect: true });
+              }, delay);
+              wsReconnectTimers.current.set(tab.tabId, timer);
+              return {
+                ...tab,
+                wsSessionId: null,
+                sending: false,
+                sendingId: null,
+                wsReconnectAttempts: attempt,
+                wsStatus: {
+                  state: 'reconnecting',
+                  code: event.code,
+                  reason: event.reason,
+                  at: event.at,
+                  retryIn: delay,
+                },
+              };
+            }
             return {
               ...tab,
               wsSessionId: null,
@@ -1242,6 +1344,14 @@ export default function App() {
       if (typeof unsubscribe === 'function') unsubscribe();
     };
   }, []);
+
+  useEffect(
+    () => () => {
+      for (const timer of wsReconnectTimers.current.values()) clearTimeout(timer);
+      wsReconnectTimers.current.clear();
+    },
+    []
+  );
 
   // MQTT session events. Same fan-out pattern as WebSocket; the stream fields
   // are separate so the WebSocket path stays untouched.
@@ -1878,6 +1988,18 @@ export default function App() {
     setActiveTabId(tab.tabId);
   }, []);
 
+  const createCollection = useCallback(async () => {
+    const name = await dialogs.prompt('Collection name', 'New Collection', {
+      title: 'New Collection',
+      okLabel: 'Create',
+    });
+    if (name == null) return;
+    store.setCollections([
+      ...store.collections,
+      { ...newCollection(name || 'New Collection') },
+    ]);
+  }, [dialogs, store]);
+
   const commandItems = useMemo(() => {
     const items = [
       {
@@ -1888,6 +2010,22 @@ export default function App() {
         icon: 'plus',
         hint: '+',
         run: addTab,
+      },
+      {
+        id: 'action-new-collection',
+        group: 'Actions',
+        label: 'New Collection',
+        detail: 'Create an empty collection',
+        icon: 'collection',
+        run: createCollection,
+      },
+      {
+        id: 'action-environments',
+        group: 'Actions',
+        label: 'Open Environments',
+        detail: 'Manage environments and variables',
+        icon: 'globe',
+        run: () => setRailView('environments'),
       },
       {
         id: 'action-send',
@@ -1981,6 +2119,19 @@ export default function App() {
       }
     }
 
+    for (const collection of store.collections) {
+      const requests = flattenRequests(collection);
+      items.push({
+        id: `run:${collection.id}`,
+        group: 'Workflows',
+        label: `Run ${collection.name}`,
+        detail: `${requests.length} request${requests.length === 1 ? '' : 's'}`,
+        icon: 'play',
+        keywords: collection.name,
+        run: () => openRunner(collection.id, null),
+      });
+    }
+
     for (const environment of store.environments) {
       items.push({
         id: `environment:${environment.id}`,
@@ -2013,7 +2164,9 @@ export default function App() {
   }, [
     addTab,
     activeTabId,
+    createCollection,
     openRequest,
+    openRunner,
     save,
     send,
     store,
@@ -2355,6 +2508,8 @@ export default function App() {
               activeEnv={activeEnv}
               pinnedRequests={pinnedRequests}
               onStartRequest={startRequest}
+              onNewCollection={createCollection}
+              onOpenEnvironments={() => setRailView('environments')}
               onOpenRequest={openRequest}
               onOpenCollection={setCollectionEditorId}
             />
@@ -2410,6 +2565,11 @@ export default function App() {
                 error={activeTab.wsError}
                 onSend={sendWsFrame}
                 onDisconnect={closeWsConnection}
+                onReconnect={reconnectWebSocket}
+                autoReconnect={activeTab.wsAutoReconnect !== false}
+                onToggleAutoReconnect={setWsAutoReconnect}
+                heartbeatMs={activeTab.wsHeartbeatMs || 0}
+                onHeartbeatChange={setWsHeartbeat}
                 onClear={() => updateTab(activeTab.tabId, { wsLog: [] })}
               />
             ) : isMqtt(activeTab.request.url) ? (

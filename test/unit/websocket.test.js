@@ -171,6 +171,20 @@ describe('websocket sessions', () => {
     expect(history.messages.at(-1).data).toBe('m-500');
   });
 
+  it('sends heartbeat pings and receives pongs', async () => {
+    const server = await echoServer();
+    const { onEvent, waitFor } = collector();
+    await openSession({
+      id: 's-heartbeat',
+      url: server.url,
+      onEvent,
+      heartbeatMs: 1000,
+    });
+
+    await waitFor((event) => event.type === 'ping', 4000);
+    await waitFor((event) => event.type === 'pong', 4000);
+  });
+
   it('returns false when closing an unknown session', async () => {
     await expect(closeSession('does-not-exist')).resolves.toBe(false);
   });
