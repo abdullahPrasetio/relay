@@ -30,6 +30,7 @@ const DROPPED_KEYS = new Set([
 
 let sensitivityPolicy = {
   allowAll: false,
+  secretsAllowed: true,
   allowedCollections: new Set(),
   allowedRequests: new Set(),
   blockedRequests: new Set(),
@@ -42,6 +43,7 @@ let sensitivityPolicy = {
 export function setMcpSensitivityPolicy(policy = {}) {
   sensitivityPolicy = {
     allowAll: policy.allowAll === true,
+    secretsAllowed: policy.secretsAllowed !== false,
     allowedCollections: new Set(policy.allowedCollections || []),
     allowedRequests: new Set(policy.allowedRequests || []),
     blockedRequests: new Set(policy.blockedRequests || []),
@@ -80,10 +82,17 @@ export function mcpPolicyForWorkspace(workspace) {
       walk(collection.items, false, blockedRequests);
     }
   }
-  return { allowAll, allowedCollections, allowedRequests, blockedRequests };
+  return {
+    allowAll,
+    secretsAllowed: true,
+    allowedCollections,
+    allowedRequests,
+    blockedRequests,
+  };
 }
 
 function collectionAllowsSensitive(collection) {
+  if (!sensitivityPolicy.secretsAllowed) return false;
   const override = collection?.mcpAccess?.allowSensitive;
   if (override === true) return true;
   if (override === false) return false;
@@ -225,7 +234,10 @@ function redactValue(value, secrets, stack, depth) {
  * @param {Array|undefined|null} rows Variable rows.
  * @returns {Array<object>} Redacted rows (empty array for non-array input).
  */
-export function redactVariableRows(rows, allowSensitive = sensitivityPolicy.allowAll) {
+export function redactVariableRows(
+  rows,
+  allowSensitive = sensitivityPolicy.allowAll && sensitivityPolicy.secretsAllowed
+) {
   if (!Array.isArray(rows)) return [];
   if (allowSensitive) return redactForMcp(rows, []);
   return rows.map((row) => {
@@ -270,6 +282,7 @@ export function redactRequest(request, allowSensitive = null) {
   const allowed =
     allowSensitive === true ||
     (allowSensitive == null &&
+      sensitivityPolicy.secretsAllowed &&
       ((sensitivityPolicy.allowAll &&
         !(request.id && sensitivityPolicy.blockedRequests.has(request.id))) ||
         (request.id && sensitivityPolicy.allowedRequests.has(request.id))));
@@ -330,11 +343,17 @@ export function redactWorkspace(workspace) {
     ? workspace.environments.map((env) => {
         if (!env || typeof env !== 'object') return env;
         const envClone = redactForMcp(env, []);
-        envClone.variables = redactVariableRows(env.variables, sensitivityPolicy.allowAll);
+        envClone.variables = redactVariableRows(
+          env.variables,
+          sensitivityPolicy.allowAll && sensitivityPolicy.secretsAllowed
+        );
         return envClone;
       })
     : [];
-  clone.globals = redactVariableRows(workspace.globals, sensitivityPolicy.allowAll);
+  clone.globals = redactVariableRows(
+    workspace.globals,
+    sensitivityPolicy.allowAll && sensitivityPolicy.secretsAllowed
+  );
   return clone;
 }
 
@@ -379,7 +398,10 @@ export function redactNetworkSettings(settings) {
  * @param {Array|undefined|null} cookies Cookie records.
  * @returns {Array<object>} Redacted cookies (empty array for non-array input).
  */
-export function redactCookies(cookies, allowSensitive = sensitivityPolicy.allowAll) {
+export function redactCookies(
+  cookies,
+  allowSensitive = sensitivityPolicy.allowAll && sensitivityPolicy.secretsAllowed
+) {
   if (!Array.isArray(cookies)) return [];
   if (allowSensitive) return redactForMcp(cookies, []);
   return cookies.map((cookie) => {

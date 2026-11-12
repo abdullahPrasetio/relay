@@ -1213,6 +1213,7 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
   }
 
   function actionAllowsSensitive(tool, action, params, workspace, policy) {
+    if (!policy.secretsAllowed) return false;
     if (policy.allowAll) return true;
     if (!workspace) return false;
     // Workspace reads contain a mix of collections; each collection is
@@ -1235,7 +1236,7 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
     return false;
   }
 
-  async function invoke({ tool, action, params = {} }) {
+  async function invoke({ tool, action, params = {}, clientScopes = [] }) {
     const spec = getActionSpec(tool, action);
     if (!spec) {
       return { ok: false, error: { code: 'invalid_params', message: 'Unknown action.' } };
@@ -1247,13 +1248,23 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
     }
     const workspace = resolveWorkspace(params?.workspaceId);
     const policy = mcpPolicyForWorkspace(workspace);
+    policy.secretsAllowed =
+      Array.isArray(clientScopes) && clientScopes.includes('secrets');
     setMcpSensitivityPolicy(policy);
     try {
       const data = await handler(params || {});
+      const sensitive = actionAllowsSensitive(
+        tool,
+        action,
+        params,
+        workspace,
+        policy
+      );
       return {
         ok: true,
+        sensitive,
         data: serializeMcpResult(data, workspace ? secretPool(workspace) : [], {
-          allowSensitive: actionAllowsSensitive(tool, action, params, workspace, policy),
+          allowSensitive: sensitive,
         }),
       };
     } catch (err) {

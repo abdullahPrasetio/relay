@@ -538,6 +538,33 @@ function McpSettingsBody({ api, onClose }) {
           )}
         </section>
 
+        {Array.isArray(status.recentCalls) && status.recentCalls.length > 0 && (
+          <section className="mcp-settings-calls">
+            <div className="mcp-section-title">
+              Recent calls <span className="badge">{status.recentCalls.length}</span>
+            </div>
+            <ul className="mcp-call-list">
+              {status.recentCalls.slice(0, 8).map((call, index) => (
+                <li key={`${call.at}-${index}`} className="mcp-call-row">
+                  <span className="mcp-call-tool">
+                    {call.tool}.{call.action}
+                  </span>
+                  <span className="mcp-call-client">{call.clientName}</span>
+                  {call.sensitive && (
+                    <span className="mcp-sensitive-badge" data-testid="mcp-sensitive-read">
+                      sensitive
+                    </span>
+                  )}
+                  <span className={call.ok ? 'mcp-call-ok' : 'mcp-call-error'}>
+                    {call.ok ? 'ok' : 'error'}
+                  </span>
+                  <span className="mcp-call-time">{formatLastUsed(call.at)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         <section className="mcp-settings-new">
           <div className="mcp-section-title">New client</div>
 

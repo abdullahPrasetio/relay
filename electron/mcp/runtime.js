@@ -141,6 +141,7 @@ export function createMcpRuntime({ store, getWindow, appVersion = '0.0.0' }) {
             tool,
             action,
             ok: result?.ok === true,
+            sensitive: result?.sensitive === true,
           });
           markUsed(client.id);
         },
@@ -149,7 +150,11 @@ export function createMcpRuntime({ store, getWindow, appVersion = '0.0.0' }) {
       try {
         win.webContents.send('mcp:invoke', {
           callId,
-          client: { id: client.id, name: client.name },
+          client: {
+            id: client.id,
+            name: client.name,
+            scopes: Array.isArray(client.scopes) ? [...client.scopes] : [],
+          },
           tool,
           action,
           params,
@@ -301,7 +306,11 @@ export function createMcpRuntime({ store, getWindow, appVersion = '0.0.0' }) {
       clearTimeout(entry.timer);
       entry.resolve(
         payload.ok === true
-          ? { ok: true, data: payload.result ?? null }
+          ? {
+              ok: true,
+              sensitive: payload.sensitive === true,
+              data: payload.result ?? null,
+            }
           : {
               ok: false,
               error: {

@@ -68,8 +68,30 @@ describe('MCP action sensitivity policy', () => {
       tool: 'relay_collections',
       action: 'get',
       params: { collectionId: 'col_policy' },
+      clientScopes: ['read', 'secrets'],
     });
     expect(out.ok).toBe(true);
+    expect(out.sensitive).toBe(true);
     expect(out.data.variables[0].value).toBe('top-secret');
   });
 });
+
+  it('still redacts when the client lacks the secrets scope', async () => {
+    const workspace = makeWorkspace();
+    workspace.mcpAccess.allowSensitive = true;
+    const actions = createMcpActions({
+      store: makeStore(workspace),
+      cloud: null,
+      appearance: null,
+      windowApi: {},
+    });
+    const out = await actions.invoke({
+      tool: 'relay_collections',
+      action: 'get',
+      params: { collectionId: 'col_policy' },
+      clientScopes: ['read'],
+    });
+    expect(out.ok).toBe(true);
+    expect(out.sensitive).toBe(false);
+    expect(JSON.stringify(out.data)).not.toContain('top-secret');
+  });

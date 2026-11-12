@@ -77,15 +77,21 @@ export function useMcpBridge({ store, cloud, appearance }) {
     // Chain on the previous call so actions never overlap.
     invokeQueue.current = invokeQueue.current
       .then(async () => {
-        const { callId, tool, action, params } = payload || {};
+        const { callId, tool, action, params, client } = payload || {};
         if (!callId) return;
         const api = bridge();
         try {
-          const result = await actionsRef.current.invoke({ tool, action, params });
+          const result = await actionsRef.current.invoke({
+            tool,
+            action,
+            params,
+            clientScopes: client?.scopes || [],
+          });
           api?.respondInvoke({
             callId,
             ok: result?.ok === true,
             result: result?.ok === true ? result.data : undefined,
+            sensitive: result?.sensitive === true,
             error: result?.ok === true ? undefined : result?.error,
           });
         } catch (err) {

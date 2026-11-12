@@ -58,6 +58,7 @@ dilihat lagi — gunakan **Rotate** untuk menerbitkan token baru.
 | Scope | Boleh melakukan |
 |---|---|
 | `read` | Membaca workspace, request, environment, riwayat, docs, dan status |
+| `secrets` | Membaca plaintext secret **hanya jika** workspace/collection mengizinkan |
 | `request` | Mengirim request, menjalankan collection, membuka sesi protokol (WS/MQTT/Socket.IO/gRPC) |
 | `write` | Membuat/mengubah/menghapus/import workspace, collection, folder, request, environment |
 | `mock` | Menyalakan/mematikan mock server dan memilih skenario |
@@ -90,6 +91,8 @@ collection di workspace tersebut. Setiap collection bisa override lewat
 
 Catatan keamanan:
 
+- Client MCP juga harus diberi scope **`secrets`**; tanpa scope itu semua
+  plaintext tetap diredaksi.
 - Hanya lakukan ini untuk workspace/collection tepercaya dan matikan lagi
   setelah selesai.
 - Scope `read` tetap diperlukan; pengaturan ini tidak memberi izin tulis.
