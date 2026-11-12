@@ -67,3 +67,17 @@ describe('collection normalization', () => {
     expect(collection.items[0]).toMatchObject({ id: 'r1', type: 'request' });
   });
 });
+
+describe('collection MCP access', () => {
+  it('inherits by default and preserves explicit overrides', () => {
+    expect(normalizeCollection({ name: 'Inherit' }).mcpAccess).toEqual({
+      allowSensitive: null,
+    });
+    expect(
+      normalizeCollection({ name: 'Allow', mcpAccess: { allowSensitive: true } }).mcpAccess
+    ).toEqual({ allowSensitive: true });
+    expect(
+      normalizeCollection({ name: 'Block', mcpAccess: { allowSensitive: false } }).mcpAccess
+    ).toEqual({ allowSensitive: false });
+  });
+});

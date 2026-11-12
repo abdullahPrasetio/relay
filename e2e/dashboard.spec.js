@@ -186,3 +186,37 @@ test('pins requests to the dashboard and persists them', async () => {
     await closeApp(session);
   }
 });
+
+test('MCP sensitive-data settings persist', async () => {
+  const userData = makeUserData();
+  fs.writeFileSync(path.join(userData, 'rest-tamer-data.json'), JSON.stringify(seed(), null, 2));
+  const session = await launchAppAt(userData, {}, { keepDashboard: true });
+  const { page } = session;
+
+  try {
+    await page.locator('.ws-button').click();
+    const workspaceToggle = page.getByTestId('ws-mcp-sensitive').locator('input');
+    await expect(workspaceToggle).not.toBeChecked();
+    await workspaceToggle.check();
+    await page.waitForTimeout(500);
+    await page.locator('.kebab-backdrop').click({ position: { x: 5, y: 5 } });
+
+    await page.reload();
+    await page.waitForSelector('.ws-button');
+    await page.locator('.ws-button').click();
+    await expect(page.getByTestId('ws-mcp-sensitive').locator('input')).toBeChecked();
+    await page.locator('.kebab-backdrop').click({ position: { x: 5, y: 5 } });
+
+    await page.locator('.collection-name').click();
+    await page.getByTestId('collection-mcp-access').selectOption('allow');
+    await page.waitForTimeout(500);
+    await page.locator('.modal-head .icon-btn').click();
+
+    await page.reload();
+    await page.waitForSelector('.collection-name');
+    await page.locator('.collection-name').click();
+    await expect(page.getByTestId('collection-mcp-access')).toHaveValue('allow');
+  } finally {
+    await closeApp(session);
+  }
+});

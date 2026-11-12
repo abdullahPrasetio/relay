@@ -12,17 +12,10 @@ export function makeUserData() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'relay-e2e-'));
 }
 
-export async function launchAppAt(userData, extraEnv = {}, options = {}) {
-  const app = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      RELAY_DISABLE_DONATION_PROMPT: '1',
-      ...extraEnv,
-      RELAY_TEST_USER_DATA: userData,
-    },
-  });
-  const page = await app.firstWindow();
+export async function waitForAppReady(page, options = {}) {
+  // Wait for the persisted session restore to finish; otherwise the initial
+  // pristine tab can be dismissed before a restored tab replaces it.
+  await page.waitForSelector('[data-session-ready="true"]', { timeout: 30000 });
   await page.waitForSelector('.url-input, [data-testid="workspace-dashboard"]', {
     timeout: 30000,
   });
@@ -35,6 +28,20 @@ export async function launchAppAt(userData, extraEnv = {}, options = {}) {
       await page.waitForSelector('.url-input', { timeout: 30000 });
     }
   }
+}
+
+export async function launchAppAt(userData, extraEnv = {}, options = {}) {
+  const app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      RELAY_DISABLE_DONATION_PROMPT: '1',
+      ...extraEnv,
+      RELAY_TEST_USER_DATA: userData,
+    },
+  });
+  const page = await app.firstWindow();
+  await waitForAppReady(page, options);
   return { app, page, userData };
 }
 

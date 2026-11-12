@@ -2,6 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { waitForAppReady } from './helpers/app.js';
 
 const API = `${process.env.RELAY_API_URL || 'http://127.0.0.1:18086'}/api/v1`;
 
@@ -24,7 +25,7 @@ test('cloud signup, attach workspace, and baseline push', async () => {
 
   try {
     const page = await app.firstWindow();
-    await page.waitForSelector('.url-input', { timeout: 30000 });
+    await waitForAppReady(page);
 
     await page.getByTestId('cloud-status').click();
     await page.getByTestId('cloud-tab-register').click();

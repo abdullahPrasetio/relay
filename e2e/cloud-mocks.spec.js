@@ -2,6 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { waitForAppReady } from './helpers/app.js';
 
 // Opt-in: needs a running relay-api (with mock migrations applied).
 //   RELAY_CLOUD_E2E=1 RELAY_API_URL=http://127.0.0.1:18092 npx playwright test e2e/cloud-mocks.spec.js
@@ -90,7 +91,7 @@ test('create, scenario-match, and generate server mocks from the UI', async () =
 
   try {
     const page = await app.firstWindow();
-    await page.waitForSelector('.url-input', { timeout: 30000 });
+    await waitForAppReady(page);
 
     await page.getByTestId('cloud-status').click();
     await page.getByTestId('cloud-tab-register').click();

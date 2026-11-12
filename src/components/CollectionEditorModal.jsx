@@ -59,6 +59,37 @@ export default function CollectionEditorModal({ collection, onClose, onChange })
             Imported collections start untrusted so their scripts never run without
             permission.
           </p>
+          <div className="form-row" style={{ marginTop: 14 }}>
+            <label>MCP sensitive data</label>
+            <select
+              data-testid="collection-mcp-access"
+              value={
+                collection.mcpAccess?.allowSensitive === true
+                  ? 'allow'
+                  : collection.mcpAccess?.allowSensitive === false
+                    ? 'block'
+                    : 'inherit'
+              }
+              onChange={(e) => {
+                const value =
+                  e.target.value === 'allow'
+                    ? true
+                    : e.target.value === 'block'
+                      ? false
+                      : null;
+                patch({
+                  mcpAccess: { ...(collection.mcpAccess || {}), allowSensitive: value },
+                });
+              }}
+            >
+              <option value="inherit">Inherit workspace setting</option>
+              <option value="allow">Allow MCP to read secrets</option>
+              <option value="block">Always redact for MCP</option>
+            </select>
+            <p className="auth-hint">
+              Only affects what MCP clients receive; the app UI is unchanged.
+            </p>
+          </div>
         </div>
       )}
 

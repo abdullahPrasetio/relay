@@ -134,6 +134,7 @@ test('serves auto scenarios, runtime overrides, and reloaded defaults', async ()
 
     // Edit the default scenario in the request tab, then reload routes in place.
     await page.locator('.modal-head button[title="Close"]').first().click();
+    await page.getByTestId('collections-expand-all').click();
     await page.locator('.request-row', { hasText: 'Order' }).first().click();
 
     // Docs: request description + field rules are editable and survive tab

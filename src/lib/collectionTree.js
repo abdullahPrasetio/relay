@@ -63,6 +63,14 @@ export function normalizeCollection(collection) {
     // anything else is trusted. Explicit `false` must survive a reload, so it
     // is normalized to a boolean here rather than left undefined.
     scriptsTrusted: collection.scriptsTrusted !== false,
+    mcpAccess: {
+      allowSensitive:
+        collection.mcpAccess?.allowSensitive === true
+          ? true
+          : collection.mcpAccess?.allowSensitive === false
+            ? false
+            : null,
+    },
     // Confluence metadata is non-secret and must survive every reload; this
     // normalizer rebuilds objects, so unknown fields would otherwise vanish.
     confluencePageId: typeof collection.confluencePageId === 'string' ? collection.confluencePageId : '',

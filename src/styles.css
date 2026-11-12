@@ -5868,3 +5868,23 @@ select:not([multiple])::-ms-expand {
   color: var(--text-dim);
   font-size: 12.5px;
 }
+
+/* Workspace MCP sensitive-data opt-in */
+.ws-mcp-access {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.ws-mcp-access input {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+.ws-mcp-access span {
+  min-width: 0;
+}

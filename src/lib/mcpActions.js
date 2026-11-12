@@ -47,13 +47,16 @@ import {
   toWorkspaceBackup,
 } from './postmanFormat.js';
 import {
+  mcpPolicyForWorkspace,
   redactCollection,
   redactCookies,
   redactRequest,
   redactVariableRows,
   redactWorkspace,
+  resetMcpSensitivityPolicy,
   secretPool,
   serializeMcpResult,
+  setMcpSensitivityPolicy,
 } from './mcpRedact.js';
 import { getActionSpec, helpPayload } from '../../shared/mcpTools.js';
 
@@ -1209,6 +1212,29 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
     return result?.data ?? result ?? null;
   }
 
+  function actionAllowsSensitive(tool, action, params, workspace, policy) {
+    if (policy.allowAll) return true;
+    if (!workspace) return false;
+    // Workspace reads contain a mix of collections; each collection is
+    // pre-redacted by redactWorkspace, so any allowed collection is enough to
+    // suppress the final masking pass.
+    if (tool === 'relay_workspaces' && action === 'get') {
+      return policy.allowedCollections.length > 0;
+    }
+    if (tool === 'relay_backup' && action === 'export_workspace') {
+      return policy.allowedCollections.length > 0;
+    }
+    if (tool === 'relay_history') return policy.allowedRequests.length > 0;
+    if (params?.collectionId) {
+      return policy.allowedCollections.includes(params.collectionId);
+    }
+    if (params?.requestId) {
+      const owner = findRequestCollection(workspace.collections || [], params.requestId);
+      return Boolean(owner && policy.allowedCollections.includes(owner.id));
+    }
+    return false;
+  }
+
   async function invoke({ tool, action, params = {} }) {
     const spec = getActionSpec(tool, action);
     if (!spec) {
@@ -1219,16 +1245,22 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
     if (typeof handler !== 'function') {
       return { ok: false, error: { code: 'invalid_params', message: 'Unknown action.' } };
     }
+    const workspace = resolveWorkspace(params?.workspaceId);
+    const policy = mcpPolicyForWorkspace(workspace);
+    setMcpSensitivityPolicy(policy);
     try {
       const data = await handler(params || {});
-      const workspace = resolveWorkspace(params?.workspaceId);
       return {
         ok: true,
-        data: serializeMcpResult(data, workspace ? secretPool(workspace) : []),
+        data: serializeMcpResult(data, workspace ? secretPool(workspace) : [], {
+          allowSensitive: actionAllowsSensitive(tool, action, params, workspace, policy),
+        }),
       };
     } catch (err) {
       const code = err instanceof McpActionError ? err.code : 'renderer_error';
       return { ok: false, error: { code, message: err?.message || String(err) } };
+    } finally {
+      resetMcpSensitivityPolicy();
     }
   }
 

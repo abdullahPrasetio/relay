@@ -136,6 +136,8 @@ export function newCollection(name = 'New Collection') {
     preRequest: '',
     tests: '',
     items: [],
+    // null inherits the workspace MCP policy; true/false overrides it.
+    mcpAccess: { allowSensitive: null },
     // Confluence destination metadata (non-secret; credentials stay in the
     // main process). Page ID empty means the collection is update-only.
     confluencePageId: '',

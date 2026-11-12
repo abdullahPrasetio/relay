@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   MAX_MCP_STRING,
+  mcpPolicyForWorkspace,
   redactCollection,
   redactCookies,
   redactForMcp,
@@ -8,8 +9,10 @@ import {
   redactRequest,
   redactVariableRows,
   redactWorkspace,
+  resetMcpSensitivityPolicy,
   secretPool,
   serializeMcpResult,
+  setMcpSensitivityPolicy,
 } from '../../src/lib/mcpRedact.js';
 
 function workspace() {
@@ -261,5 +264,49 @@ describe('serializeMcpResult', () => {
     const big = 'a'.repeat(MAX_MCP_STRING + 10);
     const out = serializeMcpResult({ big }, []);
     expect(out.big).toHaveLength(MAX_MCP_STRING);
+  });
+});
+
+
+describe('MCP sensitivity policy', () => {
+  afterEach(() => resetMcpSensitivityPolicy());
+
+  it('keeps plaintext secrets when the workspace opts in', () => {
+    const source = workspace();
+    source.mcpAccess = { allowSensitive: true };
+    setMcpSensitivityPolicy(mcpPolicyForWorkspace(source));
+
+    const request = source.collections[0].items[0].items[0];
+    expect(redactRequest(request).auth.bearer.token).toBe('bearer-token');
+    expect(redactCollection(source.collections[0]).variables[0].value).toBe('colsecret');
+    expect(redactWorkspace(source).globals[0].value).toBe('globalsecret');
+    expect(
+      serializeMcpResult({ note: 'supersecret' }, secretPool(source), {
+        allowSensitive: true,
+      }).note
+    ).toBe('supersecret');
+  });
+
+  it('lets a collection allow access while the workspace stays redacted', () => {
+    const source = workspace();
+    source.mcpAccess = { allowSensitive: false };
+    source.collections[0].mcpAccess = { allowSensitive: true };
+    setMcpSensitivityPolicy(mcpPolicyForWorkspace(source));
+
+    expect(redactCollection(source.collections[0]).variables[0].value).toBe('colsecret');
+    expect(redactRequest(source.collections[0].items[0].items[0]).auth.bearer.token).toBe(
+      'bearer-token'
+    );
+    expect(redactWorkspace(source).globals[0].hasValue).toBe(true);
+  });
+
+  it('lets a collection block access even when the workspace opts in', () => {
+    const source = workspace();
+    source.mcpAccess = { allowSensitive: true };
+    source.collections[0].mcpAccess = { allowSensitive: false };
+    setMcpSensitivityPolicy(mcpPolicyForWorkspace(source));
+
+    expect(redactCollection(source.collections[0]).variables[0].hasValue).toBe(true);
+    expect(redactRequest(source.collections[0].items[0].items[0]).auth.bearer.token).toBe('');
   });
 });

@@ -2211,7 +2211,7 @@ export default function App() {
         onShowVariables: () => setVarsInRequestOpen(true),
       }}
     >
-    <div className="app">
+    <div className="app" data-session-ready={sessionReady ? 'true' : 'false'}>
       <AppHeader
         store={store}
         cloud={cloud}

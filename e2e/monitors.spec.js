@@ -2,6 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { waitForAppReady } from './helpers/app.js';
 
 // Opt-in: needs a running relay-api with the monitor worker command pointing at
 // the built core bundle, plus the local target server on :18099.
@@ -79,7 +80,7 @@ test('create a monitor and run it from the UI', async () => {
 
   try {
     const page = await app.firstWindow();
-    await page.waitForSelector('.url-input', { timeout: 30000 });
+    await waitForAppReady(page);
 
     // Sign up and link the seeded workspace.
     await page.getByTestId('cloud-status').click();

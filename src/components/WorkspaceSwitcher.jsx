@@ -404,6 +404,22 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
             >
               MCP server…
             </button>
+            <label className="ws-mcp-access" data-testid="ws-mcp-sensitive">
+              <input
+                type="checkbox"
+                checked={active?.mcpAccess?.allowSensitive === true}
+                onChange={(e) =>
+                  active &&
+                  store.patchWorkspace(active.id, {
+                    mcpAccess: {
+                      ...(active.mcpAccess || {}),
+                      allowSensitive: e.target.checked,
+                    },
+                  })
+                }
+              />
+              <span>Allow MCP to read secrets in this workspace</span>
+            </label>
           </div>
         </>
       )}

@@ -1,6 +1,6 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 import fs from 'node:fs';
-import { closeApp, launchApp } from './helpers/app.js';
+import { closeApp, launchApp, waitForAppReady } from './helpers/app.js';
 
 // Sessions are persisted in renderer localStorage under this key.
 const SESSION_KEY = 'relay-session';
@@ -13,7 +13,7 @@ async function relaunch(userData) {
     env: { ...process.env, RELAY_TEST_USER_DATA: userData },
   });
   const page = await app.firstWindow();
-  await page.waitForSelector('.url-input', { timeout: 30000 });
+  await waitForAppReady(page);
   return { app, page, userData };
 }
 

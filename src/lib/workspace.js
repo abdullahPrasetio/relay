@@ -16,6 +16,9 @@ export function newWorkspace(name = 'New Workspace') {
     globals: [],
     history: [],
     activeEnvId: null,
+    // MCP clients see redacted values by default. Opting in exposes plaintext
+    // secrets for this workspace; collection-level overrides can narrow it.
+    mcpAccess: { allowSensitive: false },
   };
 }
 
@@ -33,6 +36,7 @@ function normalizeWorkspace(ws) {
     globals: normalizeVariableRows(ws.globals),
     history: ws.history || [],
     activeEnvId: ws.activeEnvId ?? null,
+    mcpAccess: { allowSensitive: ws.mcpAccess?.allowSensitive === true },
   };
 }
 

@@ -65,6 +65,37 @@ dilihat lagi — gunakan **Rotate** untuk menerbitkan token baru.
 | `cloud` | Sync, member, device, monitor, komentar Relay Cloud |
 | `settings` | Network settings, cookie, dan tampilan |
 
+### Akses data sensitif
+
+Secara default MCP **selalu meredaksi** data sensitif:
+
+- nilai variabel bertipe `secret`;
+- token/password di auth request dan collection;
+- nilai cookie;
+- password proxy dan passphrase client certificate;
+- ciphertext (`secretEnc`, `tokenEnc`, dll.) tidak pernah dikirim.
+
+Redaksi ini berlaku untuk hasil tool maupun detail di modal approval.
+
+Untuk mengizinkan plaintext, buka menu workspace → centang **Allow MCP to
+read secrets in this workspace**. Ini berlaku untuk environment, globals, dan
+collection di workspace tersebut. Setiap collection bisa override lewat
+**Collection → Overview → MCP sensitive data**:
+
+| Nilai | Arti |
+|---|---|
+| Inherit workspace setting | Ikut checkbox workspace (default). |
+| Allow MCP to read secrets | Collection ini tetap mengirim plaintext walau workspace memblokir. |
+| Always redact for MCP | Collection ini selalu diredaksi walau workspace mengizinkan. |
+
+Catatan keamanan:
+
+- Hanya lakukan ini untuk workspace/collection tepercaya dan matikan lagi
+  setelah selesai.
+- Scope `read` tetap diperlukan; pengaturan ini tidak memberi izin tulis.
+- Pengaturan hanya bisa diubah dari UI Relay, bukan lewat tool MCP.
+- Ciphertext dan field internal tetap dibuang meskipun akses sensitif aktif.
+
 ### Approval
 
 | Policy | Perilaku |

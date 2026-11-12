@@ -42,3 +42,17 @@ describe('migrateToWorkspaces', () => {
     expect(migrated.activeWorkspaceId).toBe('ws_1');
   });
 });
+
+describe('workspace MCP access', () => {
+  it('defaults to redacted and preserves an explicit opt-in', () => {
+    const migrated = migrateToWorkspaces({
+      workspaces: [
+        { id: 'ws_default', name: 'Default', collections: [] },
+        { id: 'ws_allow', name: 'Allow', collections: [], mcpAccess: { allowSensitive: true } },
+      ],
+      activeWorkspaceId: 'ws_default',
+    });
+    expect(migrated.workspaces[0].mcpAccess).toEqual({ allowSensitive: false });
+    expect(migrated.workspaces[1].mcpAccess).toEqual({ allowSensitive: true });
+  });
+});

@@ -28,6 +28,68 @@ const DROPPED_KEYS = new Set([
   'hasPassword',
 ]);
 
+let sensitivityPolicy = {
+  allowAll: false,
+  allowedCollections: new Set(),
+  allowedRequests: new Set(),
+  blockedRequests: new Set(),
+};
+
+/**
+ * Set the effective MCP sensitivity policy for one action. The dispatcher
+ * serializes actions, so module state cannot interleave between calls.
+ */
+export function setMcpSensitivityPolicy(policy = {}) {
+  sensitivityPolicy = {
+    allowAll: policy.allowAll === true,
+    allowedCollections: new Set(policy.allowedCollections || []),
+    allowedRequests: new Set(policy.allowedRequests || []),
+    blockedRequests: new Set(policy.blockedRequests || []),
+  };
+}
+
+export function resetMcpSensitivityPolicy() {
+  setMcpSensitivityPolicy();
+}
+
+/**
+ * Compute which collections/requests may return plaintext secrets. A collection
+ * override wins over the workspace default.
+ */
+export function mcpPolicyForWorkspace(workspace) {
+  const allowAll = workspace?.mcpAccess?.allowSensitive === true;
+  const allowedCollections = [];
+  const allowedRequests = [];
+  const blockedRequests = [];
+  const walk = (items, collectionAllowed, target) => {
+    for (const node of items || []) {
+      if (node?.type === 'folder') {
+        walk(node.items, collectionAllowed, target);
+      } else if (node?.id) {
+        target.push(node.id);
+      }
+    }
+  };
+  for (const collection of workspace?.collections || []) {
+    const override = collection?.mcpAccess?.allowSensitive;
+    const allowed = override === true || (override !== false && allowAll);
+    if (allowed) {
+      allowedCollections.push(collection.id);
+      walk(collection.items, true, allowedRequests);
+    } else if (override === false) {
+      walk(collection.items, false, blockedRequests);
+    }
+  }
+  return { allowAll, allowedCollections, allowedRequests, blockedRequests };
+}
+
+function collectionAllowsSensitive(collection) {
+  const override = collection?.mcpAccess?.allowSensitive;
+  if (override === true) return true;
+  if (override === false) return false;
+  return sensitivityPolicy.allowAll;
+}
+
 // Declared auth secrets, relative to the request's `auth` object.
 const AUTH_SECRET_PATHS = [
   ['bearer', 'token'],
@@ -163,8 +225,9 @@ function redactValue(value, secrets, stack, depth) {
  * @param {Array|undefined|null} rows Variable rows.
  * @returns {Array<object>} Redacted rows (empty array for non-array input).
  */
-export function redactVariableRows(rows) {
+export function redactVariableRows(rows, allowSensitive = sensitivityPolicy.allowAll) {
   if (!Array.isArray(rows)) return [];
+  if (allowSensitive) return redactForMcp(rows, []);
   return rows.map((row) => {
     if (!row || typeof row !== 'object') return row;
     if (row.type === 'secret') {
@@ -202,39 +265,51 @@ function blankAuthSecrets(holder) {
  * @param {object|null|undefined} request Stored request node.
  * @returns {object|null|undefined} Redacted clone.
  */
-export function redactRequest(request) {
+export function redactRequest(request, allowSensitive = null) {
   if (!request || typeof request !== 'object') return request;
+  const allowed =
+    allowSensitive === true ||
+    (allowSensitive == null &&
+      ((sensitivityPolicy.allowAll &&
+        !(request.id && sensitivityPolicy.blockedRequests.has(request.id))) ||
+        (request.id && sensitivityPolicy.allowedRequests.has(request.id))));
   const clone = redactForMcp(request, []);
-  if (!clone || typeof clone !== 'object') return clone;
+  if (allowed || !clone || typeof clone !== 'object') return clone;
   blankAuthSecrets(clone);
   return clone;
 }
 
-function redactNode(node) {
+function redactNode(node, allowSensitive = false) {
   if (!node || typeof node !== 'object') return node;
   if (node.type === 'folder') {
     const clone = redactForMcp(node, []);
-    clone.variables = redactVariableRows(node.variables);
-    clone.items = Array.isArray(node.items) ? node.items.map(redactNode) : [];
-    blankAuthSecrets(clone);
+    clone.variables = redactVariableRows(node.variables, allowSensitive);
+    clone.items = Array.isArray(node.items)
+      ? node.items.map((child) => redactNode(child, allowSensitive))
+      : [];
+    if (!allowSensitive) blankAuthSecrets(clone);
     return clone;
   }
-  return redactRequest(node);
+  return redactRequest(node, allowSensitive);
 }
 
 /**
  * Clone a collection for MCP output: variable rows are reduced to metadata,
  * every request/folder node is redacted, and tree structure is preserved.
+ * A collection-level allow flag returns plaintext values for that collection.
  *
  * @param {object|null|undefined} collection Stored collection.
  * @returns {object|null|undefined} Redacted clone.
  */
 export function redactCollection(collection) {
   if (!collection || typeof collection !== 'object') return collection;
+  const allowSensitive = collectionAllowsSensitive(collection);
   const clone = redactForMcp(collection, []);
-  clone.variables = redactVariableRows(collection.variables);
-  clone.items = Array.isArray(collection.items) ? collection.items.map(redactNode) : [];
-  blankAuthSecrets(clone);
+  clone.variables = redactVariableRows(collection.variables, allowSensitive);
+  clone.items = Array.isArray(collection.items)
+    ? collection.items.map((node) => redactNode(node, allowSensitive))
+    : [];
+  if (!allowSensitive) blankAuthSecrets(clone);
   return clone;
 }
 
@@ -255,11 +330,11 @@ export function redactWorkspace(workspace) {
     ? workspace.environments.map((env) => {
         if (!env || typeof env !== 'object') return env;
         const envClone = redactForMcp(env, []);
-        envClone.variables = redactVariableRows(env.variables);
+        envClone.variables = redactVariableRows(env.variables, sensitivityPolicy.allowAll);
         return envClone;
       })
     : [];
-  clone.globals = redactVariableRows(workspace.globals);
+  clone.globals = redactVariableRows(workspace.globals, sensitivityPolicy.allowAll);
   return clone;
 }
 
@@ -304,8 +379,9 @@ export function redactNetworkSettings(settings) {
  * @param {Array|undefined|null} cookies Cookie records.
  * @returns {Array<object>} Redacted cookies (empty array for non-array input).
  */
-export function redactCookies(cookies) {
+export function redactCookies(cookies, allowSensitive = sensitivityPolicy.allowAll) {
   if (!Array.isArray(cookies)) return [];
+  if (allowSensitive) return redactForMcp(cookies, []);
   return cookies.map((cookie) => {
     if (!cookie || typeof cookie !== 'object') return cookie;
     return {
@@ -326,10 +402,12 @@ export function redactCookies(cookies) {
  *
  * @param {*} value Tool result data.
  * @param {string[]} [secrets] Plaintext secrets to mask.
+ * @param {{allowSensitive?: boolean}} [options] Skip masking when the caller
+ *   has explicitly allowed sensitive data for this action.
  * @returns {*} JSON-safe redacted clone.
  */
-export function serializeMcpResult(value, secrets) {
-  const clone = redactForMcp(value, secrets);
+export function serializeMcpResult(value, secrets, options = {}) {
+  const clone = redactForMcp(value, options.allowSensitive === true ? [] : secrets);
   return truncateStrings(clone, new WeakSet(), 0);
 }
 
