@@ -27,7 +27,26 @@ export default function ActivityRail({
   onOpenDonation,
   onOpenAppearance,
   onOpenSettings,
+  onOpenUpdate,
+  updateStatus,
 }) {
+  const updateState = updateStatus?.state || 'idle';
+  const updateTone =
+    updateState === 'available' || updateState === 'ready' || updateState === 'error'
+      ? 'alert'
+      : updateState === 'downloading' || updateState === 'checking'
+        ? 'busy'
+        : '';
+  const updateTitle =
+    updateState === 'available' || updateState === 'ready'
+      ? `Update ${updateStatus?.version || ''} available`.trim()
+      : updateState === 'downloading'
+        ? 'Downloading update…'
+        : updateState === 'checking'
+          ? 'Checking for updates…'
+          : updateState === 'error'
+            ? 'Update check failed'
+            : 'Check for updates';
   return (
     <nav className="activity-rail">
       <div className="rail-group">
@@ -113,10 +132,22 @@ export default function ActivityRail({
         </button>
         <button
           type="button"
+          className={`rail-action update-action ${updateTone}`}
+          onClick={onOpenUpdate}
+          title={updateTitle}
+          aria-label={updateTitle}
+          data-testid="update-open"
+          data-state={updateState}
+        >
+          <Icon name="download" size={16} />
+          <span className="rail-dot" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
           className="rail-action"
           onClick={onOpenSettings}
-          title="Network settings"
-          aria-label="Network settings"
+          title="Settings"
+          aria-label="Settings"
           data-testid="settings-open"
         >
           <Icon name="gear" size={16} />

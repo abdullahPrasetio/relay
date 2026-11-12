@@ -26,6 +26,7 @@ import SettingsModal from './components/SettingsModal.jsx';
 import AppearanceModal from './components/AppearanceModal.jsx';
 import DonationModal from './components/DonationModal.jsx';
 import UpdateModal from './components/UpdateModal.jsx';
+import UpdateCheckModal from './components/UpdateCheckModal.jsx';
 import { markDonationPromptShown, shouldShowDonationPrompt } from './lib/donationPrompt.js';
 import RequestSettingsModal from './components/RequestSettingsModal.jsx';
 import CloudAuthModal from './components/CloudAuthModal.jsx';
@@ -252,9 +253,11 @@ export default function App() {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [donationOpen, setDonationOpen] = useState(false);
   const [appPlatform, setAppPlatform] = useState('');
+  const [appVersion, setAppVersion] = useState('');
   const [macUpdate, setMacUpdate] = useState({ busy: false, progress: null, error: '' });
   const [updateStatus, setUpdateStatus] = useState(null);
   const [updatePromptOpen, setUpdatePromptOpen] = useState(false);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [autoInstallUpdates, setAutoInstallUpdates] = useState(false);
   const autoInstallRef = useRef(false);
   const [cloudAuthOpen, setCloudAuthOpen] = useState(false);
@@ -346,6 +349,7 @@ export default function App() {
         const info = await api.getAppInfo();
         if (!alive) return;
         setAppPlatform(info?.platform || '');
+        setAppVersion(info?.version || '');
         if (!info?.donationPrompt) return;
         if (!shouldShowDonationPrompt()) return;
         timer = setTimeout(() => {
@@ -2006,6 +2010,8 @@ export default function App() {
           onOpenDonation={() => setDonationOpen(true)}
           onOpenAppearance={() => setAppearanceOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenUpdate={() => setUpdateModalOpen(true)}
+          updateStatus={updateStatus}
         />
         <Sidebar
           view={railView}
@@ -2291,6 +2297,22 @@ export default function App() {
       )}
 
       {donationOpen && <DonationModal onClose={() => setDonationOpen(false)} />}
+
+      {updateModalOpen && (
+        <UpdateCheckModal
+          version={appVersion}
+          status={updateStatus}
+          platform={appPlatform}
+          autoInstall={autoInstallUpdates}
+          onToggleAutoInstall={toggleAutoInstallUpdates}
+          onInstall={installUpdate}
+          onMacInstall={installMacUpdate}
+          installing={macUpdate.busy}
+          progress={macUpdate.progress}
+          installError={macUpdate.error}
+          onClose={() => setUpdateModalOpen(false)}
+        />
+      )}
 
       {updatePromptOpen &&
         (updateStatus?.state === 'ready' ||

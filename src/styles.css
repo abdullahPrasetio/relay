@@ -286,6 +286,21 @@ body {
   background: var(--red);
 }
 
+.update-action .rail-dot {
+  display: none;
+}
+
+.update-action.alert .rail-dot {
+  display: block;
+  background: var(--red);
+  box-shadow: 0 0 0 3px rgb(var(--red-rgb) / 0.18);
+}
+
+.update-action.busy .rail-dot {
+  display: block;
+  background: var(--yellow);
+}
+
 .sidebar-env {
   padding: 8px;
   border-bottom: 1px solid var(--border);
@@ -4263,22 +4278,6 @@ body {
   border-radius: inherit;
   background: var(--accent);
   transition: width 0.2s ease;
-}
-
-.settings-update {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-2);
-}
-
-.settings-update p {
-  margin: 4px 0 0;
 }
 
 /* ---- Confluence sync ---- */
