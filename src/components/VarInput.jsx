@@ -93,19 +93,17 @@ export default function VarInput({ value, onChange, className, placeholder, type
                   <span>
                     {hit ? `${scopeShort(hit.scope)}  ${hit.scope}` : 'unresolved'}
                   </span>
-                  {hit && (
-                    <button
-                      type="button"
-                      className="var-tip-edit"
-                      data-testid={`var-edit-${name}`}
-                      onClick={() => {
-                        setTipOpen(false);
-                        onEditVariable(name);
-                      }}
-                    >
-                      Edit
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="var-tip-edit"
+                    data-testid={`var-edit-${name}`}
+                    onClick={() => {
+                      setTipOpen(false);
+                      onEditVariable(name);
+                    }}
+                  >
+                    {hit ? 'Edit' : 'Set'}
+                  </button>
                 </span>
               </span>
             );

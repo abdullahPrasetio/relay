@@ -7,17 +7,24 @@ const SCOPE_LABEL = {
   globals: 'Globals',
 };
 
-// Edit the value of an existing {{variable}} in the scope where it resolves.
-export default function EditVariableModal({ variable, onCancel, onSave }) {
+// Edit an existing {{variable}}, or create it when the name is unresolved.
+export default function EditVariableModal({
+  variable,
+  scopeOptions = [],
+  scopeEditable = false,
+  onCancel,
+  onSave,
+}) {
   const [value, setValue] = useState(variable?.value ?? '');
+  const [scope, setScope] = useState(variable?.scope || scopeOptions[0]?.value || 'globals');
 
   function submit() {
-    onSave({ name: variable.name, scope: variable.scope, value });
+    onSave({ name: variable.name, scope, value });
   }
 
   return (
     <Modal
-      title={`Edit {{${variable?.name || 'variable'}}}`}
+      title={`${scopeEditable ? 'Set' : 'Edit'} {{${variable?.name || 'variable'}}}`}
       onClose={onCancel}
       width={440}
       footer={
@@ -47,7 +54,21 @@ export default function EditVariableModal({ variable, onCancel, onSave }) {
       </div>
       <div className="form-row">
         <label>Scope</label>
-        <input value={SCOPE_LABEL[variable?.scope] || variable?.scope || ''} readOnly />
+        {scopeEditable ? (
+          <select
+            value={scope}
+            data-testid="variable-scope"
+            onChange={(e) => setScope(e.target.value)}
+          >
+            {scopeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input value={SCOPE_LABEL[scope] || scope || ''} readOnly />
+        )}
       </div>
     </Modal>
   );

@@ -1598,20 +1598,45 @@ export default function App() {
     [tabs, activeTabId, store, updateTab, dialogs]
   );
 
-  // Open the "Set as variable" dialog for a selected string.
-  const openSetVariable = useCallback((value) => {
-    const v = (value || '').trim();
-    if (!v) return;
-    setSetVarModal({ value: v });
-  }, []);
-
   const openEditVariable = useCallback(
     (name) => {
       const hit = varLookup(name);
-      if (!hit) return;
-      setEditVarModal({ name, scope: hit.scope, value: hit.value });
+      const owning = activeTab?.request?.id
+        ? findRequestCollection(store.collections, activeTab.request.id)
+        : null;
+      const options = [];
+      if (activeEnv) {
+        options.push({ value: 'environment', label: `Environment — ${activeEnv.name}` });
+      }
+      if (owning) {
+        options.push({ value: 'collection', label: `Collection — ${owning.name}` });
+      }
+      options.push({ value: 'globals', label: 'Globals' });
+      setEditVarModal({
+        name,
+        scope: hit?.scope || options[0]?.value || 'globals',
+        value: hit?.value || '',
+        scopeEditable: !hit,
+        scopeOptions: options,
+      });
     },
-    [varLookup]
+    [varLookup, activeEnv, activeTab?.request?.id, store.collections]
+  );
+
+  // Open the "Set as variable" dialog for a selected string. Selecting a
+  // complete {{name}} token edits/creates that variable directly.
+  const openSetVariable = useCallback(
+    (value) => {
+      const v = (value || '').trim();
+      if (!v) return;
+      const token = v.match(/^\{\{\s*([\w.-]+)\s*\}\}$/);
+      if (token) {
+        openEditVariable(token[1]);
+        return;
+      }
+      setSetVarModal({ value: v });
+    },
+    [openEditVariable]
   );
 
   const doEditVariable = useCallback(
@@ -1635,6 +1660,8 @@ export default function App() {
                 : c
             )
           );
+        } else {
+          store.setGlobals(upsertVar(store.globals, name, value));
         }
       } else {
         store.setGlobals(upsertVar(store.globals, name, value));
@@ -2197,6 +2224,8 @@ export default function App() {
       {editVarModal && (
         <EditVariableModal
           variable={editVarModal}
+          scopeOptions={editVarModal.scopeOptions || []}
+          scopeEditable={editVarModal.scopeEditable === true}
           onCancel={() => setEditVarModal(null)}
           onSave={doEditVariable}
         />

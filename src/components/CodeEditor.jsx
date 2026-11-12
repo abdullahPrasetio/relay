@@ -49,8 +49,8 @@ function registerVarHover(monacoApi) {
                 { value: scopeLabel },
                 {
                   value: hit
-                    ? '_Right-click → Edit variable_'
-                    : '_Select text → right-click → Set as variable_',
+                    ? '_Use the floating button or right-click → Edit variable_'
+                    : '_Use the floating button to set this variable_',
                 },
               ],
             };
@@ -227,7 +227,7 @@ export default function CodeEditor({
 
   return (
     <div className="code-editor-wrap">
-      {editable && (selectedText || resolvedCursorVar) && (
+      {editable && (selectedText || cursorVar) && (
         <div className="editor-float-actions">
           {selectedText ? (
             <button
@@ -247,7 +247,7 @@ export default function CodeEditor({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => onEditVariable(cursorVar)}
             >
-              {`Edit {{${cursorVar}}}`}
+              {resolvedCursorVar ? `Edit {{${cursorVar}}}` : `Set {{${cursorVar}}}`}
             </button>
           )}
         </div>
