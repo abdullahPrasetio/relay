@@ -19,6 +19,7 @@ import ActivityRail from './components/ActivityRail.jsx';
 import AppHeader from './components/AppHeader.jsx';
 import SetVariableModal from './components/SetVariableModal.jsx';
 import EditVariableModal from './components/EditVariableModal.jsx';
+import VariablesInRequestModal from './components/VariablesInRequestModal.jsx';
 import CookiesModal from './components/CookiesModal.jsx';
 import MockServerModal from './components/MockServerModal.jsx';
 import McpApprovalModal from './components/McpApprovalModal.jsx';
@@ -247,6 +248,7 @@ export default function App() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [setVarModal, setSetVarModal] = useState(null); // { value }
   const [editVarModal, setEditVarModal] = useState(null); // { name, scope, value }
+  const [varsInRequestOpen, setVarsInRequestOpen] = useState(false);
   const [cookiesOpen, setCookiesOpen] = useState(false);
   const [mockOpen, setMockOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1971,7 +1973,12 @@ export default function App() {
 
   return (
     <VarContext.Provider
-      value={{ lookup: varLookup, onSetVariable: openSetVariable, onEditVariable: openEditVariable }}
+      value={{
+        lookup: varLookup,
+        onSetVariable: openSetVariable,
+        onEditVariable: openEditVariable,
+        onShowVariables: () => setVarsInRequestOpen(true),
+      }}
     >
     <div className="app">
       <AppHeader
@@ -2218,6 +2225,18 @@ export default function App() {
           hasEnvironment={!!activeEnv}
           onCancel={() => setSetVarModal(null)}
           onSave={doSetVariable}
+        />
+      )}
+
+      {varsInRequestOpen && (
+        <VariablesInRequestModal
+          request={activeTab.request}
+          lookup={varLookup}
+          onEdit={(name) => {
+            setVarsInRequestOpen(false);
+            openEditVariable(name);
+          }}
+          onClose={() => setVarsInRequestOpen(false)}
         />
       )}
 

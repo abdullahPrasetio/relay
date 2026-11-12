@@ -1589,42 +1589,133 @@ input.has-unresolved-var {
 .var-tip-item {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 8px;
+}
+
+.var-tip-item + .var-tip-item {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
 
 .var-tip-name {
   color: var(--accent);
+  font-size: 11px;
 }
 
-.var-tip-value {
+.var-tip-value-box {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
   color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.45;
   word-break: break-all;
 }
 
-.var-tip-meta {
+.var-tip-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+}
+
+.var-tip-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--text-dim);
+  font-size: 11px;
+}
+
+.var-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
   font-size: 10px;
+  font-weight: 700;
+}
+
+.var-scope-badge.scope-environment {
+  background: rgb(var(--green-rgb) / 0.16);
+  color: var(--green);
+}
+
+.var-scope-badge.scope-collection {
+  background: rgb(var(--accent-rgb) / 0.16);
+  color: var(--accent);
+}
+
+.var-scope-badge.scope-globals {
+  background: rgb(var(--yellow-rgb) / 0.18);
+  color: var(--yellow);
+}
+
+.var-scope-badge.scope-unresolved {
+  background: rgb(var(--red-rgb) / 0.16);
+  color: var(--red);
+}
+
+.var-tip-link {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+}
+
+.var-tip-link:hover {
+  color: var(--accent);
+}
+
+.request-vars-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.request-vars-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr) 18px auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+}
+
+.request-vars-name {
+  color: var(--accent);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.request-vars-value {
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-vars-scope {
+  color: var(--text-dim);
+  font-size: 9.5px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
 
-.var-tip-edit {
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 10px;
-  padding: 1px 7px;
-}
-
-.var-tip-edit:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+.request-vars-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .code-editor-wrap {
@@ -1634,8 +1725,6 @@ input.has-unresolved-var {
 
 .editor-float-actions {
   position: absolute;
-  top: 6px;
-  right: 14px;
   z-index: 5;
 }
 

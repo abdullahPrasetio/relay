@@ -97,6 +97,7 @@ export default function CodeEditor({
   const [mounted, setMounted] = useState(false);
   const [selectedText, setSelectedText] = useState('');
   const [cursorVar, setCursorVar] = useState(null);
+  const [actionPos, setActionPos] = useState(null);
   const { lookup, onSetVariable, onEditVariable } = useVarContext();
   const actionsRef = useRef({ onSetVariable, onEditVariable });
   const contextRef = useRef({ selection: null, position: null });
@@ -188,8 +189,25 @@ export default function CodeEditor({
       setCursorVar(
         position ? varAtColumn(model.getLineContent(position.lineNumber), position.column) : null
       );
+
+      // Anchor the floating action to the selection end (or the cursor), not
+      // to the editor's top-right corner.
+      const anchor =
+        selection && !selection.isEmpty() ? selection.getEndPosition() : position;
+      const visible = anchor ? editor.getScrolledVisiblePosition(anchor) : null;
+      const layout = editor.getLayoutInfo();
+      if (visible && layout) {
+        setActionPos({
+          top: visible.top + visible.height + 6,
+          left: Math.max(6, Math.min(visible.left, layout.width - 160)),
+        });
+      } else {
+        setActionPos(null);
+      }
     };
     editor.onDidChangeCursorSelection(updateSelection);
+    editor.onDidScrollChange(updateSelection);
+    editor.onDidLayoutChange(updateSelection);
     updateSelection();
     registerVarHover(monacoApi);
     editor.addAction({
@@ -227,8 +245,11 @@ export default function CodeEditor({
 
   return (
     <div className="code-editor-wrap">
-      {editable && (selectedText || cursorVar) && (
-        <div className="editor-float-actions">
+      {editable && actionPos && (selectedText || cursorVar) && (
+        <div
+          className="editor-float-actions"
+          style={{ top: `${actionPos.top}px`, left: `${actionPos.left}px` }}
+        >
           {selectedText ? (
             <button
               type="button"

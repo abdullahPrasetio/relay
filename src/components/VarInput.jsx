@@ -10,13 +10,20 @@ function scopeShort(scope) {
   return '•';
 }
 
+function scopeLabel(scope) {
+  if (scope === 'environment') return 'Environment';
+  if (scope === 'collection') return 'Collection';
+  if (scope === 'globals') return 'Globals';
+  return 'Unresolved';
+}
+
 // A text input that:
 //  - right-click on a selection -> "set as variable"
 //  - shows a hover card for {{variables}} with their value/scope and an Edit
 //    action, so variables can be updated from URL, params, headers and auth.
 // Behaves like a normal <input> otherwise.
 export default function VarInput({ value, onChange, className, placeholder, type = 'text', readOnly }) {
-  const { lookup, onSetVariable, onEditVariable } = useVarContext();
+  const { lookup, onSetVariable, onShowVariables } = useVarContext();
   const [tipOpen, setTipOpen] = useState(false);
   const [selectionText, setSelectionText] = useState('');
 
@@ -85,24 +92,29 @@ export default function VarInput({ value, onChange, className, placeholder, type
             const hit = lookup(name);
             return (
               <span key={name} className="var-tip-item">
-                <span className="var-tip-name">{`{{${name}}}`}</span>
-                <span className="var-tip-value">
+                {tokens.length > 1 && (
+                  <span className="var-tip-name">{`{{${name}}}`}</span>
+                )}
+                <span className="var-tip-value-box" data-testid={`var-value-${name}`}>
                   {hit ? hit.value : 'variable is not defined'}
                 </span>
-                <span className="var-tip-meta">
-                  <span>
-                    {hit ? `${scopeShort(hit.scope)}  ${hit.scope}` : 'unresolved'}
+                <span className="var-tip-footer">
+                  <span className="var-tip-scope">
+                    <span className={`var-scope-badge scope-${hit?.scope || 'unresolved'}`}>
+                      {hit ? scopeShort(hit.scope) : '!'}
+                    </span>
+                    <span>{scopeLabel(hit?.scope)}</span>
                   </span>
                   <button
                     type="button"
-                    className="var-tip-edit"
-                    data-testid={`var-edit-${name}`}
+                    className="var-tip-link"
+                    data-testid="variables-in-request"
                     onClick={() => {
                       setTipOpen(false);
-                      onEditVariable(name);
+                      onShowVariables();
                     }}
                   >
-                    {hit ? 'Edit' : 'Set'}
+                    Variables in request →
                   </button>
                 </span>
               </span>
