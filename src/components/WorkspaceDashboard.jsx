@@ -36,6 +36,7 @@ export default function WorkspaceDashboard({
   environments = [],
   history = [],
   activeEnv = null,
+  pinnedRequests = [],
   onStartRequest,
   onOpenRequest,
   onOpenCollection,
@@ -74,6 +75,35 @@ export default function WorkspaceDashboard({
           <Stat icon="globe" label="Environments" value={environments.length} />
           <Stat icon="clock" label="History" value={(history || []).length} />
         </div>
+
+        {pinnedRequests.length > 0 && (
+          <div className="dashboard-card">
+            <div className="dashboard-card-head">
+              <h2>Pinned requests</h2>
+              <span className="dashboard-muted">{pinnedRequests.length}</span>
+            </div>
+            <div className="dashboard-recent">
+              {pinnedRequests.map((request) => (
+                <button
+                  type="button"
+                  key={request.id}
+                  className="dashboard-recent-item"
+                  onClick={() => onOpenRequest?.(request)}
+                >
+                  <span className={`method-tag method-${request.method}`}>
+                    {request.method || 'GET'}
+                  </span>
+                  <span className="dashboard-recent-url" title={request.url}>
+                    {request.name || request.url || 'Untitled'}
+                  </span>
+                  <span className="dashboard-recent-time">
+                    {request.url || ''}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="dashboard-grid">
           <div className="dashboard-card">

@@ -159,3 +159,30 @@ test('command palette searches requests and runs actions', async () => {
     await closeApp(session);
   }
 });
+
+test('pins requests to the dashboard and persists them', async () => {
+  const userData = makeUserData();
+  fs.writeFileSync(path.join(userData, 'rest-tamer-data.json'), JSON.stringify(seed(), null, 2));
+  const session = await launchAppAt(userData, {}, { keepDashboard: true });
+  const { page } = session;
+
+  try {
+    await page.getByTestId('collections-expand-all').click();
+    await page.locator('.request-row', { hasText: 'Health Check' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Pin to dashboard' }).click();
+
+    const dashboard = page.getByTestId('workspace-dashboard');
+    await expect(dashboard).toContainText('Pinned requests');
+    await expect(dashboard.locator('.dashboard-recent-item', { hasText: 'Health Check' })).toHaveCount(1);
+
+    await page.reload();
+    await page.waitForSelector('[data-testid="workspace-dashboard"]');
+    const reloaded = page.getByTestId('workspace-dashboard');
+    await expect(reloaded.locator('.dashboard-recent-item', { hasText: 'Health Check' })).toHaveCount(1);
+
+    await reloaded.locator('.dashboard-recent-item', { hasText: 'Health Check' }).click();
+    await expect(page.locator('.url-input')).toHaveValue('https://api.example.com/health');
+  } finally {
+    await closeApp(session);
+  }
+});

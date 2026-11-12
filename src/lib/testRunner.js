@@ -60,6 +60,7 @@ export async function runTests(script, response, context, request, options = {})
     nextRequest: out.nextRequest ?? null,
     nextRequestSet: out.nextRequestSet === true,
     skip: out.skip === true,
+    visualizer: out.visualizer ?? null,
   };
 }
 

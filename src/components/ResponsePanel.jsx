@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import CodeEditor from './CodeEditor.jsx';
 import JsonTree from './JsonTree.jsx';
+import VisualizerPanel from './VisualizerPanel.jsx';
+import ResponseDiff from './ResponseDiff.jsx';
 import {
   detectLanguage,
   escapeHtml,
@@ -11,7 +13,14 @@ import {
 } from '../lib/responseFormat.js';
 import '../styles/response.css';
 
-export default function ResponsePanel({ response, sending, testResults, onSaveExample, onSetVariable }) {
+export default function ResponsePanel({
+  response,
+  sending,
+  testResults,
+  examples = [],
+  onSaveExample,
+  onSetVariable,
+}) {
   const [tab, setTab] = useState('Body');
 
   // Right-click a text selection in the response to set it as a variable.
@@ -59,6 +68,8 @@ export default function ResponsePanel({ response, sending, testResults, onSaveEx
 
   const tabs = ['Body', 'Headers', 'Cookies', 'Request'];
   if (testResults?.ran) tabs.push('Tests');
+  if (testResults?.visualizer) tabs.push('Visualizer');
+  if (examples.some((example) => typeof example?.response?.body === 'string')) tabs.push('Diff');
   if ((response.consoleLogs?.length || 0) > 0) tabs.push('Console');
 
   return (
@@ -134,6 +145,8 @@ export default function ResponsePanel({ response, sending, testResults, onSaveEx
         {tab === 'Cookies' && <ResponseCookies cookies={response.cookies} />}
         {tab === 'Request' && <SentRequest sent={response.sent} />}
         {tab === 'Tests' && <TestResults results={testResults?.results} />}
+        {tab === 'Visualizer' && <VisualizerPanel visualizer={testResults.visualizer} />}
+        {tab === 'Diff' && <ResponseDiff response={response} examples={examples} />}
         {tab === 'Console' && <ConsoleOutput logs={response.consoleLogs} />}
       </div>
     </section>

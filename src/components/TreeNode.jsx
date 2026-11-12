@@ -121,6 +121,10 @@ export default function TreeNode({
   // request node
   const items = [
     { label: 'Open', onClick: () => onOpenRequest(node) },
+    {
+      label: actions.isPinned?.(node.id) ? 'Unpin from dashboard' : 'Pin to dashboard',
+      onClick: () => actions.togglePin?.(node.id),
+    },
     { label: 'Rename', onClick: () => actions.rename(collectionId, node.id, node.name) },
     { label: 'Duplicate', onClick: () => actions.duplicate(collectionId, node.id) },
     { label: 'Move Up', onClick: () => actions.move(collectionId, node.id, -1) },

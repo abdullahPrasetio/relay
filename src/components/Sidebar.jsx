@@ -74,6 +74,8 @@ export default function Sidebar({
   onRemoveHistory,
   activeRequestId,
   onOpenRequest,
+  pinnedIds = [],
+  onTogglePin,
   onEditCollectionVars,
   onOpenCollection,
   onEditEnvironment,
@@ -291,6 +293,12 @@ export default function Sidebar({
     },
     run(collectionId, folderId) {
       onRun(collectionId, folderId);
+    },
+    isPinned(nodeId) {
+      return pinnedIds.includes(nodeId);
+    },
+    togglePin(nodeId) {
+      onTogglePin?.(nodeId);
     },
   };
 

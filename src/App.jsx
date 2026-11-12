@@ -49,6 +49,7 @@ import { isWebSocket, isMqtt, isSocketIo, isGrpc, isGrpcTls } from './lib/protoc
 import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from '../packages/core/src/variables.js';
 import { collectSecretValues } from './lib/secretVars.js';
 import { runTests, runPreRequest } from './lib/testRunner.js';
+import { toCurl } from './lib/codegen.js';
 import {
   withEffectiveAuth,
   combinedPreRequest,
@@ -99,6 +100,23 @@ function maskSentView(sent, secrets) {
         )
       : sent.headers,
     body: maskSecrets(sent.body, secrets),
+  };
+}
+
+function maskVisualizer(visualizer, secrets) {
+  if (!visualizer) return visualizer;
+  const maskValue = (value) => {
+    if (typeof value === 'string') return maskSecrets(value, secrets);
+    if (Array.isArray(value)) return value.map(maskValue);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, maskValue(entry)]));
+    }
+    return value;
+  };
+  return {
+    ...visualizer,
+    template: maskSecrets(visualizer.template, secrets),
+    data: maskValue(visualizer.data),
   };
 }
 
@@ -218,6 +236,28 @@ function readStoredSession() {
   }
 }
 
+const PINNED_PREFIX = 'relay-pinned-requests:';
+
+function readPinned(workspaceId) {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(`${PINNED_PREFIX}${workspaceId || 'default'}`);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePinned(workspaceId, ids) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(`${PINNED_PREFIX}${workspaceId || 'default'}`, JSON.stringify(ids));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 // True while a tab is still the untouched blank the app boots with. Used to
 // avoid restoring a session over edits made before collections finished loading.
 function isPristineTab(tab) {
@@ -243,6 +283,10 @@ export default function App() {
   const dialogs = useDialogs();
   const [tabs, setTabs] = useState(() => [newTab()]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0].tabId);
+  const [pinnedState, setPinnedState] = useState(() => ({
+    workspaceId: store.activeWorkspaceId,
+    ids: readPinned(store.activeWorkspaceId),
+  }));
   const [saveModal, setSaveModal] = useState(null); // {request}
   const [varsModalCollectionId, setVarsModalCollectionId] = useState(null);
   const [collectionEditorId, setCollectionEditorId] = useState(null);
@@ -425,6 +469,40 @@ export default function App() {
   }, []);
 
   const showDashboard = isPristineTab(activeTab) && !activeTab.dashboardDismissed;
+
+  useEffect(() => {
+    if (pinnedState.workspaceId === store.activeWorkspaceId) return;
+    setPinnedState({
+      workspaceId: store.activeWorkspaceId,
+      ids: readPinned(store.activeWorkspaceId),
+    });
+  }, [pinnedState.workspaceId, store.activeWorkspaceId]);
+
+  useEffect(() => {
+    if (pinnedState.workspaceId !== store.activeWorkspaceId) return;
+    writePinned(store.activeWorkspaceId, pinnedState.ids);
+  }, [pinnedState, store.activeWorkspaceId]);
+
+  const togglePin = useCallback(
+    (requestId) => {
+      setPinnedState((prev) => {
+        if (prev.workspaceId !== store.activeWorkspaceId) return prev;
+        const ids = prev.ids.includes(requestId)
+          ? prev.ids.filter((id) => id !== requestId)
+          : [...prev.ids, requestId];
+        return { ...prev, ids };
+      });
+    },
+    [store.activeWorkspaceId]
+  );
+
+  const pinnedRequests = useMemo(() => {
+    const byId = new Map();
+    for (const collection of store.collections) {
+      for (const request of flattenRequests(collection)) byId.set(request.id, request);
+    }
+    return pinnedState.ids.map((id) => byId.get(id)).filter(Boolean);
+  }, [pinnedState.ids, store.collections]);
 
   const startRequest = useCallback(() => {
     updateTab(activeTabId, { dashboardDismissed: true });
@@ -1491,6 +1569,7 @@ export default function App() {
           ? {
               ...testResults,
               logs: testResults.logs.map((entry) => maskLogEntry(entry, secretPlaintexts)),
+              visualizer: maskVisualizer(testResults.visualizer, secretPlaintexts),
             }
           : testResults;
       const maskedSent = maskSentView(result?.sent, secretPlaintexts);
@@ -1799,6 +1878,22 @@ export default function App() {
         icon: 'save',
         hint: '⌘/Ctrl S',
         run: save,
+      },
+      {
+        id: 'action-copy-curl',
+        group: 'Actions',
+        label: 'Copy as cURL',
+        detail: 'Copy the active request as a cURL command',
+        icon: 'code',
+        run: async () => {
+          const tab = tabs.find((entry) => entry.tabId === activeTabId);
+          if (!tab) return;
+          try {
+            await navigator.clipboard?.writeText(toCurl(tab.request));
+          } catch {
+            /* clipboard unavailable */
+          }
+        },
       },
       {
         id: 'action-settings',
@@ -2186,6 +2281,8 @@ export default function App() {
         <Sidebar
           view={railView}
           workspaceId={store.activeWorkspaceId}
+          pinnedIds={pinnedState.ids}
+          onTogglePin={togglePin}
           query={globalSearch}
           onQueryChange={setGlobalSearch}
           collections={store.collections}
@@ -2228,6 +2325,7 @@ export default function App() {
               environments={store.environments}
               history={store.history}
               activeEnv={activeEnv}
+              pinnedRequests={pinnedRequests}
               onStartRequest={startRequest}
               onOpenRequest={openRequest}
               onOpenCollection={setCollectionEditorId}
@@ -2311,6 +2409,7 @@ export default function App() {
                 response={activeTab.response}
                 sending={activeTab.sending}
                 testResults={activeTab.testResults}
+                examples={activeTab.request.examples || []}
                 onSaveExample={saveExample}
                 onSetVariable={openSetVariable}
               />
