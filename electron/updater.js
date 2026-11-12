@@ -79,20 +79,44 @@ export function describeUpdateEvent(event, payload = {}) {
   }
 }
 
-/** Native dialog options for the "update ready" prompt. */
-export function updatePrompt({ version, detail } = {}) {
-  return {
-    type: 'info',
-    buttons: ['Restart to update', 'Later'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true,
-    title: 'Update ready',
-    message: version
-      ? `Relay ${version} is ready to install.`
-      : 'An update is ready to install.',
-    detail: detail || 'Relay will restart to finish installing the update.',
-  };
+/**
+ * Map an electron-updater event to the small status object the renderer
+ * consumes. Keeping this pure makes the event contract testable without
+ * importing electron-updater.
+ */
+export function updateStatus(event, payload = {}) {
+  if (event instanceof Error) {
+    return { state: 'error', message: describeUpdateEvent(event) };
+  }
+  const type =
+    typeof event === 'object' && event !== null && typeof event.type === 'string'
+      ? event.type
+      : String(event || '');
+
+  switch (type) {
+    case 'checking-for-update':
+      return { state: 'checking' };
+    case 'update-available':
+      return { state: 'available', version: payload.version || null };
+    case 'download-progress':
+      return {
+        state: 'downloading',
+        percent: Number.isFinite(Number(payload.percent)) ? Number(payload.percent) : null,
+        transferred: Number(payload.transferred) || null,
+        total: Number(payload.total) || null,
+      };
+    case 'update-downloaded':
+      return { state: 'ready', version: payload.version || null };
+    case 'update-not-available':
+      return { state: 'none' };
+    case 'error':
+      return {
+        state: 'error',
+        message: describeUpdateEvent(event instanceof Error ? event : 'error', payload),
+      };
+    default:
+      return { state: 'unknown' };
+  }
 }
 
 /**
@@ -103,7 +127,7 @@ export function updatePrompt({ version, detail } = {}) {
  * `autoUpdater` is injectable so tests can exercise the wiring without
  * importing electron-updater, and so Electron-only code stays lazy.
  */
-export async function initAutoUpdate({ app, dialog, autoUpdater } = {}) {
+export async function initAutoUpdate({ app, autoUpdater, onStatus } = {}) {
   if (!app) return null;
 
   const disabled = process.env.RELAY_DISABLE_UPDATER === '1';
@@ -119,8 +143,17 @@ export async function initAutoUpdate({ app, dialog, autoUpdater } = {}) {
     }
   }
 
-  // Download in the background; the prompt only offers "Restart" vs "Later".
+  // Download in the background. The renderer owns the prompt; installing on
+  // quit is opt-in via the "silent update" preference.
   updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = false;
+  const emit = (status) => {
+    try {
+      onStatus?.(status);
+    } catch (err) {
+      log(`Could not publish updater status: ${err?.message || err}`);
+    }
+  };
   // Replace the default logger, which prints full feed URLs.
   updater.logger = {
     info: (message) => log(message),
@@ -129,26 +162,33 @@ export async function initAutoUpdate({ app, dialog, autoUpdater } = {}) {
     debug: (message) => log(message),
   };
 
-  updater.on('checking-for-update', () => log(describeUpdateEvent('checking-for-update')));
-  updater.on('update-available', (info) =>
-    log(describeUpdateEvent('update-available', { version: info?.version }))
-  );
-  updater.on('update-not-available', () => log(describeUpdateEvent('update-not-available')));
-  updater.on('error', (err) => log(describeUpdateEvent(err)));
-
-  updater.on('update-downloaded', async (info) => {
+  updater.on('checking-for-update', () => {
+    log(describeUpdateEvent('checking-for-update'));
+    emit(updateStatus('checking-for-update'));
+  });
+  updater.on('update-available', (info) => {
+    log(describeUpdateEvent('update-available', { version: info?.version }));
+    emit(updateStatus('update-available', { version: info?.version }));
+  });
+  updater.on('download-progress', (progress) => {
+    emit(updateStatus('download-progress', progress));
+  });
+  updater.on('update-not-available', () => {
+    log(describeUpdateEvent('update-not-available'));
+    emit(updateStatus('update-not-available'));
+  });
+  updater.on('error', (err) => {
+    log(describeUpdateEvent(err));
+    emit(updateStatus(err));
+  });
+  updater.on('update-downloaded', (info) => {
     log(describeUpdateEvent('update-downloaded', { version: info?.version }));
-    if (!dialog?.showMessageBox) return;
-    try {
-      const result = await dialog.showMessageBox(updatePrompt({ version: info?.version }));
-      if (result?.response === 0) updater.quitAndInstall();
-    } catch (err) {
-      log(`Could not show update prompt: ${err?.message || err}`);
-    }
+    emit(updateStatus('update-downloaded', { version: info?.version }));
   });
 
   try {
-    await updater.checkForUpdatesAndNotify();
+    // `checkForUpdates` (not `...AndNotify`) keeps all prompting in the app.
+    await updater.checkForUpdates();
   } catch (err) {
     // Offline, rate-limited, or unsigned mac builds all land here. Updating is
     // best-effort and must never brick startup.

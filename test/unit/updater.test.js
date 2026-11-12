@@ -3,7 +3,7 @@ import {
   describeUpdateEvent,
   initAutoUpdate,
   shouldCheckForUpdates,
-  updatePrompt,
+  updateStatus,
 } from '../../electron/updater.js';
 
 describe('shouldCheckForUpdates', () => {
@@ -84,34 +84,72 @@ describe('describeUpdateEvent', () => {
   });
 });
 
-describe('updatePrompt', () => {
-  it('offers restart or later, with restart as the default', () => {
-    const options = updatePrompt({ version: '1.2.3' });
-    expect(options.buttons).toEqual(['Restart to update', 'Later']);
-    expect(options.defaultId).toBe(0);
-    expect(options.cancelId).toBe(1);
-    expect(options.noLink).toBe(true);
-    expect(options.message).toBe('Relay 1.2.3 is ready to install.');
-    expect(options.detail).toContain('restart');
+describe('updateStatus', () => {
+  it('maps updater events to renderer states', () => {
+    expect(updateStatus('checking-for-update')).toEqual({ state: 'checking' });
+    expect(updateStatus('update-available', { version: '1.2.3' })).toEqual({
+      state: 'available',
+      version: '1.2.3',
+    });
+    expect(updateStatus('download-progress', { percent: 42.4, transferred: 10, total: 20 })).toEqual({
+      state: 'downloading',
+      percent: 42.4,
+      transferred: 10,
+      total: 20,
+    });
+    expect(updateStatus('update-downloaded', { version: '1.2.3' })).toEqual({
+      state: 'ready',
+      version: '1.2.3',
+    });
+    expect(updateStatus('update-not-available')).toEqual({ state: 'none' });
   });
 
-  it('works without a version and contains no URLs or credentials', () => {
-    const options = updatePrompt();
-    expect(options.message).toBe('An update is ready to install.');
-    const serialized = JSON.stringify(options);
-    expect(serialized).not.toMatch(/https?:\/\//);
-    expect(serialized).not.toMatch(/token|password|secret/i);
+  it('reports errors without leaking URLs', () => {
+    const status = updateStatus(new Error('failed at https://api.github.com/x?token=1'));
+    expect(status.state).toBe('error');
+    expect(status.message).toBe('Update error: failed at <url>');
+    expect(status.message).not.toMatch(/https?:\/\//);
   });
 });
 
 describe('initAutoUpdate', () => {
   it('is a no-op without an app or when the build is not packaged', async () => {
-    const updater = { on() {}, autoDownload: false, checkForUpdatesAndNotify() {} };
+    const updater = { on() {}, autoDownload: false, checkForUpdates() {} };
 
     await expect(initAutoUpdate()).resolves.toBeNull();
     await expect(
-      initAutoUpdate({ app: { isPackaged: false }, dialog: {}, autoUpdater: updater })
+      initAutoUpdate({ app: { isPackaged: false }, autoUpdater: updater })
     ).resolves.toBeNull();
     expect(updater.autoDownload).toBe(false);
+  });
+
+  it('publishes statuses and leaves install-on-quit opt-in', async () => {
+    const listeners = {};
+    const statuses = [];
+    const updater = {
+      on(event, cb) {
+        listeners[event] = cb;
+      },
+      autoDownload: false,
+      autoInstallOnAppQuit: true,
+      async checkForUpdates() {},
+      quitAndInstall() {},
+    };
+
+    const instance = await initAutoUpdate({
+      app: { isPackaged: true },
+      autoUpdater: updater,
+      onStatus: (status) => statuses.push(status),
+    });
+
+    expect(instance).toBe(updater);
+    expect(updater.autoDownload).toBe(true);
+    expect(updater.autoInstallOnAppQuit).toBe(false);
+    listeners['update-available']({ version: '2.0.0' });
+    listeners['update-downloaded']({ version: '2.0.0' });
+    expect(statuses).toEqual([
+      { state: 'available', version: '2.0.0' },
+      { state: 'ready', version: '2.0.0' },
+    ]);
   });
 });

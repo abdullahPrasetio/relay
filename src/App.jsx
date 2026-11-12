@@ -24,6 +24,7 @@ import McpApprovalModal from './components/McpApprovalModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import AppearanceModal from './components/AppearanceModal.jsx';
 import DonationModal from './components/DonationModal.jsx';
+import UpdateModal from './components/UpdateModal.jsx';
 import { markDonationPromptShown, shouldShowDonationPrompt } from './lib/donationPrompt.js';
 import RequestSettingsModal from './components/RequestSettingsModal.jsx';
 import CloudAuthModal from './components/CloudAuthModal.jsx';
@@ -248,7 +249,58 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [donationOpen, setDonationOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState(null);
+  const [updatePromptOpen, setUpdatePromptOpen] = useState(false);
+  const [autoInstallUpdates, setAutoInstallUpdates] = useState(false);
+  const autoInstallRef = useRef(false);
   const [cloudAuthOpen, setCloudAuthOpen] = useState(false);
+
+  // Updater status comes from the main process. The preference is renderer
+  // state (localStorage) and is pushed to electron-updater on startup.
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api?.onUpdaterStatus) return undefined;
+    let alive = true;
+    let pref = false;
+    try {
+      pref = localStorage.getItem('relay-auto-install-updates') === '1';
+    } catch {
+      /* storage disabled */
+    }
+    setAutoInstallUpdates(pref);
+    autoInstallRef.current = pref;
+    api.setAutoInstallUpdates?.(pref);
+    const applyStatus = (status) => {
+      if (!alive || !status) return;
+      setUpdateStatus(status);
+      if (status.state === 'ready') {
+        if (!autoInstallRef.current) setUpdatePromptOpen(true);
+      } else if (status.state !== 'downloading') {
+        setUpdatePromptOpen(false);
+      }
+    };
+    api.getUpdateStatus?.().then(applyStatus).catch(() => {});
+    const unsubscribe = api.onUpdaterStatus(applyStatus);
+    return () => {
+      alive = false;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const toggleAutoInstallUpdates = useCallback((enabled) => {
+    setAutoInstallUpdates(enabled);
+    autoInstallRef.current = enabled;
+    try {
+      localStorage.setItem('relay-auto-install-updates', enabled ? '1' : '0');
+    } catch {
+      /* storage disabled */
+    }
+    window.api?.setAutoInstallUpdates?.(enabled);
+  }, []);
+
+  const installUpdate = useCallback(() => {
+    window.api?.installUpdate?.({ silent: true });
+  }, []);
 
   // Daily reminder. E2E launches set RELAY_DISABLE_DONATION_PROMPT=1 so only
   // the specs that opt in see it; the header button always opens the modal.
@@ -2102,6 +2154,16 @@ export default function App() {
       )}
 
       {donationOpen && <DonationModal onClose={() => setDonationOpen(false)} />}
+
+      {updatePromptOpen && updateStatus?.state === 'ready' && (
+        <UpdateModal
+          status={updateStatus}
+          autoInstall={autoInstallUpdates}
+          onToggleAutoInstall={toggleAutoInstallUpdates}
+          onInstall={installUpdate}
+          onLater={() => setUpdatePromptOpen(false)}
+        />
+      )}
 
       {codeModal && <CodeModal request={codeModal.request} onClose={() => setCodeModal(null)} />}
 

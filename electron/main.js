@@ -111,6 +111,9 @@ let mainWindow = null;
 // MCP endpoint runtime. Created in whenReady so it can outlive a window close
 // and be re-armed when macOS reactivates the app.
 let mcp = null;
+let updater = null;
+let lastUpdateStatus = null;
+let pendingAutoInstall = null;
 
 // Set once the renderer confirmed it is fine to quit (no unsaved work, or the
 // user chose to discard). Until then the close is vetoed so the renderer can
@@ -246,9 +249,24 @@ app.whenReady().then(() => {
   createWindow();
 
   // Best-effort; no-op in dev and when RELAY_DISABLE_UPDATER=1.
-  initAutoUpdate({ app, dialog }).catch((err) => {
-    console.error('[updater] initialization failed:', err?.message || err);
-  });
+  initAutoUpdate({
+    app,
+    onStatus: (status) => {
+      lastUpdateStatus = status;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('updater:status', status);
+      }
+    },
+  })
+    .then((instance) => {
+      updater = instance;
+      if (instance && pendingAutoInstall != null) {
+        instance.autoInstallOnAppQuit = pendingAutoInstall;
+      }
+    })
+    .catch((err) => {
+      console.error('[updater] initialization failed:', err?.message || err);
+    });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -780,6 +798,28 @@ function registerIpc() {
     } catch (err) {
       return { ok: false, error: err.message };
     }
+  });
+
+  ipcMain.handle('updater:get-status', () => lastUpdateStatus);
+  ipcMain.handle('updater:check', async () => {
+    if (!updater) return { ok: false, error: 'Updater is unavailable.' };
+    try {
+      await updater.checkForUpdates();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+  ipcMain.handle('updater:install', (_event, payload = {}) => {
+    if (!updater) return { ok: false, error: 'Updater is unavailable.' };
+    updater.quitAndInstall(payload.silent !== false, true);
+    return { ok: true };
+  });
+  ipcMain.handle('updater:set-auto-install', (_event, enabled) => {
+    pendingAutoInstall = enabled === true;
+    if (!updater) return { ok: true, pending: true };
+    updater.autoInstallOnAppQuit = pendingAutoInstall;
+    return { ok: true, enabled: updater.autoInstallOnAppQuit };
   });
 
   // Read-only app metadata. The renderer uses `isPackaged` to avoid showing
