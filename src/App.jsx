@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './components/Sidebar.jsx';
 import RequestPanel from './components/RequestPanel.jsx';
 import WorkspaceDashboard from './components/WorkspaceDashboard.jsx';
+import CommandPalette from './components/CommandPalette.jsx';
 import ResponsePanel from './components/ResponsePanel.jsx';
 import WebSocketPanel from './components/WebSocketPanel.jsx';
 import MqttPanel from './components/MqttPanel.jsx';
@@ -257,6 +258,7 @@ export default function App() {
   const [mockOpen, setMockOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [commandOpen, setCommandOpen] = useState(false);
   const [donationOpen, setDonationOpen] = useState(false);
   const [appPlatform, setAppPlatform] = useState('');
   const [appVersion, setAppVersion] = useState('');
@@ -1769,6 +1771,132 @@ export default function App() {
     setActiveTabId(tab.tabId);
   }, []);
 
+  const commandItems = useMemo(() => {
+    const items = [
+      {
+        id: 'action-new-request',
+        group: 'Actions',
+        label: 'New Request',
+        detail: 'Open a blank request editor',
+        icon: 'plus',
+        hint: '+',
+        run: addTab,
+      },
+      {
+        id: 'action-send',
+        group: 'Actions',
+        label: 'Send Request',
+        detail: 'Send the active request',
+        icon: 'send',
+        hint: '⌘/Ctrl ↵',
+        run: send,
+      },
+      {
+        id: 'action-save',
+        group: 'Actions',
+        label: 'Save Request',
+        detail: 'Save the active request',
+        icon: 'save',
+        hint: '⌘/Ctrl S',
+        run: save,
+      },
+      {
+        id: 'action-settings',
+        group: 'Actions',
+        label: 'Open Settings',
+        detail: 'Network, proxy, TLS, and app preferences',
+        icon: 'gear',
+        run: () => setSettingsOpen(true),
+      },
+      {
+        id: 'action-appearance',
+        group: 'Actions',
+        label: 'Appearance',
+        detail: 'Theme, accent color, and display options',
+        icon: 'palette',
+        run: () => setAppearanceOpen(true),
+      },
+      {
+        id: 'action-cookies',
+        group: 'Actions',
+        label: 'Cookies',
+        detail: 'Manage the cookie jar',
+        icon: 'cookie',
+        run: () => setCookiesOpen(true),
+      },
+      {
+        id: 'action-mock',
+        group: 'Actions',
+        label: 'Mock Server',
+        detail: 'Start or configure a mock server',
+        icon: 'cloud',
+        run: () => setMockOpen(true),
+      },
+    ];
+
+    for (const collection of store.collections) {
+      const requests = flattenRequests(collection);
+      items.push({
+        id: `collection:${collection.id}`,
+        group: 'Collections',
+        label: collection.name,
+        detail: `${requests.length} request${requests.length === 1 ? '' : 's'}`,
+        icon: 'collection',
+        keywords: collection.name,
+        run: () => setCollectionEditorId(collection.id),
+      });
+      for (const node of requests) {
+        items.push({
+          id: `request:${node.id}`,
+          group: 'Requests',
+          label: node.name || node.url || 'Untitled',
+          detail: `${node.method || 'GET'} ${node.url || ''}`.trim(),
+          icon: 'file',
+          keywords: `${node.name || ''} ${node.url || ''} ${node.method || ''}`,
+          run: () => openRequest(node),
+        });
+      }
+    }
+
+    for (const environment of store.environments) {
+      items.push({
+        id: `environment:${environment.id}`,
+        group: 'Environments',
+        label: environment.name,
+        detail: environment.id === store.activeEnvId ? 'Active environment' : 'Set active environment',
+        icon: 'globe',
+        keywords: environment.name,
+        run: () => store.setActiveEnvId(environment.id),
+      });
+    }
+
+    for (const tab of tabs) {
+      const label =
+        tab.request.name && tab.request.name !== 'Untitled Request'
+          ? tab.request.name
+          : tab.request.url || 'Untitled Request';
+      items.push({
+        id: `tab:${tab.tabId}`,
+        group: 'Tabs',
+        label,
+        detail: tab.tabId === activeTabId ? 'Current tab' : 'Switch to tab',
+        icon: 'file',
+        keywords: label,
+        run: () => setActiveTabId(tab.tabId),
+      });
+    }
+
+    return items;
+  }, [
+    addTab,
+    activeTabId,
+    openRequest,
+    save,
+    send,
+    store,
+    tabs,
+  ]);
+
   const closeTabs = useCallback(
     async (tabIds, { force = false } = {}) => {
       const ids = new Set(tabIds);
@@ -1967,11 +2095,7 @@ export default function App() {
         closeTab(activeTabId);
       } else if (key === 'k') {
         e.preventDefault();
-        const search = document.querySelector('.global-search');
-        if (search) {
-          search.focus();
-          search.select?.();
-        }
+        setCommandOpen(true);
       }
     }
     window.addEventListener('keydown', onKeyDown, true);
@@ -2061,6 +2185,7 @@ export default function App() {
         />
         <Sidebar
           view={railView}
+          workspaceId={store.activeWorkspaceId}
           query={globalSearch}
           onQueryChange={setGlobalSearch}
           collections={store.collections}
@@ -2274,6 +2399,12 @@ export default function App() {
           onSave={doEditVariable}
         />
       )}
+
+      <CommandPalette
+        open={commandOpen}
+        items={commandItems}
+        onClose={() => setCommandOpen(false)}
+      />
 
       {cookiesOpen && <CookiesModal onClose={() => setCookiesOpen(false)} />}
 

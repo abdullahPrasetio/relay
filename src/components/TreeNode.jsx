@@ -14,15 +14,15 @@ export default function TreeNode({
   onOpenRequest,
   actions,
   dnd,
-  defaultOpen = false,
+  openNodes = {},
+  onToggleNode = null,
   forceOpen = false,
 }) {
-  const [open, setOpen] = useState(defaultOpen);
   const [menuOpen, setMenuOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [showExamples, setShowExamples] = useState(true);
-  const expanded = forceOpen || open;
+  const expanded = forceOpen || Boolean(openNodes[node.id]);
 
   const indent = { paddingLeft: 8 + depth * 14 };
 
@@ -73,11 +73,11 @@ export default function TreeNode({
             dnd.onDrop(collectionId, node.id);
           }}
         >
-          <button className="twisty" onClick={() => setOpen((v) => !v)}>
+          <button className="twisty" onClick={() => onToggleNode?.(node.id)}>
             <Icon name={expanded ? 'chevronDown' : 'chevronRight'} size={14} />
           </button>
           <span className="tree-icon"><Icon name="folder" size={15} /></span>
-          <span className="tree-label" onClick={() => setOpen((v) => !v)}>
+          <span className="tree-label" onClick={() => onToggleNode?.(node.id)}>
             {node.name}
           </span>
           <Kebab open={menuOpen} setOpen={setMenuOpen} items={items} />
@@ -99,7 +99,8 @@ export default function TreeNode({
                 onOpenRequest={onOpenRequest}
                 actions={actions}
                 dnd={dnd}
-                defaultOpen={defaultOpen}
+                openNodes={openNodes}
+                onToggleNode={onToggleNode}
                 forceOpen={forceOpen}
               />
             ))}

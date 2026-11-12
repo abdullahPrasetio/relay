@@ -104,6 +104,12 @@ test('workspace dashboard and collection bulk expansion', async () => {
     await expect(page.locator('.request-row')).toHaveCount(0);
     await page.getByTestId('collections-expand-all').click();
     await expect(page.locator('.request-row')).toHaveCount(3);
+
+    // Expansion is persisted per workspace across reloads.
+    await page.reload();
+    await page.waitForSelector('.collection-row');
+    await expect(page.locator('.request-row')).toHaveCount(3);
+
     await page.getByTestId('collections-collapse-all').click();
     await expect(page.locator('.request-row')).toHaveCount(0);
 
@@ -122,6 +128,33 @@ test('workspace dashboard and collection bulk expansion', async () => {
     await page.locator('.tabbar-add').click();
     await expect(page.getByTestId('workspace-dashboard')).toHaveCount(0);
     await expect(page.locator('.url-input')).toBeVisible();
+  } finally {
+    await closeApp(session);
+  }
+});
+
+test('command palette searches requests and runs actions', async () => {
+  const userData = makeUserData();
+  fs.writeFileSync(path.join(userData, 'rest-tamer-data.json'), JSON.stringify(seed(), null, 2));
+  const session = await launchAppAt(userData);
+  const { page } = session;
+  const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
+
+  try {
+    await page.keyboard.press(`${mod}+k`);
+    await expect(page.getByTestId('command-palette')).toBeVisible();
+    await expect(page.getByTestId('command-input')).toBeFocused();
+
+    await page.getByTestId('command-input').fill('Health Check');
+    await page.getByTestId('command-item-request:req_health').click();
+    await expect(page.getByTestId('command-palette')).toHaveCount(0);
+    await expect(page.locator('.url-input')).toHaveValue('https://api.example.com/health');
+
+    await page.keyboard.press(`${mod}+k`);
+    await page.getByTestId('command-input').fill('Appearance');
+    await page.getByTestId('command-input').press('Enter');
+    await expect(page.getByTestId('command-palette')).toHaveCount(0);
+    await expect(page.getByTestId('appearance-mode-light')).toBeVisible();
   } finally {
     await closeApp(session);
   }

@@ -22,7 +22,43 @@ import Icon from './Icon.jsx';
 import EnvBar from './EnvBar.jsx';
 import { useDialogs } from './Dialogs.jsx';
 
+const TREE_STATE_PREFIX = 'relay-sidebar-tree:';
+
+function treeStateKey(workspaceId) {
+  return `${TREE_STATE_PREFIX}${workspaceId || 'default'}`;
+}
+
+function readTreeState(workspaceId) {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const raw = localStorage.getItem(treeStateKey(workspaceId));
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeTreeState(workspaceId, nodes) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(treeStateKey(workspaceId), JSON.stringify(nodes));
+  } catch {
+    /* storage unavailable: keep the in-memory state */
+  }
+}
+
+function collectFolderIds(items, out) {
+  for (const item of items || []) {
+    if (item.type !== 'folder') continue;
+    out.add(item.id);
+    collectFolderIds(item.items, out);
+  }
+  return out;
+}
+
 export default function Sidebar({
+  workspaceId = null,
   collections,
   onChangeCollections,
   environments,
@@ -47,9 +83,11 @@ export default function Sidebar({
   query: externalQuery,
   onQueryChange,
 }) {
-  const [collapsed, setCollapsed] = useState({});
-  const [foldersOpen, setFoldersOpen] = useState(false);
-  const [treeVersion, setTreeVersion] = useState(0);
+  const [treeState, setTreeState] = useState(() => ({
+    workspaceId,
+    nodes: readTreeState(workspaceId),
+  }));
+  const openNodes = treeState.workspaceId === workspaceId ? treeState.nodes : {};
   const [localQuery, setLocalQuery] = useState('');
   // The header's global search drives filtering when provided; otherwise the
   // sidebar keeps its own local search box.
@@ -87,36 +125,44 @@ export default function Sidebar({
     },
   };
 
-  function toggleCollapse(id) {
-    setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+  function toggleNode(id) {
+    setTreeState((prev) => {
+      if (prev.workspaceId !== workspaceId) return prev;
+      return { ...prev, nodes: { ...prev.nodes, [id]: !prev.nodes[id] } };
+    });
   }
 
-  // Collections start collapsed. Newly loaded/imported collections join the
-  // collapsed set, while an explicit expand/collapse choice is preserved.
+  // Switching workspaces loads that workspace's expansion map. Persisting is
+  // skipped until the state belongs to the current workspace, so a switch can
+  // never copy one workspace's tree state onto another.
   useEffect(() => {
-    setCollapsed((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const collection of collections) {
-        if (!(collection.id in next)) {
-          next[collection.id] = true;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [collections]);
+    if (treeState.workspaceId === workspaceId) return;
+    setTreeState({ workspaceId, nodes: readTreeState(workspaceId) });
+  }, [workspaceId, treeState.workspaceId]);
+
+  useEffect(() => {
+    if (treeState.workspaceId !== workspaceId) return;
+    writeTreeState(workspaceId, treeState.nodes);
+  }, [treeState, workspaceId]);
 
   function expandAll() {
-    setCollapsed(Object.fromEntries(collections.map((c) => [c.id, false])));
-    setFoldersOpen(true);
-    setTreeVersion((v) => v + 1);
+    setTreeState((prev) => {
+      if (prev.workspaceId !== workspaceId) return prev;
+      const next = { ...prev.nodes };
+      for (const collection of collections) {
+        next[collection.id] = true;
+        collectFolderIds(collection.items, new Set()).forEach((id) => {
+          next[id] = true;
+        });
+      }
+      return { ...prev, nodes: next };
+    });
   }
 
   function collapseAll() {
-    setCollapsed(Object.fromEntries(collections.map((c) => [c.id, true])));
-    setFoldersOpen(false);
-    setTreeVersion((v) => v + 1);
+    setTreeState((prev) =>
+      prev.workspaceId === workspaceId ? { ...prev, nodes: {} } : prev
+    );
   }
 
   async function addCollection() {
@@ -369,7 +415,7 @@ export default function Sidebar({
           )}
 
           {collections.map((c) => {
-            const isCollapsed = !query && collapsed[c.id];
+            const isOpen = query ? true : Boolean(openNodes[c.id]);
             const filteredItems = filterTree(c.items, query);
             if (query && filteredItems.length === 0) return null;
             return (
@@ -386,8 +432,8 @@ export default function Sidebar({
                     e.preventDefault();
                     dnd.onDrop(c.id, null);
                   }}>
-                  <button className="twisty" onClick={() => toggleCollapse(c.id)}>
-                    <Icon name={isCollapsed ? 'chevronRight' : 'chevronDown'} size={14} />
+                  <button className="twisty" onClick={() => toggleNode(c.id)}>
+                    <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={14} />
                   </button>
                   <span className="tree-icon"><Icon name="collection" size={15} /></span>
                   <span
@@ -399,7 +445,7 @@ export default function Sidebar({
                   </span>
                   <CollectionKebab items={collectionItems(c)} />
                 </div>
-                {!isCollapsed && (
+                {isOpen && (
                   <div className="tree-children">
                     {filteredItems.length === 0 && (
                       <div className="tree-empty" style={{ paddingLeft: 22 }}>
@@ -408,7 +454,7 @@ export default function Sidebar({
                     )}
                     {filteredItems.map((node) => (
                       <TreeNode
-                        key={`${node.id}:${treeVersion}`}
+                        key={node.id}
                         node={node}
                         depth={1}
                         collectionId={c.id}
@@ -416,7 +462,8 @@ export default function Sidebar({
                         onOpenRequest={onOpenRequest}
                         actions={actions}
                         dnd={dnd}
-                        defaultOpen={foldersOpen}
+                        openNodes={openNodes}
+                        onToggleNode={toggleNode}
                         forceOpen={Boolean(query)}
                       />
                     ))}
