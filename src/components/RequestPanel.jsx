@@ -10,6 +10,7 @@ import { countValidatedFields } from '../lib/fieldValidations.js';
 import { computeAutoHeaders } from '../../packages/core/src/autoHeaders.js';
 import { extractPathVars } from '../../packages/core/src/variables.js';
 import { buildIntrospectionRequest, parseIntrospection } from '../lib/graphql.js';
+import { fromCurl } from '../lib/import/curl.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 const TABS = [
@@ -85,6 +86,31 @@ export default function RequestPanel({
     }
   }
 
+  // Pasting a cURL command into the URL field imports it in place: method,
+  // URL, headers, params, body and auth are filled without creating a new tab.
+  function onUrlChange(value) {
+    const text = String(value ?? '');
+    if (/^\s*(?:\$\s*)?curl(?:\.exe)?\s/i.test(text)) {
+      try {
+        const imported = fromCurl(text);
+        const next = {
+          method: imported.method,
+          url: imported.url,
+          params: imported.params,
+          headers: imported.headers,
+        };
+        if (imported.body) next.body = imported.body;
+        if (imported.auth) next.auth = imported.auth;
+        if (!request.name || request.name === 'Untitled Request') next.name = imported.name;
+        patch(next);
+        return;
+      } catch {
+        /* not a valid cURL command: keep the pasted text as the URL */
+      }
+    }
+    patch({ url: text });
+  }
+
   function onKeyDown(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
@@ -117,7 +143,7 @@ export default function RequestPanel({
           className="url-input"
           placeholder="Enter URL, e.g. https://api.github.com/users/postmanlabs"
           value={request.url}
-          onChange={(v) => patch({ url: v })}
+          onChange={onUrlChange}
         />
         {sending ? (
           <button className="send-btn stop-btn" data-testid="stop-button" onClick={onAbort}>

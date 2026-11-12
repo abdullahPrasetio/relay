@@ -827,6 +827,8 @@ function registerIpc() {
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
     isPackaged: app.isPackaged,
+    platform: process.platform,
+    releaseUrl: 'https://github.com/abdullahPrasetio/relay/releases/latest',
     // Shown in dev too so the prompt can be checked locally; E2E sets the
     // env var to keep unrelated specs free of an unsolicited modal.
     donationPrompt: process.env.RELAY_DISABLE_DONATION_PROMPT !== '1',

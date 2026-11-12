@@ -249,6 +249,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [donationOpen, setDonationOpen] = useState(false);
+  const [appPlatform, setAppPlatform] = useState('');
+  const [releaseUrl, setReleaseUrl] = useState('');
   const [updateStatus, setUpdateStatus] = useState(null);
   const [updatePromptOpen, setUpdatePromptOpen] = useState(false);
   const [autoInstallUpdates, setAutoInstallUpdates] = useState(false);
@@ -312,7 +314,10 @@ export default function App() {
     (async () => {
       try {
         const info = await api.getAppInfo();
-        if (!alive || !info?.donationPrompt) return;
+        if (!alive) return;
+        setAppPlatform(info?.platform || '');
+        setReleaseUrl(info?.releaseUrl || '');
+        if (!info?.donationPrompt) return;
         if (!shouldShowDonationPrompt()) return;
         timer = setTimeout(() => {
           if (!alive) return;
@@ -1651,34 +1656,85 @@ export default function App() {
     setActiveTabId(tab.tabId);
   }, []);
 
-  const closeTab = useCallback(
-    (tabId) => {
-      const closing = tabs.find((t) => t.tabId === tabId);
-      if (closing?.wsSessionId) {
-        disconnectTabWs(tabId, closing.wsSessionId, 'Tab closed');
+  const closeTabs = useCallback(
+    async (tabIds, { force = false } = {}) => {
+      const ids = new Set(tabIds);
+      const closing = tabs.filter((t) => ids.has(t.tabId));
+      if (closing.length === 0) return;
+
+      if (!force) {
+        const dirty = closing.filter((t) => t.dirty);
+        if (dirty.length > 0) {
+          const ok = await dialogs.confirm(
+            dirty.length === 1
+              ? 'Close this tab and discard its unsaved changes?'
+              : `Close ${dirty.length} tabs and discard their unsaved changes?`,
+            { title: 'Unsaved changes', okLabel: 'Discard and close', danger: true }
+          );
+          if (!ok) return;
+        }
       }
-      if (closing?.streamSessionId) {
-        disconnectTabStream(tabId, closing.streamSessionId, closing.streamKind, 'Tab closed');
+
+      for (const tab of closing) {
+        if (tab.wsSessionId) disconnectTabWs(tab.tabId, tab.wsSessionId, 'Tab closed');
+        if (tab.streamSessionId) {
+          disconnectTabStream(tab.tabId, tab.streamSessionId, tab.streamKind, 'Tab closed');
+        }
+        if (tab.grpcStreamId) cancelGrpcStream(tab.tabId, tab.grpcStreamId, 'Tab closed');
       }
-      if (closing?.grpcStreamId) {
-        cancelGrpcStream(tabId, closing.grpcStreamId, 'Tab closed');
-      }
+
       setTabs((prev) => {
-        const idx = prev.findIndex((t) => t.tabId === tabId);
-        const next = prev.filter((t) => t.tabId !== tabId);
+        const next = prev.filter((t) => !ids.has(t.tabId));
         if (next.length === 0) {
           const fresh = newTab();
           setActiveTabId(fresh.tabId);
           return [fresh];
         }
-        if (tabId === activeTabId) {
-          const neighbor = next[Math.max(0, idx - 1)];
+        if (ids.has(activeTabId)) {
+          const idx = prev.findIndex((t) => t.tabId === activeTabId);
+          const neighbor = next[Math.min(idx, next.length - 1)] || next[next.length - 1];
           setActiveTabId(neighbor.tabId);
         }
         return next;
       });
     },
-    [activeTabId, tabs, disconnectTabWs, disconnectTabStream, cancelGrpcStream]
+    [activeTabId, tabs, dialogs, disconnectTabWs, disconnectTabStream, cancelGrpcStream]
+  );
+
+  const closeTab = useCallback(
+    (tabId, options) => closeTabs([tabId], options),
+    [closeTabs]
+  );
+
+  const closeOtherTabs = useCallback(
+    (tabId, options) => closeTabs(tabs.filter((t) => t.tabId !== tabId).map((t) => t.tabId), options),
+    [closeTabs, tabs]
+  );
+
+  const closeAllTabs = useCallback(
+    (options) => closeTabs(tabs.map((t) => t.tabId), options),
+    [closeTabs, tabs]
+  );
+
+  const duplicateTab = useCallback(
+    (tabId) => {
+      const tab = tabs.find((t) => t.tabId === tabId);
+      if (!tab) return;
+      const label =
+        tab.request.name && tab.request.name !== 'Untitled Request'
+          ? tab.request.name
+          : tab.request.url || 'Untitled Request';
+      const copy = {
+        ...tab.request,
+        id: uid('req'),
+        name: `${label} copy`,
+      };
+      const next = newTab(copy);
+      next.dirty = true;
+      setTabs((prev) => [...prev, next]);
+      setActiveTabId(next.tabId);
+    },
+    [tabs]
   );
 
   // Restore the persisted session once the collection tree has loaded. It only
@@ -1914,6 +1970,9 @@ export default function App() {
             onSelect={setActiveTabId}
             onClose={closeTab}
             onAdd={addTab}
+            onDuplicate={duplicateTab}
+            onCloseOthers={closeOtherTabs}
+            onCloseAll={closeAllTabs}
           />
           <SplitPane storageKey="req-res-split">
             <RequestPanel
@@ -2161,6 +2220,8 @@ export default function App() {
           autoInstall={autoInstallUpdates}
           onToggleAutoInstall={toggleAutoInstallUpdates}
           onInstall={installUpdate}
+          manualDownload={appPlatform === 'darwin'}
+          onDownload={() => window.api?.openExternal?.(releaseUrl)}
           onLater={() => setUpdatePromptOpen(false)}
         />
       )}

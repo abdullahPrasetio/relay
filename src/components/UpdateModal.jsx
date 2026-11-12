@@ -8,6 +8,8 @@ export default function UpdateModal({
   autoInstall,
   onToggleAutoInstall,
   onInstall,
+  onDownload,
+  manualDownload = false,
   onLater,
 }) {
   const version = status?.version ? ` ${status.version}` : '';
@@ -21,13 +23,19 @@ export default function UpdateModal({
           <button className="mini-btn" data-testid="update-later" onClick={onLater}>
             Later
           </button>
-          <button
-            className="send-btn"
-            data-testid="update-install"
-            onClick={() => onInstall({ silent: true })}
-          >
-            Restart &amp; install
-          </button>
+          {manualDownload ? (
+            <button className="send-btn" data-testid="update-download" onClick={onDownload}>
+              Download update
+            </button>
+          ) : (
+            <button
+              className="send-btn"
+              data-testid="update-install"
+              onClick={() => onInstall({ silent: true })}
+            >
+              Restart &amp; install
+            </button>
+          )}
         </>
       }
     >
@@ -37,23 +45,28 @@ export default function UpdateModal({
         </div>
         <h3 className="update-title">Relay{version} is ready</h3>
         <p className="auth-hint">
-          The update has been downloaded. Restart now to finish installing, or keep
-          working and it will be applied later.
+          {manualDownload
+            ? 'Download the latest macOS build, then open the DMG and replace Relay. Auto-install requires a signed and notarized build.'
+            : 'The update has been downloaded. Restart now to finish installing, or keep working and it will be applied later.'}
         </p>
-        <label className="settings-check update-auto">
-          <input
-            type="checkbox"
-            data-testid="update-auto-install"
-            checked={autoInstall}
-            onChange={(e) => onToggleAutoInstall(e.target.checked)}
-          />
-          Install automatically when I quit
-        </label>
-        {autoInstall && (
-          <p className="auth-hint" data-testid="update-auto-hint">
-            Silent update is on: Relay will install the update when you quit, without
-            showing the installer.
-          </p>
+        {!manualDownload && (
+          <>
+            <label className="settings-check update-auto">
+              <input
+                type="checkbox"
+                data-testid="update-auto-install"
+                checked={autoInstall}
+                onChange={(e) => onToggleAutoInstall(e.target.checked)}
+              />
+              Install automatically when I quit
+            </label>
+            {autoInstall && (
+              <p className="auth-hint" data-testid="update-auto-hint">
+                Silent update is on: Relay will install the update when you quit, without
+                showing the installer.
+              </p>
+            )}
+          </>
         )}
       </div>
     </Modal>

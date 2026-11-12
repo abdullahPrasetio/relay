@@ -1,7 +1,31 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Icon from './Icon.jsx';
+import ContextMenu from './ContextMenu.jsx';
 
-export default function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd }) {
+export default function TabBar({
+  tabs,
+  activeTabId,
+  onSelect,
+  onClose,
+  onAdd,
+  onDuplicate,
+  onCloseOthers,
+  onCloseAll,
+}) {
+  const [menu, setMenu] = useState(null); // { tabId, x, y }
+
+  function itemsFor(tab) {
+    return [
+      { label: 'New Request', onClick: onAdd },
+      { label: 'Duplicate Tab', onClick: () => onDuplicate(tab.tabId) },
+      { label: 'Close Tab', onClick: () => onClose(tab.tabId) },
+      { label: 'Force Close Tab', onClick: () => onClose(tab.tabId, { force: true }) },
+      { label: 'Close Other Tabs', onClick: () => onCloseOthers(tab.tabId) },
+      { label: 'Close All Tabs', onClick: () => onCloseAll() },
+      { label: 'Force Close All Tabs', onClick: () => onCloseAll({ force: true }) },
+    ];
+  }
+
   return (
     <div className="tabbar">
       <div className="tabbar-tabs">
@@ -15,6 +39,11 @@ export default function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd }) 
               key={t.tabId}
               className={`req-tab ${t.tabId === activeTabId ? 'active' : ''}`}
               onClick={() => onSelect(t.tabId)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setMenu({ tabId: t.tabId, x: e.clientX, y: e.clientY });
+              }}
               title={label}
             >
               <span className={`method-tag method-${t.request.method}`}>
@@ -39,6 +68,15 @@ export default function TabBar({ tabs, activeTabId, onSelect, onClose, onAdd }) 
       <button className="tabbar-add" title="New request tab" onClick={onAdd}>
         <Icon name="plus" size={16} />
       </button>
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={itemsFor(tabs.find((t) => t.tabId === menu.tabId) || {})}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 }
