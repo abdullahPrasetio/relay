@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar.jsx';
 import RequestPanel from './components/RequestPanel.jsx';
+import WorkspaceDashboard from './components/WorkspaceDashboard.jsx';
 import ResponsePanel from './components/ResponsePanel.jsx';
 import WebSocketPanel from './components/WebSocketPanel.jsx';
 import MqttPanel from './components/MqttPanel.jsx';
@@ -198,6 +199,9 @@ function newTab(request) {
     grpcError: null,
     dirty: false,
     savedCollectionId: null,
+    // The pristine launch tab opens on the workspace dashboard until the user
+    // starts a request; this flag is UI-only and never persisted.
+    dashboardDismissed: false,
     // Transient UI intent, e.g. opening a saved example from the sidebar.
     view: null,
   };
@@ -417,6 +421,12 @@ export default function App() {
   const updateTab = useCallback((tabId, patch) => {
     setTabs((prev) => prev.map((t) => (t.tabId === tabId ? { ...t, ...patch } : t)));
   }, []);
+
+  const showDashboard = isPristineTab(activeTab) && !activeTab.dashboardDismissed;
+
+  const startRequest = useCallback(() => {
+    updateTab(activeTabId, { dashboardDismissed: true });
+  }, [activeTabId, updateTab]);
 
   const setActiveRequest = useCallback(
     (request) => {
@@ -1753,6 +1763,8 @@ export default function App() {
 
   const addTab = useCallback(() => {
     const tab = newTab();
+    // The + button means "new request", not "go home": skip the dashboard.
+    tab.dashboardDismissed = true;
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.tabId);
   }, []);
@@ -2077,6 +2089,7 @@ export default function App() {
           <TabBar
             tabs={tabs}
             activeTabId={activeTabId}
+            dashboardTabId={showDashboard ? activeTabId : null}
             onSelect={setActiveTabId}
             onClose={closeTab}
             onAdd={addTab}
@@ -2084,7 +2097,18 @@ export default function App() {
             onCloseOthers={closeOtherTabs}
             onCloseAll={closeAllTabs}
           />
-          <SplitPane storageKey="req-res-split">
+          {showDashboard ? (
+            <WorkspaceDashboard
+              collections={store.collections}
+              environments={store.environments}
+              history={store.history}
+              activeEnv={activeEnv}
+              onStartRequest={startRequest}
+              onOpenRequest={openRequest}
+              onOpenCollection={setCollectionEditorId}
+            />
+          ) : (
+            <SplitPane storageKey="req-res-split" minBottom={56}>
             <RequestPanel
               key={activeTab.tabId}
               request={activeTab.request}
@@ -2166,7 +2190,8 @@ export default function App() {
                 onSetVariable={openSetVariable}
               />
             )}
-          </SplitPane>
+            </SplitPane>
+          )}
         </main>
       </div>
 

@@ -12,7 +12,7 @@ export function makeUserData() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'relay-e2e-'));
 }
 
-export async function launchAppAt(userData, extraEnv = {}) {
+export async function launchAppAt(userData, extraEnv = {}, options = {}) {
   const app = await electron.launch({
     args: ['.'],
     env: {
@@ -23,7 +23,18 @@ export async function launchAppAt(userData, extraEnv = {}) {
     },
   });
   const page = await app.firstWindow();
-  await page.waitForSelector('.url-input', { timeout: 30000 });
+  await page.waitForSelector('.url-input, [data-testid="workspace-dashboard"]', {
+    timeout: 30000,
+  });
+  // Most tests exercise the request editor. The dashboard is the new default
+  // for a pristine tab, so dismiss it unless a test explicitly wants it.
+  if (!options.keepDashboard) {
+    const dashboard = page.getByTestId('workspace-dashboard');
+    if (await dashboard.isVisible().catch(() => false)) {
+      await page.getByTestId('dashboard-new-request').click();
+      await page.waitForSelector('.url-input', { timeout: 30000 });
+    }
+  }
   return { app, page, userData };
 }
 

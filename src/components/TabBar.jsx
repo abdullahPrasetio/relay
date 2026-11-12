@@ -5,6 +5,7 @@ import ContextMenu from './ContextMenu.jsx';
 export default function TabBar({
   tabs,
   activeTabId,
+  dashboardTabId = null,
   onSelect,
   onClose,
   onAdd,
@@ -30,8 +31,10 @@ export default function TabBar({
     <div className="tabbar">
       <div className="tabbar-tabs">
         {tabs.map((t) => {
-          const label =
-            t.request.name && t.request.name !== 'Untitled Request'
+          const isDashboard = t.tabId === dashboardTabId;
+          const label = isDashboard
+            ? 'Workspace'
+            : t.request.name && t.request.name !== 'Untitled Request'
               ? t.request.name
               : t.request.url || 'Untitled Request';
           return (
@@ -46,9 +49,13 @@ export default function TabBar({
               }}
               title={label}
             >
-              <span className={`method-tag method-${t.request.method}`}>
-                {t.request.method}
-              </span>
+              {isDashboard ? (
+                <span className="req-tab-home"><Icon name="workspace" size={13} /></span>
+              ) : (
+                <span className={`method-tag method-${t.request.method}`}>
+                  {t.request.method}
+                </span>
+              )}
               <span className="req-tab-label">{label}</span>
               {t.dirty && <span className="req-tab-dirty" title="Unsaved changes" />}
               <button

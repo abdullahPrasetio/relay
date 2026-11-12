@@ -48,6 +48,8 @@ export default function Sidebar({
   onQueryChange,
 }) {
   const [collapsed, setCollapsed] = useState({});
+  const [foldersOpen, setFoldersOpen] = useState(false);
+  const [treeVersion, setTreeVersion] = useState(0);
   const [localQuery, setLocalQuery] = useState('');
   // The header's global search drives filtering when provided; otherwise the
   // sidebar keeps its own local search box.
@@ -87,6 +89,34 @@ export default function Sidebar({
 
   function toggleCollapse(id) {
     setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+  }
+
+  // Collections start collapsed. Newly loaded/imported collections join the
+  // collapsed set, while an explicit expand/collapse choice is preserved.
+  useEffect(() => {
+    setCollapsed((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const collection of collections) {
+        if (!(collection.id in next)) {
+          next[collection.id] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [collections]);
+
+  function expandAll() {
+    setCollapsed(Object.fromEntries(collections.map((c) => [c.id, false])));
+    setFoldersOpen(true);
+    setTreeVersion((v) => v + 1);
+  }
+
+  function collapseAll() {
+    setCollapsed(Object.fromEntries(collections.map((c) => [c.id, true])));
+    setFoldersOpen(false);
+    setTreeVersion((v) => v + 1);
   }
 
   async function addCollection() {
@@ -313,12 +343,33 @@ export default function Sidebar({
             onChange={(e) => setQuery(e.target.value)}
           />
 
+          <div className="tree-bulk-actions">
+            <button
+              className="mini-btn"
+              data-testid="collections-expand-all"
+              onClick={expandAll}
+              disabled={collections.length === 0}
+            >
+              <Icon name="chevronDown" size={12} />
+              Expand all
+            </button>
+            <button
+              className="mini-btn"
+              data-testid="collections-collapse-all"
+              onClick={collapseAll}
+              disabled={collections.length === 0}
+            >
+              <Icon name="chevronRight" size={12} />
+              Collapse all
+            </button>
+          </div>
+
           {collections.length === 0 && (
             <div className="sidebar-empty">No collections yet. Click “+ New”.</div>
           )}
 
           {collections.map((c) => {
-            const isCollapsed = collapsed[c.id];
+            const isCollapsed = !query && collapsed[c.id];
             const filteredItems = filterTree(c.items, query);
             if (query && filteredItems.length === 0) return null;
             return (
@@ -357,7 +408,7 @@ export default function Sidebar({
                     )}
                     {filteredItems.map((node) => (
                       <TreeNode
-                        key={node.id}
+                        key={`${node.id}:${treeVersion}`}
                         node={node}
                         depth={1}
                         collectionId={c.id}
@@ -365,6 +416,8 @@ export default function Sidebar({
                         onOpenRequest={onOpenRequest}
                         actions={actions}
                         dnd={dnd}
+                        defaultOpen={foldersOpen}
+                        forceOpen={Boolean(query)}
                       />
                     ))}
                   </div>
