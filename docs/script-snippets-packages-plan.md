@@ -222,4 +222,5 @@ Keterbatasan keamanan yang sudah diketahui: modul yang di-allowlist adalah host 
 - `pm.cookies` belum punya `set`, jadi snippet cookie hanya get/list.
 - Sandbox sekarang membungkus body script dalam fungsi dalam, sehingga script boleh mendeklarasikan nama yang sama dengan global injeksi, misalnya `const CryptoJS = require('crypto-js')`.
 - Snippet dan package picker memakai satu katalog bersama di `packages/core/src/script-packages.js`; test mengeksekusi setiap paket agar metadata dan runtime tidak drift.
-- Test e2e: `e2e/scriptTools.spec.js`.
+- Toolbar Snippets/Packages ditempel di dalam editor (overlay kiri bawah), bukan di bawah editor, supaya tetap terlihat saat panel request hanya setengah tinggi. Popover dirender lewat portal dengan posisi fixed agar tidak terpotong split pane.
+- Test e2e: `e2e/scriptTools.spec.js` juga memastikan toolbar berada di dalam pane tanpa scroll.

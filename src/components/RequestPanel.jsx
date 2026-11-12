@@ -217,7 +217,11 @@ export default function RequestPanel({
         ))}
       </div>
 
-      <div className="tab-content">
+      <div
+        className={`tab-content${
+          tab === 'Pre-request' || tab === 'Tests' ? ' script-tab-content' : ''
+        }`}
+      >
         {tab === 'Params' && (
           <ParamsTab request={request} patch={patch} />
         )}
@@ -478,15 +482,19 @@ function ScriptEditor({ value, onChange, phase, hint }) {
   const [editor, setEditor] = useState(null);
   return (
     <div className="tests-editor">
-      <div className="editor-box">
-        <CodeEditor
-          language="javascript"
-          value={value}
-          onChange={onChange}
-          onEditorReady={setEditor}
-        />
+      <div className="editor-box script-editor-box">
+        <div className="script-editor-canvas">
+          <CodeEditor
+            language="javascript"
+            value={value}
+            onChange={onChange}
+            onEditorReady={setEditor}
+          />
+        </div>
+        <div className="script-editor-tools">
+          <ScriptTools editor={editor} phase={phase} />
+        </div>
       </div>
-      <ScriptTools editor={editor} phase={phase} />
       <p className="auth-hint">{hint}</p>
     </div>
   );

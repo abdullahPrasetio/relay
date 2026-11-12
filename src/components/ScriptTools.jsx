@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from './Icon.jsx';
 import { filterSnippets } from '../lib/scriptSnippets.js';
 import { filterPackages } from '../../packages/core/src/script-packages.js';
@@ -41,17 +42,54 @@ export default function ScriptTools({ editor, phase = 'both' }) {
   const [open, setOpen] = useState(null);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
+  const [popoverStyle, setPopoverStyle] = useState(null);
   const rootRef = useRef(null);
+  const popoverRef = useRef(null);
   const inputRef = useRef(null);
 
   const snippets = useMemo(() => filterSnippets(query, phase), [query, phase]);
   const packages = useMemo(() => filterPackages(query), [query]);
   const visible = open === 'packages' ? packages : snippets;
 
+  // The popover is portalled to <body>: inside the split pane it would be
+  // clipped by overflow, and opening purely upward can leave the window. Place
+  // it on the side with more room and clamp it to the viewport.
+  useLayoutEffect(() => {
+    if (!open) {
+      setPopoverStyle(null);
+      return undefined;
+    }
+    const place = () => {
+      const anchor = rootRef.current?.getBoundingClientRect();
+      if (!anchor) return;
+      const margin = 8;
+      const gap = 6;
+      const width = Math.min(430, window.innerWidth - margin * 2);
+      const spaceAbove = anchor.top - margin;
+      const spaceBelow = window.innerHeight - anchor.bottom - margin;
+      const openUp = spaceAbove >= Math.min(380, spaceBelow);
+      const maxHeight = Math.max(160, Math.min(380, (openUp ? spaceAbove : spaceBelow) - gap));
+      const top = openUp ? anchor.top - maxHeight - gap : anchor.bottom + gap;
+      let left = anchor.left;
+      if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
+      if (left < margin) left = margin;
+      setPopoverStyle({ top, left, width, maxHeight });
+    };
+    place();
+    window.addEventListener('resize', place);
+    document.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      document.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return undefined;
     const onPointerDown = (event) => {
-      if (!rootRef.current?.contains(event.target)) setOpen(null);
+      if (!rootRef.current?.contains(event.target) && !popoverRef.current?.contains(event.target)) {
+        setOpen(null);
+      }
     };
     document.addEventListener('mousedown', onPointerDown);
     return () => document.removeEventListener('mousedown', onPointerDown);
@@ -123,57 +161,67 @@ export default function ScriptTools({ editor, phase = 'both' }) {
         Packages
       </button>
 
-      {open && (
-        <div
-          className="script-tools-popover"
-          role="dialog"
-          aria-label={open === 'packages' ? 'Packages' : 'Snippets'}
-          data-testid={`script-${open}-popover`}
-        >
-          <div className="script-tools-search">
-            <Icon name="search" size={14} />
-            <input
-              ref={inputRef}
-              type="text"
-              value={query}
-              placeholder={open === 'packages' ? 'Search packages' : 'Search snippets'}
-              data-testid="script-tools-search"
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={onSearchKeyDown}
-            />
-          </div>
-          <div className="script-tools-list">
-            {visible.length === 0 && <div className="script-tools-empty">No results</div>}
-            {visible.map((item, index) => {
-              const previous = visible[index - 1];
-              const showGroup =
-                open === 'snippets' && (!previous || previous.category !== item.category);
-              return (
-                <React.Fragment key={item.id}>
-                  {showGroup && <div className="script-tools-group">{item.category}</div>}
-                  <button
-                    type="button"
-                    className={`script-tools-item${index === activeIndex ? ' active' : ''}`}
-                    data-testid={`script-item-${item.id}`}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => choose(item)}
-                  >
-                    <span className="script-tools-item-name">{item.name}</span>
-                    {open === 'packages' && (
-                      <span className="script-tools-item-meta">{item.description}</span>
-                    )}
-                  </button>
-                </React.Fragment>
-              );
-            })}
-          </div>
-          <div className="script-tools-foot">
-            {open === 'packages'
-              ? 'Only bundled packages are available.'
-              : 'Click a snippet to insert it at the cursor.'}
-          </div>
-        </div>
-      )}
+      {open &&
+        popoverStyle &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="script-tools-popover"
+            role="dialog"
+            aria-label={open === 'packages' ? 'Packages' : 'Snippets'}
+            data-testid={`script-${open}-popover`}
+            style={{
+              top: `${popoverStyle.top}px`,
+              left: `${popoverStyle.left}px`,
+              width: `${popoverStyle.width}px`,
+              maxHeight: `${popoverStyle.maxHeight}px`,
+            }}
+          >
+            <div className="script-tools-search">
+              <Icon name="search" size={14} />
+              <input
+                ref={inputRef}
+                type="text"
+                value={query}
+                placeholder={open === 'packages' ? 'Search packages' : 'Search snippets'}
+                data-testid="script-tools-search"
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={onSearchKeyDown}
+              />
+            </div>
+            <div className="script-tools-list">
+              {visible.length === 0 && <div className="script-tools-empty">No results</div>}
+              {visible.map((item, index) => {
+                const previous = visible[index - 1];
+                const showGroup =
+                  open === 'snippets' && (!previous || previous.category !== item.category);
+                return (
+                  <React.Fragment key={item.id}>
+                    {showGroup && <div className="script-tools-group">{item.category}</div>}
+                    <button
+                      type="button"
+                      className={`script-tools-item${index === activeIndex ? ' active' : ''}`}
+                      data-testid={`script-item-${item.id}`}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => choose(item)}
+                    >
+                      <span className="script-tools-item-name">{item.name}</span>
+                      {open === 'packages' && (
+                        <span className="script-tools-item-meta">{item.description}</span>
+                      )}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+            <div className="script-tools-foot">
+              {open === 'packages'
+                ? 'Only bundled packages are available.'
+                : 'Click a snippet to insert it at the cursor.'}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

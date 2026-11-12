@@ -575,6 +575,20 @@ body {
 .tab-content {
   padding-top: 10px;
 }
+/* Pre-request/Tests need to fit the request pane: the editor grows/shrinks
+   with the split, keeping the overlay toolbar visible instead of pushing it
+   below the fold. */
+.tab-content.script-tab-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.tab-content.script-tab-content .tests-editor {
+  flex: 1;
+  min-height: 0;
+}
 
 /* Key-value tables */
 .kv {
@@ -993,13 +1007,11 @@ body {
   opacity: 0.55;
 }
 .script-tools-popover {
-  position: absolute;
-  z-index: 80;
-  bottom: calc(100% + 6px);
-  left: 0;
+  position: fixed;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
-  width: min(430px, 92vw);
+  width: 430px;
   max-height: 380px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
@@ -1881,6 +1893,29 @@ input.has-unresolved-var {
   border-radius: 4px;
   overflow: hidden;
   resize: vertical;
+}
+/* Script editors overlay Snippets/Packages on the editor so the toolbar is
+   visible without scrolling the request pane. The inner canvas keeps Monaco's
+   rounded clipping; the outer box lets the popover escape upward. */
+.editor-box.script-editor-box {
+  position: relative;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 160px;
+  overflow: visible;
+  resize: none;
+}
+.script-editor-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 3px;
+}
+.script-editor-tools {
+  position: absolute;
+  z-index: 6;
+  left: 8px;
+  bottom: 8px;
 }
 /* {{variable}} highlight inside Monaco */
 .monaco-var-token {
