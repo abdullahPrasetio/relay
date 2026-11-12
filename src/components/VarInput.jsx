@@ -3,14 +3,21 @@ import { useVarContext } from './VarContext.jsx';
 
 const VAR_RE = /\{\{\s*([\w.-]+)\s*\}\}/g;
 
+function scopeShort(scope) {
+  if (scope === 'environment') return 'E';
+  if (scope === 'collection') return 'C';
+  if (scope === 'globals') return 'G';
+  return '•';
+}
+
 // A text input that:
 //  - right-click on a selection -> "set as variable"
-//  - shows a tooltip preview of {{variables}} it contains (value + scope),
-//    flagging undefined ones.
+//  - shows a hover card for {{variables}} with their value/scope and an Edit
+//    action, so variables can be updated from URL, params, headers and auth.
 // Behaves like a normal <input> otherwise.
 export default function VarInput({ value, onChange, className, placeholder, type = 'text', readOnly }) {
-  const { lookup, onSetVariable } = useVarContext();
-  const [tip, setTip] = useState(null); // { text }
+  const { lookup, onSetVariable, onEditVariable } = useVarContext();
+  const [tipOpen, setTipOpen] = useState(false);
 
   const tokens = extractTokens(value);
   const hasVars = tokens.length > 0;
@@ -28,17 +35,12 @@ export default function VarInput({ value, onChange, className, placeholder, type
     }
   }
 
-  function buildTip() {
-    const lines = tokens.map((name) => {
-      const hit = lookup(name);
-      if (hit) return `${name} = ${hit.value}  (${hit.scope})`;
-      return `${name} = (unresolved)`;
-    });
-    return lines.join('\n');
-  }
-
   return (
-    <span className="varinput-wrap">
+    <span
+      className="varinput-wrap"
+      onMouseEnter={() => hasVars && setTipOpen(true)}
+      onMouseLeave={() => setTipOpen(false)}
+    >
       <input
         type={type}
         className={`${className || ''} ${hasVars ? (anyUnresolved ? 'has-unresolved-var' : 'has-var') : ''}`}
@@ -47,11 +49,41 @@ export default function VarInput({ value, onChange, className, placeholder, type
         readOnly={readOnly}
         onChange={(e) => onChange && onChange(e.target.value)}
         onContextMenu={onContextMenu}
-        onMouseEnter={() => hasVars && setTip({ text: buildTip() })}
-        onMouseLeave={() => setTip(null)}
-        title={hasVars ? buildTip() : undefined}
+        title={hasVars ? tokens.map((name) => `${name} = ${lookup(name)?.value ?? '(unresolved)'}`).join('\n') : undefined}
       />
-      {tip && <span className="var-tooltip">{tip.text}</span>}
+      {tipOpen && hasVars && (
+        <span className="var-tooltip var-tip-card" role="tooltip">
+          {tokens.map((name) => {
+            const hit = lookup(name);
+            return (
+              <span key={name} className="var-tip-item">
+                <span className="var-tip-name">{`{{${name}}}`}</span>
+                <span className="var-tip-value">
+                  {hit ? hit.value : 'variable is not defined'}
+                </span>
+                <span className="var-tip-meta">
+                  <span>
+                    {hit ? `${scopeShort(hit.scope)}  ${hit.scope}` : 'unresolved'}
+                  </span>
+                  {hit && (
+                    <button
+                      type="button"
+                      className="var-tip-edit"
+                      data-testid={`var-edit-${name}`}
+                      onClick={() => {
+                        setTipOpen(false);
+                        onEditVariable(name);
+                      }}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </span>
+              </span>
+            );
+          })}
+        </span>
+      )}
     </span>
   );
 }

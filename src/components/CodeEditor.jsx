@@ -47,6 +47,11 @@ function registerVarHover(monacoApi) {
               contents: [
                 { value: valueLine },
                 { value: scopeLabel },
+                {
+                  value: hit
+                    ? '_Right-click → Edit variable_'
+                    : '_Select text → right-click → Set as variable_',
+                },
               ],
             };
           }
@@ -55,6 +60,17 @@ function registerVarHover(monacoApi) {
       },
     });
   }
+}
+
+function varAtColumn(line, column) {
+  const re = /\{\{\s*([\w.-]+)\s*\}\}/g;
+  let match;
+  while ((match = re.exec(line)) !== null) {
+    const start = match.index + 1;
+    const end = match.index + match[0].length + 1;
+    if (column >= start && column <= end) return match[1];
+  }
+  return null;
 }
 
 function scopeShort(scope) {
@@ -79,7 +95,10 @@ export default function CodeEditor({
 }) {
   const monacoRef = useRef(null);
   const [mounted, setMounted] = useState(false);
-  const { lookup } = useVarContext();
+  const { lookup, onSetVariable, onEditVariable } = useVarContext();
+  const actionsRef = useRef({ onSetVariable, onEditVariable });
+  const contextRef = useRef({ selection: null, position: null });
+  actionsRef.current = { onSetVariable, onEditVariable };
 
   // Keep the shared ref pointing at this editor's (latest) lookup.
   useEffect(() => {
@@ -148,7 +167,38 @@ export default function CodeEditor({
       attributeFilter: ['data-theme', 'data-accent'],
     });
     editor.onDidDispose(() => themeObserver.disconnect());
+    editor.onContextMenu(() => {
+      contextRef.current = {
+        selection: editor.getSelection(),
+        position: editor.getPosition(),
+      };
+    });
     registerVarHover(monacoApi);
+    editor.addAction({
+      id: 'relay.setAsVariable',
+      label: 'Set as variable',
+      contextMenuGroupId: 'relay',
+      contextMenuOrder: 1,
+      precondition: 'editorHasSelection',
+      run: (ed) => {
+        const selection = contextRef.current.selection || ed.getSelection();
+        const value = String(ed.getModel()?.getValueInRange(selection) || '').trim();
+        if (value) actionsRef.current.onSetVariable?.(value);
+      },
+    });
+    editor.addAction({
+      id: 'relay.editVariable',
+      label: 'Edit variable',
+      contextMenuGroupId: 'relay',
+      contextMenuOrder: 2,
+      run: (ed) => {
+        const model = ed.getModel();
+        const position = contextRef.current.position || ed.getPosition();
+        if (!model || !position) return;
+        const name = varAtColumn(model.getLineContent(position.lineNumber), position.column);
+        if (name) actionsRef.current.onEditVariable?.(name);
+      },
+    });
     applyVarDecorations(editor, monacoApi);
     editor.onDidChangeModelContent(() => applyVarDecorations(editor, monacoApi));
     setMounted(true);

@@ -8,10 +8,12 @@ import { createContext, useContext } from 'react';
 //   {
 //     lookup(name) -> { value, scope } | null,
 //     onSetVariable(selectedText) -> void,
+//     onEditVariable(name, scope) -> void,
 //   }
 export const VarContext = createContext({
   lookup: () => null,
   onSetVariable: () => {},
+  onEditVariable: () => {},
 });
 
 export function useVarContext() {

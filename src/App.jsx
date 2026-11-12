@@ -18,6 +18,7 @@ import RunnerModal from './components/RunnerModal.jsx';
 import ActivityRail from './components/ActivityRail.jsx';
 import AppHeader from './components/AppHeader.jsx';
 import SetVariableModal from './components/SetVariableModal.jsx';
+import EditVariableModal from './components/EditVariableModal.jsx';
 import CookiesModal from './components/CookiesModal.jsx';
 import MockServerModal from './components/MockServerModal.jsx';
 import McpApprovalModal from './components/McpApprovalModal.jsx';
@@ -244,6 +245,7 @@ export default function App() {
   const [railView, setRailView] = useState('collections');
   const [globalSearch, setGlobalSearch] = useState('');
   const [setVarModal, setSetVarModal] = useState(null); // { value }
+  const [editVarModal, setEditVarModal] = useState(null); // { name, scope, value }
   const [cookiesOpen, setCookiesOpen] = useState(false);
   const [mockOpen, setMockOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1572,6 +1574,45 @@ export default function App() {
     setSetVarModal({ value: v });
   }, []);
 
+  const openEditVariable = useCallback(
+    (name) => {
+      const hit = varLookup(name);
+      if (!hit) return;
+      setEditVarModal({ name, scope: hit.scope, value: hit.value });
+    },
+    [varLookup]
+  );
+
+  const doEditVariable = useCallback(
+    ({ name, scope, value }) => {
+      if (scope === 'environment' && activeEnv) {
+        store.setEnvironments(
+          store.environments.map((e) =>
+            e.id === activeEnv.id
+              ? { ...e, variables: upsertVar(e.variables, name, value) }
+              : e
+          )
+        );
+      } else if (scope === 'collection') {
+        const tab = tabs.find((t) => t.tabId === activeTabId);
+        const owning = tab && findRequestCollection(store.collections, tab.request.id);
+        if (owning) {
+          store.setCollections(
+            store.collections.map((c) =>
+              c.id === owning.id
+                ? { ...c, variables: upsertVar(c.variables, name, value) }
+                : c
+            )
+          );
+        }
+      } else {
+        store.setGlobals(upsertVar(store.globals, name, value));
+      }
+      setEditVarModal(null);
+    },
+    [activeEnv, store, tabs, activeTabId]
+  );
+
   // Persist a new variable into the chosen scope.
   const doSetVariable = useCallback(
     ({ key, value, scope }) => {
@@ -1871,7 +1912,9 @@ export default function App() {
   const editorCollection = store.collections.find((c) => c.id === collectionEditorId);
 
   return (
-    <VarContext.Provider value={{ lookup: varLookup, onSetVariable: openSetVariable }}>
+    <VarContext.Provider
+      value={{ lookup: varLookup, onSetVariable: openSetVariable, onEditVariable: openEditVariable }}
+    >
     <div className="app">
       <AppHeader
         store={store}
@@ -2115,6 +2158,14 @@ export default function App() {
           hasEnvironment={!!activeEnv}
           onCancel={() => setSetVarModal(null)}
           onSave={doSetVariable}
+        />
+      )}
+
+      {editVarModal && (
+        <EditVariableModal
+          variable={editVarModal}
+          onCancel={() => setEditVarModal(null)}
+          onSave={doEditVariable}
         />
       )}
 

@@ -1560,6 +1560,58 @@ input.has-unresolved-var {
   text-overflow: ellipsis;
 }
 
+.var-tooltip.var-tip-card {
+  pointer-events: auto;
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 230px;
+  max-width: 340px;
+  padding: 8px;
+}
+
+.var-tip-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.var-tip-name {
+  color: var(--accent);
+}
+
+.var-tip-value {
+  color: var(--text);
+  word-break: break-all;
+}
+
+.var-tip-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.var-tip-edit {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 1px 7px;
+}
+
+.var-tip-edit:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* ===== Monaco editor box ===== */
 .editor-box {
   height: 240px;
