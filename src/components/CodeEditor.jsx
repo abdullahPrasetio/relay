@@ -92,6 +92,7 @@ export default function CodeEditor({
   readOnly = false,
   height = '100%',
   graphqlSchema = null,
+  onEditorReady = null,
 }) {
   const monacoRef = useRef(null);
   const [mounted, setMounted] = useState(false);
@@ -169,7 +170,10 @@ export default function CodeEditor({
       attributes: true,
       attributeFilter: ['data-theme', 'data-accent'],
     });
-    editor.onDidDispose(() => themeObserver.disconnect());
+    editor.onDidDispose(() => {
+      themeObserver.disconnect();
+      onEditorReady?.(null);
+    });
     editor.onContextMenu(() => {
       contextRef.current = {
         selection: editor.getSelection(),
@@ -238,6 +242,7 @@ export default function CodeEditor({
     applyVarDecorations(editor, monacoApi);
     editor.onDidChangeModelContent(() => applyVarDecorations(editor, monacoApi));
     setMounted(true);
+    onEditorReady?.(editor);
   }
 
   const editable = !readOnly;

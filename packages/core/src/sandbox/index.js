@@ -186,11 +186,16 @@ export function runInSandbox({ code, timeoutMs = 5000, globals = {} } = {}) {
   // Wrapping the body in a function keeps host objects as arguments instead of
   // realm globals: implicit assignments by the script then stay inside the
   // sandbox and cannot shadow what the caller injected (e.g. `pm`).
+  //
+  // The inner function lets a script declare a local with the same name as an
+  // injected global (e.g. `const CryptoJS = require('crypto-js')`), which
+  // would otherwise be a duplicate parameter/lexical declaration.
   const body = String(code ?? '');
   const args = names.map((name) => `__relayGlobals[${JSON.stringify(name)}]`).join(', ');
+  const inner = `(function () {\n${body}\n})();`;
   const program = names.length
-    ? `(function (${names.join(', ')}) {\n${body}\n})(${args})`
-    : `(function () {\n${body}\n})()`;
+    ? `(function (${names.join(', ')}) {\n${inner}\n})(${args})`
+    : `(function () {\n${inner}\n})()`;
 
   try {
     vm.runInContext(program, context, {

@@ -15,7 +15,13 @@
 import * as CryptoJSNS from 'crypto-js';
 import * as uuidNS from 'uuid';
 import * as momentNS from 'moment';
+import * as lodashNS from 'lodash';
+import * as dayjsNS from 'dayjs';
+import * as AjvNS from 'ajv';
+import * as fastXmlParserNS from 'fast-xml-parser';
+import * as qsNS from 'qs';
 import { buildPm } from './pm/index.js';
+import { SCRIPT_PACKAGES } from './script-packages.js';
 import { createSandboxRequire, runInSandbox } from './sandbox/index.js';
 
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -32,15 +38,40 @@ function unwrap(ns, probeKey) {
 
 const CryptoJS = unwrap(CryptoJSNS, 'MD5');
 const uuid = unwrap(uuidNS, 'v4');
-const moment = typeof momentNS === 'function' ? momentNS : unwrap(momentNS, 'now');
+const moment =
+  typeof momentNS === 'function'
+    ? momentNS
+    : typeof momentNS?.default === 'function'
+      ? momentNS.default
+      : unwrap(momentNS, 'now');
+const lodash = unwrap(lodashNS, 'chunk');
+const dayjs = typeof dayjsNS === 'function' ? dayjsNS : (dayjsNS?.default ?? dayjsNS);
+const Ajv = AjvNS?.default ?? AjvNS;
+const fastXmlParser = unwrap(fastXmlParserNS, 'XMLParser');
+const qs = unwrap(qsNS, 'parse');
 
-// Scripts get the three bundled modules and nothing else. Allowing any host
-// module (node:crypto included) would hand scripts a bridge back to the host.
-const sandboxRequire = createSandboxRequire({
+// Scripts may require the curated packages listed in script-packages.js. The
+// catalogue is the single source of truth for the renderer picker and this
+// allow-list; adding a package means adding its implementation here too.
+const PACKAGE_MODULES = {
   'crypto-js': CryptoJS,
   moment,
   uuid,
-});
+  lodash,
+  dayjs,
+  ajv: Ajv,
+  'fast-xml-parser': fastXmlParser,
+  qs,
+};
+
+const sandboxRequire = createSandboxRequire(
+  Object.fromEntries(
+    SCRIPT_PACKAGES.filter((pkg) => PACKAGE_MODULES[pkg.requireName]).map((pkg) => [
+      pkg.requireName,
+      PACKAGE_MODULES[pkg.requireName],
+    ])
+  )
+);
 
 // Resolve `pending` within what is left of the script budget. vm's timeout only
 // covers synchronous work, so async pm.sendRequest calls need their own guard.

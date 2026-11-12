@@ -3,6 +3,7 @@ import KeyValueEditor from './KeyValueEditor.jsx';
 import AuthPanel from './AuthPanel.jsx';
 import VarInput from './VarInput.jsx';
 import CodeEditor from './CodeEditor.jsx';
+import ScriptTools from './ScriptTools.jsx';
 import Icon from './Icon.jsx';
 import MockScenariosPanel from './MockScenariosPanel.jsx';
 import RequestDocsPanel from './RequestDocsPanel.jsx';
@@ -473,32 +474,54 @@ function BodyEditor({ body, onChange, schemaState, onFetchSchema }) {
   );
 }
 
-function PreRequestEditor({ value, onChange }) {
+function ScriptEditor({ value, onChange, phase, hint }) {
+  const [editor, setEditor] = useState(null);
   return (
     <div className="tests-editor">
       <div className="editor-box">
-        <CodeEditor language="javascript" value={value} onChange={onChange} />
+        <CodeEditor
+          language="javascript"
+          value={value}
+          onChange={onChange}
+          onEditorReady={setEditor}
+        />
       </div>
-      <p className="auth-hint">
-        Runs before sending. Use <code>pm.environment.set</code>,{' '}
-        <code>pm.collectionVariables.set</code>, <code>pm.variables.get</code>,{' '}
-        <code>require('crypto-js'|'moment'|'uuid')</code>.
-      </p>
+      <ScriptTools editor={editor} phase={phase} />
+      <p className="auth-hint">{hint}</p>
     </div>
+  );
+}
+
+function PreRequestEditor({ value, onChange }) {
+  return (
+    <ScriptEditor
+      value={value}
+      onChange={onChange}
+      phase="pre"
+      hint={
+        <>
+          Runs before sending. Use <code>pm.environment.set</code>,{' '}
+          <code>pm.collectionVariables.set</code>, <code>pm.variables.get</code>, or a
+          bundled package from <strong>Packages</strong>.
+        </>
+      }
+    />
   );
 }
 
 function TestsEditor({ value, onChange }) {
   return (
-    <div className="tests-editor">
-      <div className="editor-box">
-        <CodeEditor language="javascript" value={value} onChange={onChange} />
-      </div>
-      <p className="auth-hint">
-        Supports a subset of <code>pm.test</code>, <code>pm.expect</code>, and{' '}
-        <code>pm.response</code>. Runs after each response.
-      </p>
-    </div>
+    <ScriptEditor
+      value={value}
+      onChange={onChange}
+      phase="test"
+      hint={
+        <>
+          Supports a subset of <code>pm.test</code>, <code>pm.expect</code>, and{' '}
+          <code>pm.response</code>. Runs after each response.
+        </>
+      }
+    />
   );
 }
 
