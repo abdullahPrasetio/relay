@@ -8,7 +8,10 @@ export default function UpdateModal({
   autoInstall,
   onToggleAutoInstall,
   onInstall,
-  onDownload,
+  onCustomInstall,
+  installing = false,
+  progress = null,
+  installError = '',
   manualDownload = false,
   onLater,
 }) {
@@ -24,8 +27,13 @@ export default function UpdateModal({
             Later
           </button>
           {manualDownload ? (
-            <button className="send-btn" data-testid="update-download" onClick={onDownload}>
-              Download update
+            <button
+              className="send-btn"
+              data-testid="update-download"
+              onClick={onCustomInstall}
+              disabled={installing}
+            >
+              {installing ? 'Installing…' : 'Install update'}
             </button>
           ) : (
             <button
@@ -46,9 +54,19 @@ export default function UpdateModal({
         <h3 className="update-title">Relay{version} is ready</h3>
         <p className="auth-hint">
           {manualDownload
-            ? 'Download the latest macOS build, then open the DMG and replace Relay. Auto-install requires a signed and notarized build.'
+            ? 'Relay will ask for Touch ID, download the update, then quit and reopen itself with the new version. Save any unsaved tabs first.'
             : 'The update has been downloaded. Restart now to finish installing, or keep working and it will be applied later.'}
         </p>
+        {manualDownload && progress?.percent != null && (
+          <div className="update-progress" data-testid="update-progress">
+            <div style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%` }} />
+          </div>
+        )}
+        {manualDownload && installError && (
+          <p className="auth-hint settings-error" data-testid="update-install-error">
+            {installError}
+          </p>
+        )}
         {!manualDownload && (
           <>
             <label className="settings-check update-auto">

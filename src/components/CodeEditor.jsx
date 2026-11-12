@@ -95,6 +95,8 @@ export default function CodeEditor({
 }) {
   const monacoRef = useRef(null);
   const [mounted, setMounted] = useState(false);
+  const [selectedText, setSelectedText] = useState('');
+  const [cursorVar, setCursorVar] = useState(null);
   const { lookup, onSetVariable, onEditVariable } = useVarContext();
   const actionsRef = useRef({ onSetVariable, onEditVariable });
   const contextRef = useRef({ selection: null, position: null });
@@ -173,6 +175,22 @@ export default function CodeEditor({
         position: editor.getPosition(),
       };
     });
+    const updateSelection = () => {
+      const model = editor.getModel();
+      const selection = editor.getSelection();
+      if (!model) return;
+      const text =
+        selection && !selection.isEmpty()
+          ? String(model.getValueInRange(selection) || '').trim()
+          : '';
+      setSelectedText(text);
+      const position = editor.getPosition();
+      setCursorVar(
+        position ? varAtColumn(model.getLineContent(position.lineNumber), position.column) : null
+      );
+    };
+    editor.onDidChangeCursorSelection(updateSelection);
+    updateSelection();
     registerVarHover(monacoApi);
     editor.addAction({
       id: 'relay.setAsVariable',
@@ -204,27 +222,57 @@ export default function CodeEditor({
     setMounted(true);
   }
 
+  const editable = !readOnly;
+  const resolvedCursorVar = cursorVar ? lookup(cursorVar) : null;
+
   return (
-    <Editor
-      height={height}
-      language={language}
-      value={value || ''}
-      onChange={(v) => onChange && onChange(v ?? '')}
-      onMount={handleMount}
-      options={{
-        readOnly,
-        minimap: { enabled: false },
-        fontSize: 12.5,
-        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-        lineNumbers: 'on',
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        tabSize: 2,
-        wordWrap: 'on',
-        renderLineHighlight: 'line',
-        scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
-      }}
-    />
+    <div className="code-editor-wrap">
+      {editable && (selectedText || resolvedCursorVar) && (
+        <div className="editor-float-actions">
+          {selectedText ? (
+            <button
+              type="button"
+              className="editor-float-btn"
+              data-testid="body-set-variable"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onSetVariable(selectedText)}
+            >
+              Set as variable
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="editor-float-btn"
+              data-testid="body-edit-variable"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onEditVariable(cursorVar)}
+            >
+              {`Edit {{${cursorVar}}}`}
+            </button>
+          )}
+        </div>
+      )}
+      <Editor
+        height={height}
+        language={language}
+        value={value || ''}
+        onChange={(v) => onChange && onChange(v ?? '')}
+        onMount={handleMount}
+        options={{
+          readOnly,
+          minimap: { enabled: false },
+          fontSize: 12.5,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          lineNumbers: 'on',
+          scrollBeyondLastLine: false,
+          automaticLayout: true,
+          tabSize: 2,
+          wordWrap: 'on',
+          renderLineHighlight: 'line',
+          scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+        }}
+      />
+    </div>
   );
 }
 

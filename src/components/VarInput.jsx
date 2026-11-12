@@ -18,10 +18,20 @@ function scopeShort(scope) {
 export default function VarInput({ value, onChange, className, placeholder, type = 'text', readOnly }) {
   const { lookup, onSetVariable, onEditVariable } = useVarContext();
   const [tipOpen, setTipOpen] = useState(false);
+  const [selectionText, setSelectionText] = useState('');
 
   const tokens = extractTokens(value);
   const hasVars = tokens.length > 0;
   const anyUnresolved = tokens.some((t) => !lookup(t));
+
+  function readSelection(e) {
+    const el = e.target;
+    if (typeof el.selectionStart !== 'number' || el.selectionEnd <= el.selectionStart) {
+      setSelectionText('');
+      return;
+    }
+    setSelectionText(String(value ?? '').slice(el.selectionStart, el.selectionEnd).trim());
+  }
 
   function onContextMenu(e) {
     const el = e.target;
@@ -49,8 +59,26 @@ export default function VarInput({ value, onChange, className, placeholder, type
         readOnly={readOnly}
         onChange={(e) => onChange && onChange(e.target.value)}
         onContextMenu={onContextMenu}
+        onSelect={readSelection}
+        onKeyUp={readSelection}
+        onMouseUp={readSelection}
+        onBlur={() => setSelectionText('')}
         title={hasVars ? tokens.map((name) => `${name} = ${lookup(name)?.value ?? '(unresolved)'}`).join('\n') : undefined}
       />
+      {selectionText && (
+        <button
+          type="button"
+          className="var-selection-action"
+          data-testid="var-set-variable"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            onSetVariable(selectionText);
+            setSelectionText('');
+          }}
+        >
+          Set as variable
+        </button>
+      )}
       {tipOpen && hasVars && (
         <span className="var-tooltip var-tip-card" role="tooltip">
           {tokens.map((name) => {

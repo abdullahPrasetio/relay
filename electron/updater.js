@@ -145,7 +145,9 @@ export async function initAutoUpdate({ app, autoUpdater, onStatus } = {}) {
 
   // Download in the background. The renderer owns the prompt; installing on
   // quit is opt-in via the "silent update" preference.
-  updater.autoDownload = true;
+  // macOS uses the custom installer, so electron-updater only checks and
+  // reports availability there; Windows/Linux keep background downloads.
+  updater.autoDownload = process.platform !== 'darwin';
   updater.autoInstallOnAppQuit = false;
   const emit = (status) => {
     try {

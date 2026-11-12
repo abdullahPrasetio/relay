@@ -160,7 +160,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
       case 'checking':
         return 'Checking for updates…';
       case 'available':
-        return `Update ${updateState.version || ''} available — downloading…`.trim();
+        return `Update ${updateState.version || ''} available.`.trim();
       case 'downloading':
         return updateState.percent == null
           ? 'Downloading update…'

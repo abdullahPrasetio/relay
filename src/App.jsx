@@ -252,7 +252,7 @@ export default function App() {
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [donationOpen, setDonationOpen] = useState(false);
   const [appPlatform, setAppPlatform] = useState('');
-  const [releaseUrl, setReleaseUrl] = useState('');
+  const [macUpdate, setMacUpdate] = useState({ busy: false, progress: null, error: '' });
   const [updateStatus, setUpdateStatus] = useState(null);
   const [updatePromptOpen, setUpdatePromptOpen] = useState(false);
   const [autoInstallUpdates, setAutoInstallUpdates] = useState(false);
@@ -274,11 +274,14 @@ export default function App() {
     setAutoInstallUpdates(pref);
     autoInstallRef.current = pref;
     api.setAutoInstallUpdates?.(pref);
+    const isMac = /Mac/i.test(navigator.userAgent || '');
     const applyStatus = (status) => {
       if (!alive || !status) return;
       setUpdateStatus(status);
-      if (status.state === 'ready') {
-        if (!autoInstallRef.current) setUpdatePromptOpen(true);
+      const readyForPrompt =
+        status.state === 'ready' || (isMac && status.state === 'available');
+      if (readyForPrompt) {
+        if (!autoInstallRef.current || isMac) setUpdatePromptOpen(true);
       } else if (status.state !== 'downloading') {
         setUpdatePromptOpen(false);
       }
@@ -306,6 +309,31 @@ export default function App() {
     window.api?.installUpdate?.({ silent: true });
   }, []);
 
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api?.onMacUpdateProgress) return undefined;
+    return api.onMacUpdateProgress((progress) => {
+      setMacUpdate((previous) => ({ ...previous, progress, error: '' }));
+    });
+  }, []);
+
+  const installMacUpdate = useCallback(async () => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api?.macInstallUpdate) {
+      setMacUpdate({ busy: false, progress: null, error: 'The installer requires the desktop app.' });
+      return;
+    }
+    setMacUpdate({ busy: true, progress: null, error: '' });
+    const result = await api.macInstallUpdate();
+    if (!result?.ok) {
+      setMacUpdate({
+        busy: false,
+        progress: null,
+        error: result?.error || 'Could not install the update.',
+      });
+    }
+  }, []);
+
   // Daily reminder. E2E launches set RELAY_DISABLE_DONATION_PROMPT=1 so only
   // the specs that opt in see it; the header button always opens the modal.
   useEffect(() => {
@@ -318,7 +346,6 @@ export default function App() {
         const info = await api.getAppInfo();
         if (!alive) return;
         setAppPlatform(info?.platform || '');
-        setReleaseUrl(info?.releaseUrl || '');
         if (!info?.donationPrompt) return;
         if (!shouldShowDonationPrompt()) return;
         timer = setTimeout(() => {
@@ -2265,14 +2292,19 @@ export default function App() {
 
       {donationOpen && <DonationModal onClose={() => setDonationOpen(false)} />}
 
-      {updatePromptOpen && updateStatus?.state === 'ready' && (
+      {updatePromptOpen &&
+        (updateStatus?.state === 'ready' ||
+          (appPlatform === 'darwin' && updateStatus?.state === 'available')) && (
         <UpdateModal
           status={updateStatus}
           autoInstall={autoInstallUpdates}
           onToggleAutoInstall={toggleAutoInstallUpdates}
           onInstall={installUpdate}
           manualDownload={appPlatform === 'darwin'}
-          onDownload={() => window.api?.openExternal?.(releaseUrl)}
+          onCustomInstall={installMacUpdate}
+          installing={macUpdate.busy}
+          progress={macUpdate.progress}
+          installError={macUpdate.error}
           onLater={() => setUpdatePromptOpen(false)}
         />
       )}

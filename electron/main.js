@@ -1,7 +1,14 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, systemPreferences } from 'electron';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
+import {
+  buildInstallerScript,
+  checkMacUpdate,
+  downloadToFile,
+  sha512Base64,
+} from './macUpdate.js';
 import { sendRequest, fetchOAuth2Token } from '../packages/core/src/request-engine.js';
 import {
   authorizeOAuth2,
@@ -801,6 +808,87 @@ function registerIpc() {
   });
 
   ipcMain.handle('updater:get-status', () => lastUpdateStatus);
+  ipcMain.handle('updater:mac-check', async () => {
+    if (process.platform !== 'darwin') {
+      return { ok: false, error: 'The custom installer is macOS-only.' };
+    }
+    try {
+      const data = await checkMacUpdate({
+        currentVersion: app.getVersion(),
+        arch: process.arch,
+      });
+      return { ok: true, data };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+  ipcMain.handle('updater:mac-install', async () => {
+    if (process.platform !== 'darwin') {
+      return { ok: false, error: 'The custom installer is macOS-only.' };
+    }
+    const notify = (payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('updater:mac-progress', payload);
+      }
+    };
+    try {
+      const info = await checkMacUpdate({
+        currentVersion: app.getVersion(),
+        arch: process.arch,
+      });
+      if (!info.available) {
+        return { ok: false, code: 'no_update', error: 'No newer release was found.' };
+      }
+      await systemPreferences.promptTouchID(`Authorize Relay ${info.version} update`);
+      notify({ phase: 'downloading', percent: 0, version: info.version });
+      const zipPath = path.join(
+        app.getPath('temp'),
+        `relay-update-${info.version}-${process.pid}.zip`
+      );
+      await downloadToFile(info.url, zipPath, {
+        onProgress: (progress) => notify({ phase: 'downloading', ...progress, version: info.version }),
+      });
+      const checksum = await sha512Base64(zipPath);
+      if (checksum !== info.sha512) {
+        fs.rmSync(zipPath, { force: true });
+        return { ok: false, code: 'checksum', error: 'Update checksum mismatch.' };
+      }
+
+      const appPath = path.resolve(app.getPath('exe'), '../../..');
+      if (!appPath.endsWith('.app') || appPath.includes('/AppTranslocation/')) {
+        return {
+          ok: false,
+          code: 'install_path',
+          error: 'Move Relay into /Applications before installing updates.',
+        };
+      }
+      try {
+        fs.accessSync(path.dirname(appPath), fs.constants.W_OK);
+      } catch {
+        return {
+          ok: false,
+          code: 'permission',
+          error: 'Relay cannot write to its install folder. Reinstall it in /Applications.',
+        };
+      }
+
+      const scriptPath = path.join(
+        app.getPath('temp'),
+        `relay-install-${info.version}-${process.pid}.sh`
+      );
+      fs.writeFileSync(
+        scriptPath,
+        buildInstallerScript({ appPath, zipPath, pid: process.pid }),
+        { mode: 0o755 }
+      );
+      notify({ phase: 'installing', percent: 100, version: info.version });
+      spawn('/bin/bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref();
+      setTimeout(() => app.exit(0), 400);
+      return { ok: true, version: info.version };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
   ipcMain.handle('updater:check', async () => {
     if (!updater) return { ok: false, error: 'Updater is unavailable.' };
     try {

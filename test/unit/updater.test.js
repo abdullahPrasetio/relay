@@ -143,7 +143,7 @@ describe('initAutoUpdate', () => {
     });
 
     expect(instance).toBe(updater);
-    expect(updater.autoDownload).toBe(true);
+    expect(updater.autoDownload).toBe(process.platform !== 'darwin');
     expect(updater.autoInstallOnAppQuit).toBe(false);
     listeners['update-available']({ version: '2.0.0' });
     listeners['update-downloaded']({ version: '2.0.0' });
