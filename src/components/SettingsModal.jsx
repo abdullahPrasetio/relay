@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Modal from './Modal.jsx';
 import Icon from './Icon.jsx';
 
@@ -123,6 +123,58 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   const [draft, setDraft] = useState(() => toDraft(settings));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
+  const [updateState, setUpdateState] = useState(null);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateError, setUpdateError] = useState('');
+
+  useEffect(() => {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api) return undefined;
+    api.getAppInfo?.().then((info) => setAppVersion(info?.version || '')).catch(() => {});
+    api.getUpdateStatus?.().then((status) => status && setUpdateState(status)).catch(() => {});
+    const unsubscribe = api.onUpdaterStatus?.((status) => setUpdateState(status));
+    return () => unsubscribe?.();
+  }, []);
+
+  async function checkUpdates() {
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api?.checkForUpdates) {
+      setUpdateError('Update checks require the desktop app.');
+      return;
+    }
+    setCheckingUpdates(true);
+    setUpdateError('');
+    try {
+      const result = await api.checkForUpdates();
+      if (!result?.ok) setUpdateError(result?.error || 'Could not check for updates.');
+    } catch (err) {
+      setUpdateError(err?.message || String(err));
+    } finally {
+      setCheckingUpdates(false);
+    }
+  }
+
+  function updateLabel() {
+    switch (updateState?.state) {
+      case 'checking':
+        return 'Checking for updates…';
+      case 'available':
+        return `Update ${updateState.version || ''} available — downloading…`.trim();
+      case 'downloading':
+        return updateState.percent == null
+          ? 'Downloading update…'
+          : `Downloading update… ${Math.round(updateState.percent)}%`;
+      case 'ready':
+        return `Update ${updateState.version || ''} ready to install.`.trim();
+      case 'none':
+        return 'You are running the latest version.';
+      case 'error':
+        return updateState.message || 'Update check failed.';
+      default:
+        return '';
+    }
+  }
 
   const set = (patch) => setDraft((prev) => ({ ...prev, ...patch }));
   const setProxy = (id, patch) =>
@@ -455,6 +507,36 @@ export default function SettingsModal({ settings, onSave, onClose }) {
           />
           Clear saved passphrase
         </label>
+      )}
+
+      <div className="settings-section">Updates</div>
+      <div className="settings-update">
+        <div>
+          <strong>Relay {appVersion || '…'}</strong>
+          <p className="auth-hint">
+            Check GitHub Releases without closing the app.
+          </p>
+        </div>
+        <button
+          className="mini-btn"
+          data-testid="check-updates"
+          onClick={checkUpdates}
+          disabled={checkingUpdates || updateState?.state === 'checking'}
+        >
+          {checkingUpdates || updateState?.state === 'checking'
+            ? 'Checking…'
+            : 'Check for updates'}
+        </button>
+      </div>
+      {updateLabel() && (
+        <p className="auth-hint" data-testid="update-check-status">
+          {updateLabel()}
+        </p>
+      )}
+      {updateError && (
+        <p className="auth-hint settings-error" data-testid="update-check-error">
+          {updateError}
+        </p>
       )}
     </Modal>
   );
