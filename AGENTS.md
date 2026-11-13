@@ -46,6 +46,28 @@ Persetujuan sekali pakai: "commit" untuk perubahan itu tidak berarti izin push, 
 - Jangan mengubah file milik user yang tidak terkait tugas (termasuk `.env`, data lokal, konfigurasi editor).
 - Jika instruksi ambigu atau berisiko, berhenti dan tanya — jangan menebak.
 
+## Fitur baru dan tooltip onboarding
+
+Aturan ini berlaku untuk setiap fitur baru atau perubahan alur kerja yang terlihat oleh pengguna. Refactor internal, perbaikan bug tanpa kontrol baru, dan perubahan styling tidak wajib menambah tooltip.
+
+Setiap fitur baru **wajib** memiliki entri di `src/lib/featureTours/catalog.js` dan anchor `data-tour` yang stabil pada kontrolnya.
+
+Checklist wajib:
+
+1. Tambahkan entri katalog dengan `id` unik berformat `area.feature`.
+2. Tambahkan `data-tour="area.feature"` ke elemen target. Jangan memakai selector class CSS, posisi piksel, atau teks tombol sebagai anchor.
+3. Isi `title`, `body`, `group`, `surface`, dan `anchor`. Copy singkat, bahasa Inggris mengikuti UI, dan tidak boleh memuat secret/nilai token.
+4. Isi `introducedIn` dengan versi rilis fitur.
+5. Jika fitur harus muncul sebagai pengumuman setelah update, set `announce: true`.
+6. Jika fitur hanya bisa dibuka dari menu/modal, atau tidak boleh muncul otomatis, set `auto: false`; fitur tetap wajib muncul di Feature Guide.
+7. Jangan menambahkan mekanisme penyimpanan seen/skipped sendiri. Gunakan `useFeatureTour` dan state `relay-feature-tours-v1` yang sudah ada.
+8. Pastikan fitur yang sudah dibaca atau di-skip tidak muncul otomatis lagi, termasuk setelah restart.
+9. Jika fitur dihapus atau di-rename, hapus/perbarui entri katalog dan anchor lamanya agar tidak menjadi anchor yatim.
+10. Jalankan verifikasi yang relevan: unit test katalog/tour, build, dan E2E untuk fitur baru yang memakai tooltip otomatis.
+
+Jika fitur baru sengaja tidak diberi tooltip, jelaskan alasannya di ringkasan perubahan.
+
 ## Riwayat
 
 - 2026-10-29: dibuat atas permintaan pemilik repo; commit/push wajib persetujuan.
+- 2026-11-13: ditambahkan aturan wajib tooltip/Feature Guide untuk setiap fitur baru.
