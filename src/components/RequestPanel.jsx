@@ -128,7 +128,7 @@ export default function RequestPanel({
   return (
     <section className="request-panel" onKeyDown={onKeyDown}>
       <RequestNameBar request={request} onRename={(name) => patch({ name })} />
-      <div className="url-bar">
+      <div className="url-bar" data-tour="request.url">
         <select
           className={`method method-${request.method}`}
           value={request.method}
@@ -151,27 +151,29 @@ export default function RequestPanel({
             Stop
           </button>
         ) : (
-          <button className="send-btn" onClick={onSend}>
+          <button className="send-btn" data-tour="request.send" onClick={onSend}>
             Send
           </button>
         )}
-        <button className="save-btn" onClick={onSave} title={dirty ? 'Unsaved changes — Save (Cmd/Ctrl+S)' : 'Saved'}>
+        <button className="save-btn" data-tour="request.save" onClick={onSave} title={dirty ? 'Unsaved changes — Save (Cmd/Ctrl+S)' : 'Saved'}>
           Save
           {dirty && <span className="dirty-dot" aria-label="unsaved changes" />}
         </button>
         <button
           className="save-btn icon-only"
+          data-tour="request.settings"
           onClick={onOpenSettings}
           title="Request settings"
           data-testid="request-settings-open"
         >
           <Icon name="gear" size={16} />
         </button>
-        <button className="save-btn icon-only" onClick={onShowCode} title="Generate code">
+        <button className="save-btn icon-only" data-tour="request.code" onClick={onShowCode} title="Generate code">
           <Icon name="code" size={16} />
         </button>
         <button
           className="save-btn icon-only comments-btn"
+          data-tour="request.comments"
           onClick={onOpenComments}
           title={
             commentsAvailable
@@ -186,7 +188,7 @@ export default function RequestPanel({
         </button>
       </div>
 
-      <div className="tabs">
+      <div className="tabs" data-tour="request.tabs">
         {TABS.map((t) => (
           <button
             key={t}

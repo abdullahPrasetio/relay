@@ -28,7 +28,7 @@ export default function TabBar({
   }
 
   return (
-    <div className="tabbar">
+    <div className="tabbar" data-tour="tabs.bar">
       <div className="tabbar-tabs">
         {tabs.map((t) => {
           const isDashboard = t.tabId === dashboardTabId;
@@ -72,7 +72,7 @@ export default function TabBar({
           );
         })}
       </div>
-      <button className="tabbar-add" title="New request tab" onClick={onAdd}>
+      <button className="tabbar-add" data-tour="tabs.new" title="New request tab" onClick={onAdd}>
         <Icon name="plus" size={16} />
       </button>
 

@@ -212,7 +212,7 @@ export default function TreeNode({
 function Kebab({ open, setOpen, items }) {
   return (
     <span className="kebab-wrap" onClick={(e) => e.stopPropagation()}>
-      <button className="kebab-btn" title="Actions" onClick={() => setOpen((v) => !v)}>
+      <button className="kebab-btn" data-tour="request.menu" title="Actions" onClick={() => setOpen((v) => !v)}>
         <Icon name="kebab" size={16} />
       </button>
       {open && (

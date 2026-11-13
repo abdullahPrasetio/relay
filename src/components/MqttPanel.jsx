@@ -102,7 +102,7 @@ export default function MqttPanel({
   }
 
   return (
-    <section className="response-panel mqtt-panel" data-testid="mqtt-panel">
+    <section className="response-panel mqtt-panel" data-tour="protocol.mqtt" data-testid="mqtt-panel">
       <div className="response-status mqtt-status">
         <span className={`status-pill ws-state-${state}`} data-testid="mqtt-status">
           {statusLabel(status)}

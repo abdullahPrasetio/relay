@@ -64,6 +64,7 @@ export default function WorkspaceDashboard({
           <button
             type="button"
             className="send-btn dashboard-primary"
+            data-tour="dashboard.newRequest"
             data-testid="dashboard-new-request"
             onClick={onStartRequest}
           >

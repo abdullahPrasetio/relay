@@ -230,7 +230,7 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
 
   return (
     <div className="ws-switcher">
-      <button className="ws-button" onClick={() => setOpen((v) => !v)} title="Switch workspace">
+      <button className="ws-button" data-tour="app.workspace" onClick={() => setOpen((v) => !v)} title="Switch workspace">
         <Icon name="workspace" size={14} className="ws-icon" />
         <span className="ws-name">{active?.name || 'Workspace'}</span>
         <Icon name="chevronDown" size={13} className="ws-caret" />

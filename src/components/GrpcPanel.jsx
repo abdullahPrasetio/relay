@@ -211,7 +211,7 @@ export default function GrpcPanel({
     (!selectedService || !selectedMethod);
 
   return (
-    <section className="response-panel grpc-panel" data-testid="grpc-panel">
+    <section className="response-panel grpc-panel" data-tour="protocol.grpc" data-testid="grpc-panel">
       <div className="response-status grpc-status">
         <span
           className={`status-pill ${streamActive ? 'ws-state-open' : 'ws-state-idle'}`}

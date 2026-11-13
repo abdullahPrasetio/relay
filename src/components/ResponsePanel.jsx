@@ -36,7 +36,7 @@ export default function ResponsePanel({
 
   if (sending) {
     return (
-      <section className="response-panel">
+      <section className="response-panel" data-tour="response.panel">
         <div className="response-empty">Sending request…</div>
       </section>
     );
@@ -44,7 +44,7 @@ export default function ResponsePanel({
 
   if (!response) {
     return (
-      <section className="response-panel">
+      <section className="response-panel" data-tour="response.panel">
         <div className="response-empty">
           Response will appear here. Enter a URL and hit Send.
         </div>
@@ -54,7 +54,7 @@ export default function ResponsePanel({
 
   if (!response.ok) {
     return (
-      <section className="response-panel">
+      <section className="response-panel" data-tour="response.panel">
         <div className="response-status error" data-testid="response-status">
           <span className="status-pill error">Error</span>
           <span className="meta">{response.timeMs} ms</span>
@@ -79,7 +79,7 @@ export default function ResponsePanel({
   if ((response.consoleLogs?.length || 0) > 0) tabs.push('Console');
 
   return (
-    <section className="response-panel">
+    <section className="response-panel" data-tour="response.panel">
       <div className="response-status" data-testid="response-status">
         <span className={`status-pill ${statusClass(response.status)}`}>
           {response.status} {response.statusText}
@@ -121,7 +121,7 @@ export default function ResponsePanel({
 
       <ResponseMeta response={response} />
 
-      <div className="tabs">
+      <div className="tabs" data-tour="response.tabs">
         {tabs.map((t) => (
           <button
             key={t}

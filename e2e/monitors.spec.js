@@ -73,6 +73,8 @@ test('create a monitor and run it from the UI', async () => {
     args: ['.'],
     env: {
       ...process.env,
+      RELAY_DISABLE_DONATION_PROMPT: '1',
+      RELAY_DISABLE_FEATURE_TOURS: '1',
       RELAY_TEST_USER_DATA: userData,
       RELAY_API_URL: process.env.RELAY_API_URL || 'http://127.0.0.1:18092',
     },

@@ -81,7 +81,7 @@ export default function WebSocketPanel({
   }
 
   return (
-    <section className="response-panel ws-panel" data-testid="ws-panel">
+    <section className="response-panel ws-panel" data-tour="protocol.websocket" data-testid="ws-panel">
       <div className="response-status ws-status">
         <span className={`status-pill ws-state-${state}`} data-testid="ws-status">
           {statusLabel(status)}

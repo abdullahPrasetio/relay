@@ -69,6 +69,7 @@ export default function EnvBar({ environments, activeEnvId, onSelect, onChange, 
       <button
         type="button"
         className="env-trigger"
+        data-tour="env.trigger"
         onClick={() => setMenuOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={menuOpen}

@@ -94,7 +94,7 @@ export default function DocsPage({
 
   if (!selectedCollection) {
     return (
-      <section className="docs-page" data-testid="docs-workspace">
+      <section className="docs-page" data-testid="docs-workspace" data-tour="docs.workspace">
         <header className="docs-page-head">
           <div className="docs-kicker">Workspace documentation</div>
           <h1>{workspace?.name || 'Workspace'}</h1>
@@ -139,7 +139,7 @@ export default function DocsPage({
   const variables = variableRows(selectedCollection.variables);
 
   return (
-    <section className="docs-page" data-testid="docs-collection">
+    <section className="docs-page" data-testid="docs-collection" data-tour="docs.collection">
       <header className="docs-page-head">
         <div className="docs-kicker">
           {workspace?.name || 'Workspace'} / Collection documentation

@@ -375,11 +375,12 @@ export default function Sidebar({
       {view === 'collections' && (
         <div className="sidebar-content">
           <div className="sidebar-actions">
-            <button className="mini-btn" onClick={addCollection}>
+            <button className="mini-btn" data-tour="collections.new" onClick={addCollection}>
               + New
             </button>
             <button
               className="mini-btn"
+              data-tour="collections.import"
               onClick={onImportClick}
               title="Import Postman, OpenAPI/Swagger, HAR, cURL or Insomnia"
             >
@@ -396,6 +397,7 @@ export default function Sidebar({
 
           <input
             className="tree-search"
+            data-tour="collections.search"
             placeholder="Search requests…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -404,6 +406,7 @@ export default function Sidebar({
           <div className="tree-bulk-actions">
             <button
               className="mini-btn"
+              data-tour="collections.expand"
               data-testid="collections-expand-all"
               onClick={expandAll}
               disabled={collections.length === 0}
@@ -426,6 +429,7 @@ export default function Sidebar({
             <div className="sidebar-empty">No collections yet. Click “+ New”.</div>
           )}
 
+          <div className="collection-tree" data-tour="collections.tree">
           {collections.map((c) => {
             const isOpen = query ? true : Boolean(openNodes[c.id]);
             const filteredItems = filterTree(c.items, query);
@@ -492,6 +496,7 @@ export default function Sidebar({
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
@@ -538,8 +543,8 @@ export default function Sidebar({
       )}
 
       {view === 'history' && (
-        <div className="sidebar-content history-view">
-          <div className="history-toolbar">
+        <div className="sidebar-content history-view" data-tour="history.list">
+          <div className="history-toolbar" data-tour="history.filters">
             <input
               className="tree-search"
               placeholder="Search history…"
@@ -852,7 +857,7 @@ function CollectionKebab({ items }) {
   const [open, setOpen] = useState(false);
   return (
     <span className="kebab-wrap" onClick={(e) => e.stopPropagation()}>
-      <button className="kebab-btn" title="Collection actions" onClick={() => setOpen((v) => !v)}>
+      <button className="kebab-btn" data-tour="collections.menu" title="Collection actions" onClick={() => setOpen((v) => !v)}>
         <Icon name="kebab" size={16} />
       </button>
       {open && (

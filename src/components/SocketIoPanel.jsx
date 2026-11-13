@@ -84,7 +84,7 @@ export default function SocketIoPanel({
   }
 
   return (
-    <section className="response-panel socketio-panel" data-testid="socketio-panel">
+    <section className="response-panel socketio-panel" data-tour="protocol.socketio" data-testid="socketio-panel">
       <div className="response-status socketio-status">
         <span className={`status-pill ws-state-${state}`} data-testid="socketio-status">
           {statusLabel(status)}

@@ -36,6 +36,7 @@ export async function launchAppAt(userData, extraEnv = {}, options = {}) {
     env: {
       ...process.env,
       RELAY_DISABLE_DONATION_PROMPT: '1',
+      RELAY_DISABLE_FEATURE_TOURS: '1',
       ...extraEnv,
       RELAY_TEST_USER_DATA: userData,
     },

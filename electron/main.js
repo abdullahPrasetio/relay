@@ -941,6 +941,7 @@ function registerIpc() {
     // Shown in dev too so the prompt can be checked locally; E2E sets the
     // env var to keep unrelated specs free of an unsolicited modal.
     donationPrompt: process.env.RELAY_DISABLE_DONATION_PROMPT !== '1',
+    featureTours: process.env.RELAY_DISABLE_FEATURE_TOURS !== '1',
   }));
 
   // The renderer finished its unsaved-work prompt and allows the close.

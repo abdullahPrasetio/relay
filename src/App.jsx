@@ -29,6 +29,10 @@ import McpApprovalModal from './components/McpApprovalModal.jsx';
 import SettingsModal from './components/SettingsModal.jsx';
 import AppearanceModal from './components/AppearanceModal.jsx';
 import DonationModal from './components/DonationModal.jsx';
+import FeatureTour from './components/FeatureTour.jsx';
+import FeatureWelcome from './components/FeatureWelcome.jsx';
+import FeatureGuideModal from './components/FeatureGuideModal.jsx';
+import WhatsNewModal from './components/WhatsNewModal.jsx';
 import UpdateModal from './components/UpdateModal.jsx';
 import UpdateCheckModal from './components/UpdateCheckModal.jsx';
 import { markDonationPromptShown, shouldShowDonationPrompt } from './lib/donationPrompt.js';
@@ -45,6 +49,7 @@ import { useRealtimeSync } from './lib/useRealtimeSync.js';
 import { useNetworkSettings } from './lib/useNetworkSettings.js';
 import { useAppearance } from './lib/useAppearance.js';
 import { useMcpBridge } from './lib/useMcpBridge.js';
+import { useFeatureTour } from './lib/featureTours/useFeatureTour.js';
 import { newCollection, newRequest, normalizeRequest, uid } from './lib/factory.js';
 import { isWebSocket, isMqtt, isSocketIo, isGrpc, isGrpcTls } from './lib/protocol.js';
 import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from '../packages/core/src/variables.js';
@@ -341,6 +346,7 @@ export default function App() {
   const [donationOpen, setDonationOpen] = useState(false);
   const [appPlatform, setAppPlatform] = useState('');
   const [appVersion, setAppVersion] = useState('');
+  const [appInfo, setAppInfo] = useState(null);
   const [macUpdate, setMacUpdate] = useState({ busy: false, progress: null, error: '' });
   const [updateStatus, setUpdateStatus] = useState(null);
   const [updatePromptOpen, setUpdatePromptOpen] = useState(false);
@@ -435,6 +441,7 @@ export default function App() {
       try {
         const info = await api.getAppInfo();
         if (!alive) return;
+        setAppInfo(info || null);
         setAppPlatform(info?.platform || '');
         setAppVersion(info?.version || '');
         if (!info?.donationPrompt) return;
@@ -504,6 +511,43 @@ export default function App() {
   }, []);
 
   const showDashboard = isPristineTab(activeTab) && !activeTab.dashboardDismissed;
+
+  const tourSurface = useMemo(() => {
+    if (railView === 'docs') return 'docs';
+    if (railView === 'environments') return 'environments';
+    if (railView === 'history') return 'history';
+    if (railView === 'collections') {
+      if (showDashboard) return 'collections';
+      const url = activeTab?.request?.url || '';
+      if (isWebSocket(url)) return 'websocket';
+      if (isMqtt(url)) return 'mqtt';
+      if (isSocketIo(url)) return 'socketio';
+      if (isGrpc(url)) return 'grpc';
+      return 'request';
+    }
+    return 'global';
+  }, [railView, showDashboard, activeTab]);
+
+  const hasUserData = useMemo(() => {
+    const workspaces = store.workspaces || [];
+    if (workspaces.length > 1) return true;
+    return workspaces.some(
+      (workspace) =>
+        (workspace.collections || []).some((collection) => flattenRequests(collection).length > 0) ||
+        (workspace.environments?.length || 0) > 0 ||
+        (workspace.globals?.length || 0) > 0 ||
+        (workspace.history?.length || 0) > 0
+    );
+  }, [store.workspaces]);
+
+  const tours = useFeatureTour({
+    enabled: appInfo?.featureTours !== false,
+    ready: sessionReady && store.loaded && Boolean(appVersion),
+    appVersion,
+    hasUserData,
+    surface: tourSurface,
+    context: { cloudSignedIn: Boolean(cloud.signedIn), hasRequest: !showDashboard },
+  });
 
   useEffect(() => {
     if (pinnedState.workspaceId === store.activeWorkspaceId) return;
@@ -2160,6 +2204,14 @@ export default function App() {
         },
       },
       {
+        id: 'action-feature-guide',
+        group: 'Help',
+        label: 'Feature guide',
+        detail: 'Browse and replay feature tips',
+        icon: 'file',
+        run: tours.openGuide,
+      },
+      {
         id: 'action-settings',
         group: 'Actions',
         label: 'Open Settings',
@@ -2269,6 +2321,7 @@ export default function App() {
     send,
     store,
     tabs,
+    tours.openGuide,
   ]);
 
   const closeTabs = useCallback(
@@ -2496,6 +2549,7 @@ export default function App() {
         cloud={cloud}
         searchQuery={globalSearch}
         onSearch={setGlobalSearch}
+        onOpenFeatureGuide={tours.openGuide}
       />
 
       {store.saveError && (
@@ -2963,6 +3017,41 @@ export default function App() {
           send={transport}
           onPersistScopes={(scopes) => persistRunScopes(scopes, runner.collection)}
           onClose={() => setRunner(null)}
+        />
+      )}
+
+      {tours.welcomeOpen && (
+        <FeatureWelcome onStart={tours.startWelcome} onSkip={tours.skipWelcome} />
+      )}
+      {tours.whatsNew && (
+        <WhatsNewModal
+          version={appVersion}
+          features={tours.whatsNew}
+          onShow={tours.showWhatsNewFeature}
+          onDismiss={tours.dismissWhatsNew}
+        />
+      )}
+      {tours.guideOpen && (
+        <FeatureGuideModal
+          features={tours.features}
+          seen={tours.seen}
+          enabled={tours.enabled}
+          storageError={tours.storageError}
+          onToggleEnabled={tours.setEnabled}
+          onShow={tours.showFeature}
+          onReset={tours.reset}
+          onClose={tours.closeGuide}
+        />
+      )}
+      {tours.current && (
+        <FeatureTour
+          step={tours.current}
+          index={tours.index}
+          total={tours.total}
+          onNext={tours.next}
+          onBack={tours.back}
+          onSkipStep={tours.skipStep}
+          onSkipTour={tours.skipTour}
         />
       )}
     </div>

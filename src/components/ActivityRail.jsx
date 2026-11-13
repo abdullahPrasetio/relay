@@ -49,7 +49,7 @@ export default function ActivityRail({
             ? 'Update check failed'
             : 'Check for updates';
   return (
-    <nav className="activity-rail">
+    <nav className="activity-rail" data-tour="rail.navigation">
       <div className="rail-group">
         {ITEMS.map((it) => (
           <button
@@ -58,6 +58,7 @@ export default function ActivityRail({
             title={it.label}
             onClick={() => onSelect(it.id)}
             data-testid={`rail-${it.id}`}
+            data-tour={`rail.${it.id}`}
           >
             <Icon name={it.icon} size={20} />
             <span className="rail-label">{it.label}</span>
@@ -74,6 +75,7 @@ export default function ActivityRail({
             aria-label={syncTitle(cloud)}
             onClick={onOpenCloud}
             data-testid="cloud-status"
+            data-tour="tool.cloud"
             data-state={cloud.status || 'local'}
           >
             <Icon name="cloud" size={16} />
@@ -88,6 +90,7 @@ export default function ActivityRail({
             title="Devices"
             aria-label="Devices"
             data-testid="devices-open"
+            data-tour="tool.devices"
           >
             <Icon name="monitor" size={16} />
           </button>
@@ -99,6 +102,7 @@ export default function ActivityRail({
           title="Cookies"
           aria-label="Cookies"
           data-testid="cookies-open"
+          data-tour="tool.cookies"
         >
           <Icon name="cookie" size={16} />
         </button>
@@ -109,6 +113,7 @@ export default function ActivityRail({
           title="Mock server"
           aria-label="Mock server"
           data-testid="mock-open"
+          data-tour="tool.mock"
         >
           <Icon name="globe" size={16} />
         </button>
@@ -119,6 +124,7 @@ export default function ActivityRail({
           title="Support Relay"
           aria-label="Support Relay"
           data-testid="donation-open"
+          data-tour="tool.donation"
         >
           <Icon name="heart" size={16} />
         </button>
@@ -129,6 +135,7 @@ export default function ActivityRail({
           title="Appearance"
           aria-label="Appearance"
           data-testid="appearance-open"
+          data-tour="tool.appearance"
         >
           <Icon name="palette" size={16} />
         </button>
@@ -139,6 +146,7 @@ export default function ActivityRail({
           title={updateTitle}
           aria-label={updateTitle}
           data-testid="update-open"
+          data-tour="tool.update"
           data-state={updateState}
         >
           <Icon name="download" size={16} />
@@ -151,6 +159,7 @@ export default function ActivityRail({
           title="Settings"
           aria-label="Settings"
           data-testid="settings-open"
+          data-tour="rail.settings"
         >
           <Icon name="gear" size={16} />
         </button>
