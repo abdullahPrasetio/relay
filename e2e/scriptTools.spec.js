@@ -5,6 +5,9 @@ test('script tools insert snippets and packages into the editor', async () => {
   const session = await launchApp();
   const { page } = session;
   try {
+    // Keep the intended 1280x820 window geometry: CI runners clamp the
+    // native window to a shorter screen, which makes the script pane scroll.
+    await page.setViewportSize({ width: 1280, height: 820 });
     await page.getByRole('button', { name: 'Pre-request', exact: true }).click();
     await expect(page.getByTestId('script-snippets-open')).toBeVisible();
 
