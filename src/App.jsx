@@ -69,6 +69,7 @@ import {
   serializeSession,
   restoreSession,
 } from './lib/session.js';
+import { loadResponseHistory, saveResponseHistory } from './lib/responseHistoryStore.js';
 
 const hasBridge = typeof window !== 'undefined' && !!window.api;
 
@@ -230,10 +231,10 @@ function newTab(request) {
     wsStatus: null,
     wsLog: [],
     wsError: null,
-    wsAutoReconnect: true,
+    wsAutoReconnect: req.settings?.wsAutoReconnect !== false,
     wsReconnectAttempts: 0,
     wsClosedByUser: false,
-    wsHeartbeatMs: 30000,
+    wsHeartbeatMs: Number(req.settings?.wsHeartbeatMs) || 0,
     streamKind: null,
     streamSessionId: null,
     streamStatus: null,
@@ -535,6 +536,21 @@ export default function App() {
     return pinnedState.ids.map((id) => byId.get(id)).filter(Boolean);
   }, [pinnedState.ids, store.collections]);
 
+  // Hydrate the per-tab diff history from localStorage when a tab is first
+  // opened or restored. The current response is never persisted.
+  useEffect(() => {
+    const requestId = activeTab?.request?.id;
+    if (!requestId || (activeTab.responseHistory || []).length) return;
+    const stored = loadResponseHistory(store.activeWorkspaceId, requestId);
+    if (stored.length) updateTab(activeTab.tabId, { responseHistory: stored });
+  }, [
+    activeTab?.tabId,
+    activeTab?.request?.id,
+    activeTab?.responseHistory,
+    store.activeWorkspaceId,
+    updateTab,
+  ]);
+
   const startRequest = useCallback(() => {
     updateTab(activeTabId, { dashboardDismissed: true });
   }, [activeTabId, updateTab]);
@@ -689,14 +705,30 @@ export default function App() {
         }
         patch.wsStatus = { ...tab.wsStatus, state: 'closed', retryIn: 0 };
       }
+      if (tab) {
+        setActiveRequest({
+          ...tab.request,
+          settings: { ...tab.request.settings, wsAutoReconnect: enabled },
+        });
+      }
       updateTab(activeTabId, patch);
     },
-    [activeTabId, tabs, updateTab]
+    [activeTabId, setActiveRequest, tabs, updateTab]
   );
 
   const setWsHeartbeat = useCallback(
-    (ms) => updateTab(activeTabId, { wsHeartbeatMs: Number(ms) || 0 }),
-    [activeTabId, updateTab]
+    (ms) => {
+      const tab = tabs.find((entry) => entry.tabId === activeTabId);
+      const value = Number(ms) || 0;
+      if (tab) {
+        setActiveRequest({
+          ...tab.request,
+          settings: { ...tab.request.settings, wsHeartbeatMs: value },
+        });
+      }
+      updateTab(activeTabId, { wsHeartbeatMs: value });
+    },
+    [activeTabId, setActiveRequest, tabs, updateTab]
   );
 
   // Close a session without waiting for the close event. Used for tab
@@ -1578,6 +1610,9 @@ export default function App() {
     const responseHistory = previousSnapshot
       ? [...(tab.responseHistory || []), previousSnapshot].slice(-RESPONSE_HISTORY_LIMIT)
       : tab.responseHistory || [];
+    if (tab.request?.id) {
+      saveResponseHistory(store.activeWorkspaceId, tab.request.id, responseHistory);
+    }
     updateTab(activeTabId, {
       sending: true,
       sendingId: requestId,
@@ -1717,6 +1752,14 @@ export default function App() {
           : result;
 
       updateTab(activeTabId, { response: responseWithDiag, testResults: maskedTestResults });
+      const currentSnapshot = responseSnapshot(responseWithDiag);
+      if (tab.request?.id && currentSnapshot) {
+        saveResponseHistory(
+          store.activeWorkspaceId,
+          tab.request.id,
+          [...responseHistory, currentSnapshot].slice(-RESPONSE_HISTORY_LIMIT)
+        );
+      }
 
       store.addHistory({
         id: `h_${Date.now()}`,
@@ -2758,7 +2801,13 @@ export default function App() {
         <RequestSettingsModal
           request={activeTab.request}
           networkSettings={network.settings}
-          onChange={(settings) => setActiveRequest({ ...activeTab.request, settings })}
+          onChange={(settings) => {
+            setActiveRequest({ ...activeTab.request, settings });
+            updateTab(activeTabId, {
+              wsAutoReconnect: settings.wsAutoReconnect !== false,
+              wsHeartbeatMs: Number(settings.wsHeartbeatMs) || 0,
+            });
+          }}
           onClose={() => setRequestSettingsOpen(false)}
         />
       )}

@@ -42,6 +42,10 @@ export function newRequestSettings() {
     verifyTls: null,
     proxyId: null,
     useCookieJar: true,
+    // WebSocket-only; persisted with the request so reconnect/heartbeat survive
+    // restart and collection export/import.
+    wsAutoReconnect: true,
+    wsHeartbeatMs: 30000,
   };
 }
 

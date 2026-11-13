@@ -31,6 +31,8 @@ function toDraft(settings) {
     verifyTls: boolToTri(s.verifyTls),
     proxyId: s.proxyId == null ? 'default' : s.proxyId,
     useCookieJar: boolToTri(s.useCookieJar),
+    wsAutoReconnect: s.wsAutoReconnect !== false,
+    wsHeartbeatMs: Number(s.wsHeartbeatMs) || 0,
   };
 }
 
@@ -60,6 +62,8 @@ function buildSettings(draft) {
     verifyTls: triToBool(draft.verifyTls),
     proxyId: draft.proxyId === 'default' ? null : draft.proxyId,
     useCookieJar: triToBool(draft.useCookieJar),
+    wsAutoReconnect: draft.wsAutoReconnect !== false,
+    wsHeartbeatMs: Number(draft.wsHeartbeatMs) || 0,
   };
 }
 
@@ -182,6 +186,35 @@ export default function RequestSettingsModal({ request, networkSettings, onChang
           <option value="on">On</option>
           <option value="off">Off</option>
         </select>
+      </div>
+
+      <div className="form-row">
+        <label htmlFor="request-ws-reconnect">WebSocket auto reconnect</label>
+        <select
+          id="request-ws-reconnect"
+          data-testid="request-ws-reconnect"
+          value={draft.wsAutoReconnect ? 'on' : 'off'}
+          onChange={(e) => set({ wsAutoReconnect: e.target.value === 'on' })}
+        >
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+      </div>
+
+      <div className="form-row">
+        <label htmlFor="request-ws-heartbeat">WebSocket heartbeat</label>
+        <select
+          id="request-ws-heartbeat"
+          data-testid="request-ws-heartbeat"
+          value={String(draft.wsHeartbeatMs)}
+          onChange={(e) => set({ wsHeartbeatMs: Number(e.target.value) })}
+        >
+          <option value="0">Off</option>
+          <option value="15000">Every 15 seconds</option>
+          <option value="30000">Every 30 seconds</option>
+          <option value="60000">Every 60 seconds</option>
+        </select>
+        <p className="auth-hint">Only used by ws:// and wss:// requests.</p>
       </div>
 
       <div className="form-row">

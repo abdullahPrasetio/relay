@@ -58,6 +58,17 @@ describe('main-process store', () => {
     expect(store.getCookieJar()).toEqual([{ name: 'a', value: 'b' }]);
   });
 
+  it('persists the MCP audit trail across renderer saves', () => {
+    const store = createStore(file);
+    const audit = [
+      { at: 1, tool: 'relay_collections', action: 'get', clientName: 'AI', ok: true, sensitive: true },
+    ];
+    store.setMcpAudit(audit);
+    store.setAll({ workspaces: [], activeWorkspaceId: null });
+    expect(store.getMcpAudit()).toEqual(audit);
+    expect(createStore(file).getMcpAudit()).toEqual(audit);
+  });
+
   it('takes a one-time backup of the pre-migration file', () => {
     writeFileSync(file, JSON.stringify({ schemaVersion: 1, workspaces: [{ id: 'ws_old' }] }));
     const store = createStore(file);

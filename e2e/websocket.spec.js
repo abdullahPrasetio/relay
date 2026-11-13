@@ -90,3 +90,68 @@ test('reconnects after an unexpected WebSocket close', async () => {
   });
   expect(connections).toBeGreaterThanOrEqual(2);
 });
+
+test('persists WebSocket reconnect and heartbeat request settings', async () => {
+  wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  await new Promise((resolve, reject) => {
+    wss.once('listening', resolve);
+    wss.once('error', reject);
+  });
+  const url = `ws://127.0.0.1:${wss.address().port}`;
+
+  const userData = makeUserData();
+  fs.writeFileSync(
+    path.join(userData, 'rest-tamer-data.json'),
+    JSON.stringify(
+      {
+        schemaVersion: 3,
+        activeWorkspaceId: 'ws_settings',
+        workspaces: [
+          {
+            id: 'ws_settings',
+            name: 'Default',
+            collections: [
+              {
+                id: 'col_settings',
+                name: 'WebSocket',
+                variables: [],
+                items: [
+                  {
+                    id: 'req_settings',
+                    type: 'request',
+                    name: 'Socket settings',
+                    method: 'GET',
+                    url,
+                  },
+                ],
+              },
+            ],
+            environments: [],
+            globals: [],
+            history: [],
+            activeEnvId: null,
+          },
+        ],
+      },
+      null,
+      2
+    )
+  );
+
+  launched = await launchAppAt(userData, {}, { keepDashboard: true });
+  const { page } = launched;
+
+  await page.getByTestId('collections-expand-all').click();
+  await page.getByText('Socket settings', { exact: true }).click();
+  await page.getByTestId('request-settings-open').click();
+  await page.getByTestId('request-ws-reconnect').selectOption('off');
+  await page.getByTestId('request-ws-heartbeat').selectOption('15000');
+  await page.getByTestId('request-settings-save').click();
+
+  await page.waitForTimeout(500);
+  await page.reload();
+  await page.waitForSelector('.url-input');
+  await page.getByTestId('request-settings-open').click();
+  await expect(page.getByTestId('request-ws-reconnect')).toHaveValue('off');
+  await expect(page.getByTestId('request-ws-heartbeat')).toHaveValue('15000');
+});

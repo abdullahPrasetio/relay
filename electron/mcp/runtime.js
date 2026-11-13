@@ -36,7 +36,11 @@ export function createMcpRuntime({ store, getWindow, appVersion = '0.0.0' }) {
   if (!store) throw new Error('createMcpRuntime requires the store');
 
   let config = normalizeMcpConfig(store.getMcpConfig());
-  const recentCalls = [];
+  const storedAudit =
+    typeof store.getMcpAudit === 'function' ? store.getMcpAudit() : [];
+  const recentCalls = (Array.isArray(storedAudit) ? storedAudit : [])
+    .filter((entry) => entry && typeof entry === 'object' && entry.tool && entry.action)
+    .slice(0, RECENT_CALLS_LIMIT);
   const pendingCalls = new Map();
   const pendingApprovals = new Map();
   let callSeq = 0;
@@ -69,6 +73,11 @@ export function createMcpRuntime({ store, getWindow, appVersion = '0.0.0' }) {
   function recordCall(entry) {
     recentCalls.unshift(entry);
     if (recentCalls.length > RECENT_CALLS_LIMIT) recentCalls.length = RECENT_CALLS_LIMIT;
+    try {
+      store.setMcpAudit?.(recentCalls);
+    } catch {
+      /* audit persistence must not break the call */
+    }
   }
 
   function markUsed(clientId) {

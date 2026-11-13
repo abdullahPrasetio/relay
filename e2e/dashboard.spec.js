@@ -224,3 +224,28 @@ test('MCP sensitive-data settings persist', async () => {
     await closeApp(session);
   }
 });
+
+test('secret scan finds neutral variables and marks them secret', async () => {
+  const data = seed();
+  data.workspaces[0].environments[0].variables.push({
+    key: 'NEUTRAL_VALUE',
+    value: 'ghp_abcdefghijklmnopqrstuvwxyz123456',
+    type: 'default',
+    enabled: true,
+  });
+  const userData = makeUserData();
+  fs.writeFileSync(path.join(userData, 'rest-tamer-data.json'), JSON.stringify(data, null, 2));
+  const session = await launchAppAt(userData, {}, { keepDashboard: true });
+  const { page } = session;
+
+  try {
+    await page.locator('.ws-button').click();
+    await page.getByTestId('ws-secret-scan').click();
+    await expect(page.getByTestId('secret-scan-list')).toBeVisible();
+    await expect(page.getByTestId('secret-scan-list')).toContainText('NEUTRAL_VALUE');
+    await page.getByRole('button', { name: 'Mark as secret' }).click();
+    await expect(page.getByText('No likely secrets found.')).toBeVisible();
+  } finally {
+    await closeApp(session);
+  }
+});

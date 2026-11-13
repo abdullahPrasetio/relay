@@ -28,6 +28,121 @@ const DROPPED_KEYS = new Set([
   'hasPassword',
 ]);
 
+// Header/body/query names that almost always carry credentials. Values are
+// blanked even when the user did not declare a secret variable, so a literal
+// `Authorization: Bearer …` cannot leak through MCP.
+const SENSITIVE_KEY_PATTERNS = [
+  /token/i,
+  /secret/i,
+  /password/i,
+  /passwd/i,
+  /authorization/i,
+  /cookie/i,
+  /credential/i,
+  /private.?key/i,
+  /passphrase/i,
+  /api.?key/i,
+  /apikey/i,
+  /session.?id/i,
+  /csrf/i,
+  /xsrf/i,
+  /signature/i,
+  /bearer/i,
+  /jwt/i,
+  /access.?key/i,
+  /client.?secret/i,
+];
+
+/**
+ * True when a header/body/variable name conventionally carries a credential.
+ * Matching is by name only; it intentionally errs on the side of redaction.
+ */
+export function isSensitiveKey(key) {
+  const text = String(key ?? '').trim();
+  if (!text) return false;
+  return SENSITIVE_KEY_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function redactKeyedValue(value) {
+  if (typeof value === 'string') return '';
+  if (typeof value === 'number' || typeof value === 'boolean') return '';
+  if (Array.isArray(value)) return [];
+  if (value && typeof value === 'object') return {};
+  return '';
+}
+
+function redactKeyValueRows(rows) {
+  if (Array.isArray(rows)) {
+    return rows.map((row) => {
+      if (!row || typeof row !== 'object') return row;
+      if (!isSensitiveKey(row.key)) return row;
+      return { ...row, value: '', hasValue: Boolean(row.value) };
+    });
+  }
+  if (isPlainObject(rows)) {
+    const out = {};
+    for (const [key, value] of Object.entries(rows)) {
+      out[key] = isSensitiveKey(key) ? '' : value;
+    }
+    return out;
+  }
+  return rows;
+}
+
+function redactJsonValue(value) {
+  if (Array.isArray(value)) return value.map(redactJsonValue);
+  if (!isPlainObject(value)) return value;
+  const out = {};
+  for (const [key, entry] of Object.entries(value)) {
+    out[key] = isSensitiveKey(key) ? redactKeyedValue(entry) : redactJsonValue(entry);
+  }
+  return out;
+}
+
+function redactJsonText(text) {
+  if (typeof text !== 'string' || !text.trim()) return text;
+  try {
+    return JSON.stringify(redactJsonValue(JSON.parse(text)), null, 2);
+  } catch {
+    return text.replace(
+      /("([^"]+)"\s*:\s*)"([^"]*)"/g,
+      (match, prefix, key) => (isSensitiveKey(key) ? `${prefix}""` : match)
+    );
+  }
+}
+
+function redactFormText(text) {
+  if (typeof text !== 'string' || !text) return text;
+  return text
+    .split('&')
+    .map((pair) => {
+      const index = pair.indexOf('=');
+      if (index < 0) return pair;
+      const rawKey = pair.slice(0, index);
+      let key = rawKey;
+      try {
+        key = decodeURIComponent(rawKey.replace(/\+/g, ' '));
+      } catch {
+        /* keep the raw key */
+      }
+      return isSensitiveKey(key) ? `${rawKey}=` : pair;
+    })
+    .join('&');
+}
+
+function redactUrlQuery(url) {
+  if (typeof url !== 'string' || !url.includes('?')) return url;
+  const [base, query] = url.split('?', 2);
+  const params = new URLSearchParams(query);
+  let changed = false;
+  for (const key of [...params.keys()]) {
+    if (!isSensitiveKey(key)) continue;
+    params.set(key, '');
+    changed = true;
+  }
+  return changed ? `${base}?${params.toString()}` : url;
+}
+
 let sensitivityPolicy = {
   allowAll: false,
   secretsAllowed: true,
@@ -242,10 +357,10 @@ export function redactVariableRows(
   if (allowSensitive) return redactForMcp(rows, []);
   return rows.map((row) => {
     if (!row || typeof row !== 'object') return row;
-    if (row.type === 'secret') {
+    if (row.type === 'secret' || isSensitiveKey(row.key)) {
       return {
         key: row.key,
-        type: 'secret',
+        type: row.type || 'default',
         enabled: row.enabled,
         hasValue: Boolean(row.value || row.secretEnc),
       };
@@ -288,7 +403,42 @@ export function redactRequest(request, allowSensitive = null) {
         (request.id && sensitivityPolicy.allowedRequests.has(request.id))));
   const clone = redactForMcp(request, []);
   if (allowed || !clone || typeof clone !== 'object') return clone;
+
   blankAuthSecrets(clone);
+  clone.headers = redactKeyValueRows(clone.headers);
+  clone.params = redactKeyValueRows(clone.params);
+  clone.pathVars = redactKeyValueRows(clone.pathVars);
+  clone.url = redactUrlQuery(clone.url);
+  if (clone.body && typeof clone.body === 'object') {
+    clone.body.form = redactKeyValueRows(clone.body.form);
+    if (typeof clone.body.raw === 'string') {
+      clone.body.raw =
+        clone.body.mode === 'form-urlencoded'
+          ? redactFormText(clone.body.raw)
+          : redactJsonText(clone.body.raw);
+    }
+    if (clone.body.graphql && typeof clone.body.graphql === 'object') {
+      const gql = clone.body.graphql;
+      if (typeof gql.variables === 'string') {
+        gql.variables = redactJsonText(gql.variables);
+      } else if (gql.variables && typeof gql.variables === 'object') {
+        gql.variables = redactJsonValue(gql.variables);
+      }
+    }
+  }
+  if (Array.isArray(clone.examples)) {
+    clone.examples = clone.examples.map((example) => {
+      if (!example || typeof example !== 'object') return example;
+      return {
+        ...example,
+        request: example.request ? redactRequest(example.request) : example.request,
+        response:
+          example.response && typeof example.response.body === 'string'
+            ? { ...example.response, body: redactJsonText(example.response.body) }
+            : example.response,
+      };
+    });
+  }
   return clone;
 }
 

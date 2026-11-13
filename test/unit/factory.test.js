@@ -12,6 +12,8 @@ describe('request settings defaults', () => {
       verifyTls: null,
       proxyId: null,
       useCookieJar: true,
+      wsAutoReconnect: true,
+      wsHeartbeatMs: 30000,
     });
   });
 

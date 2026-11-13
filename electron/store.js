@@ -14,6 +14,8 @@ const EMPTY = {
   // MCP endpoint configuration. Main-owned: the renderer only sees the
   // sanitized shape (client token hashes never cross the bridge).
   mcp: { enabled: false, port: 47821, clients: [] },
+  // Main-owned audit trail for MCP calls (no params or response bodies).
+  mcpAudit: [],
   // Local mock server binding mode. Main-owned: the access token is stored as
   // a SHA-256 digest and never sent back to the renderer.
   mockServer: { mode: 'local', host: '0.0.0.0', tokenHash: '', tokenPrefix: '' },
@@ -90,6 +92,7 @@ export function createStore(filePath) {
         next.cloudBaseUrl != null ? next.cloudBaseUrl : data.cloudBaseUrl;
       // MCP config is main-owned: a renderer save must never overwrite it.
       const mcp = next.mcp != null ? next.mcp : data.mcp;
+      const mcpAudit = next.mcpAudit != null ? next.mcpAudit : data.mcpAudit;
       // Same for the mock server binding/token.
       const mockServer = next.mockServer != null ? next.mockServer : data.mockServer;
       data = {
@@ -100,6 +103,7 @@ export function createStore(filePath) {
         confluenceByWorkspace: confluence || {},
         cloudBaseUrl: cloudBaseUrl || '',
         mcp: mcp || EMPTY.mcp,
+        mcpAudit: mcpAudit || [],
         mockServer: mockServer || EMPTY.mockServer,
       };
       persist();
@@ -133,6 +137,14 @@ export function createStore(filePath) {
       data.mcp = next || EMPTY.mcp;
       persist();
       return data.mcp;
+    },
+    getMcpAudit() {
+      return Array.isArray(data.mcpAudit) ? data.mcpAudit : [];
+    },
+    setMcpAudit(next) {
+      data.mcpAudit = Array.isArray(next) ? next : [];
+      persist();
+      return data.mcpAudit;
     },
     // Mock server binding mode + access-token digest (main-process owned).
     getMockServerConfig() {

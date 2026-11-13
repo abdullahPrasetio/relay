@@ -8,6 +8,7 @@ import MentionsModal from './MentionsModal.jsx';
 import ConfluenceSettingsModal from './ConfluenceSettingsModal.jsx';
 import CloudServerModal from './CloudServerModal.jsx';
 import McpSettingsModal from './McpSettingsModal.jsx';
+import SecretScanModal from './SecretScanModal.jsx';
 import { filesToWorkspace, slugify, workspaceToFiles } from '../lib/gitWorkspace.js';
 
 function hasExportBridge() {
@@ -61,6 +62,7 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
   const [confluenceWorkspace, setConfluenceWorkspace] = useState(null);
   const [cloudServerOpen, setCloudServerOpen] = useState(false);
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [secretScanOpen, setSecretScanOpen] = useState(false);
   const dialogs = useDialogs();
   const active = store.activeWorkspace;
   const cloudBridge = typeof window !== 'undefined' ? window.api?.cloud : null;
@@ -404,6 +406,16 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
             >
               MCP server…
             </button>
+            <button
+              className="ws-create"
+              data-testid="ws-secret-scan"
+              onClick={() => {
+                setOpen(false);
+                setSecretScanOpen(true);
+              }}
+            >
+              Scan for secrets…
+            </button>
             <label className="ws-mcp-access" data-testid="ws-mcp-sensitive">
               <input
                 type="checkbox"
@@ -464,6 +476,19 @@ export default function WorkspaceSwitcher({ store, cloud, onOpenCloud }) {
         <CloudServerModal cloud={cloud} onClose={() => setCloudServerOpen(false)} />
       )}
       {mcpOpen && <McpSettingsModal onClose={() => setMcpOpen(false)} />}
+      {secretScanOpen && active && (
+        <SecretScanModal
+          workspace={active}
+          onChangeWorkspace={(next) =>
+            store.patchWorkspace(active.id, {
+              collections: next.collections,
+              environments: next.environments,
+              globals: next.globals,
+            })
+          }
+          onClose={() => setSecretScanOpen(false)}
+        />
+      )}
     </div>
   );
 }

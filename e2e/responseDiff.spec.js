@@ -157,3 +157,72 @@ test('compares the current response with the previous response', async () => {
   await expect(page.locator('.diff-line.remove')).toContainText('"value": 1');
   await expect(page.locator('.diff-line.add')).toContainText('"value": 2');
 });
+
+test('keeps previous responses after a reload', async () => {
+  let value = 0;
+  server = http.createServer((req, res) => {
+    value += 1;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ value }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/`;
+
+  const userData = makeUserData();
+  fs.writeFileSync(
+    path.join(userData, 'rest-tamer-data.json'),
+    JSON.stringify(
+      {
+        schemaVersion: 3,
+        activeWorkspaceId: 'ws_hist_persist',
+        workspaces: [
+          {
+            id: 'ws_hist_persist',
+            name: 'Default',
+            collections: [
+              {
+                id: 'col_hist_persist',
+                name: 'History',
+                variables: [],
+                items: [
+                  {
+                    id: 'req_hist_persist',
+                    type: 'request',
+                    name: 'Persisted history',
+                    method: 'GET',
+                    url,
+                  },
+                ],
+              },
+            ],
+            environments: [],
+            globals: [],
+            history: [],
+            activeEnvId: null,
+          },
+        ],
+      },
+      null,
+      2
+    )
+  );
+
+  launched = await launchAppAt(userData, {}, { keepDashboard: true });
+  const { page } = launched;
+
+  await page.getByTestId('collections-expand-all').click();
+  await page.getByText('Persisted history', { exact: true }).click();
+  await page.locator('.request-panel .send-btn').click();
+  await expect(page.locator('.response-panel .view-lines')).toContainText('"value": 1');
+  await page.waitForTimeout(300);
+
+  await page.reload();
+  await page.waitForSelector('.url-input');
+  await page.waitForTimeout(500);
+  await page.locator('.request-panel .send-btn').click();
+  await expect(page.locator('.response-panel .view-lines')).toContainText('"value": 2');
+
+  await page.getByRole('button', { name: 'Diff', exact: true }).click();
+  await expect(page.locator('.diff-line.remove')).toContainText('"value": 1');
+  await expect(page.locator('.diff-line.add')).toContainText('"value": 2');
+});

@@ -89,6 +89,25 @@ collection di workspace tersebut. Setiap collection bisa override lewat
 | Allow MCP to read secrets | Collection ini tetap mengirim plaintext walau workspace memblokir. |
 | Always redact for MCP | Collection ini selalu diredaksi walau workspace mengizinkan. |
 
+Selain variabel `secret`, nama field/header yang lazim membawa kredensial
+tetap diredaksi walaupun nilainya ditulis literal dan tidak terdaftar sebagai
+secret variable:
+
+- header/query/path: `Authorization`, `Proxy-Authorization`, `Cookie`,
+  `X-API-Key`, `token`, `password`, `secret`, `session_id`, `csrf`, `jwt`, dll.;
+- body JSON: key seperti `password`, `access_token`, `client_secret`,
+  `private_key`;
+- form field: key seperti `api_key`, `client_secret`, `password`.
+
+Nilainya diganti `""` (atau `hasValue` untuk baris variabel), bukan di-hash.
+Variabel dianggap aman bila **bukan** `type: "secret"` dan namanya tidak cocok
+dengan pola sensitif di atas. Karena itu, token yang disimpan dengan nama
+netral seperti `VALUE` tetap berisiko dan sebaiknya ditandai sebagai secret.
+
+Menu workspace → **Scan for secrets…** memindai nilai yang tampak seperti
+token/API key tetapi masih bertipe default, lalu menawarkan **Mark as secret**.
+Audit read sensitif disimpan di store utama dan bertahan setelah restart.
+
 Catatan keamanan:
 
 - Client MCP juga harus diberi scope **`secrets`**; tanpa scope itu semua

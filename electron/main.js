@@ -943,6 +943,7 @@ function registerIpc() {
     delete rendererData.cloudBaseUrl;
     // MCP config (token hashes) is exposed through mcp:get-config instead.
     delete rendererData.mcp;
+    delete rendererData.mcpAudit;
     // Mock server binding/token digest is exposed through mock:get-config.
     delete rendererData.mockServer;
     return rendererData;

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   MAX_MCP_STRING,
+  isSensitiveKey,
   mcpPolicyForWorkspace,
   redactCollection,
   redactCookies,
@@ -308,5 +309,118 @@ describe('MCP sensitivity policy', () => {
 
     expect(redactCollection(source.collections[0]).variables[0].hasValue).toBe(true);
     expect(redactRequest(source.collections[0].items[0].items[0]).auth.bearer.token).toBe('');
+  });
+});
+
+
+describe('sensitive header and body keys', () => {
+  it('recognizes credential-like names', () => {
+    for (const key of [
+      'Authorization',
+      'X-API-Key',
+      'access_token',
+      'password',
+      'client_secret',
+      'Cookie',
+      'session_id',
+    ]) {
+      expect(isSensitiveKey(key), key).toBe(true);
+    }
+    expect(isSensitiveKey('Accept')).toBe(false);
+    expect(isSensitiveKey('page')).toBe(false);
+  });
+
+  it('blanks header, query, path, and body values even without a declared secret', () => {
+    const request = {
+      id: 'req_sensitive',
+      headers: [
+        { key: 'Authorization', value: 'Bearer literal', enabled: true },
+        { key: 'Accept', value: 'application/json', enabled: true },
+      ],
+      params: [
+        { key: 'token', value: 'literal-token', enabled: true },
+        { key: 'page', value: '1', enabled: true },
+      ],
+      pathVars: [{ key: 'api_key', value: 'literal-key', enabled: true }],
+      url: 'https://api.test/items?token=literal-token&page=1',
+      body: {
+        mode: 'json',
+        raw: '{"password":"literal-pass","name":"Ada","nested":{"access_token":"literal"}}',
+        form: [
+          { key: 'client_secret', value: 'literal-secret', enabled: true },
+          { key: 'name', value: 'Ada', enabled: true },
+        ],
+        graphql: { variables: '{"clientSecret":"literal-gql","limit":1}' },
+      },
+      examples: [
+        {
+          id: 'ex',
+          request: { id: 'exreq', headers: [{ key: 'X-API-Key', value: 'literal-example' }] },
+          response: { body: '{"password":"example-pass","ok":true}' },
+        },
+      ],
+    };
+
+    const redacted = redactRequest(request);
+    expect(redacted.headers[0].value).toBe('');
+    expect(redacted.headers[0].hasValue).toBe(true);
+    expect(redacted.headers[1].value).toBe('application/json');
+    expect(redacted.params[0].value).toBe('');
+    expect(redacted.params[1].value).toBe('1');
+    expect(redacted.pathVars[0].value).toBe('');
+    expect(redacted.url).not.toContain('literal-token');
+    expect(redacted.body.raw).not.toContain('literal-pass');
+    expect(redacted.body.raw).toContain('"name": "Ada"');
+    expect(redacted.body.form[0].value).toBe('');
+    expect(redacted.body.form[1].value).toBe('Ada');
+    expect(redacted.body.graphql.variables).not.toContain('literal-gql');
+    expect(JSON.stringify(redacted.examples)).not.toContain('literal-example');
+    expect(JSON.stringify(redacted.examples)).not.toContain('example-pass');
+  });
+
+  it('redacts credential-like default variables, not just type=secret', () => {
+    const rows = redactVariableRows([
+      { key: 'API_KEY', value: 'literal', type: 'default', enabled: true },
+      { key: 'HOST', value: 'https://api.test', type: 'default', enabled: true },
+    ]);
+    expect(rows[0]).toEqual({
+      key: 'API_KEY',
+      type: 'default',
+      enabled: true,
+      hasValue: true,
+    });
+    expect(rows[1].value).toBe('https://api.test');
+  });
+});
+
+
+describe('sensitive key redaction with permission', () => {
+  afterEach(() => resetMcpSensitivityPolicy());
+
+  it('keeps literal header and body values when the workspace allows sensitive data', () => {
+    const source = workspace();
+    source.mcpAccess = { allowSensitive: true };
+    setMcpSensitivityPolicy(mcpPolicyForWorkspace(source));
+    const request = {
+      id: 'req_allowed',
+      headers: [{ key: 'Authorization', value: 'Bearer literal' }],
+      body: { mode: 'json', raw: '{"password":"literal"}' },
+    };
+    const redacted = redactRequest(request);
+    expect(redacted.headers[0].value).toBe('Bearer literal');
+    expect(redacted.body.raw).toContain('literal');
+  });
+});
+
+describe('sensitive form-urlencoded bodies', () => {
+  it('blanks credential fields in raw form text', () => {
+    const redacted = redactRequest({
+      id: 'req_form',
+      body: {
+        mode: 'form-urlencoded',
+        raw: 'name=Ada&password=literal&api_key=literal-key&page=1',
+      },
+    });
+    expect(redacted.body.raw).toBe('name=Ada&password=&api_key=&page=1');
   });
 });
