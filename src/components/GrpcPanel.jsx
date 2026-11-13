@@ -61,6 +61,8 @@ export default function GrpcPanel({
   onChange,
   onInvoke,
   onStartStream,
+  onSendStream,
+  onEndStream,
   onCancelStream,
   onClearLog,
 }) {
@@ -69,8 +71,11 @@ export default function GrpcPanel({
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  const [streamDraft, setStreamDraft] = useState('');
 
   const protoPath = grpc.protoPath || '';
+  const reflection = grpc.reflection === true;
+  const tls = /^grpcs:/i.test(String(request?.url || ''));
   const metadata = Array.isArray(grpc.metadata) ? grpc.metadata : [];
   const entries = Array.isArray(streamLog) ? streamLog.slice(-MAX_LOG) : [];
   const logRef = useRef(null);
@@ -90,7 +95,7 @@ export default function GrpcPanel({
   useEffect(() => {
     let cancelled = false;
     setLoadError(null);
-    if (!protoPath) {
+    if (!protoPath && !reflection) {
       setServices([]);
       setLoading(false);
       return undefined;
@@ -103,7 +108,7 @@ export default function GrpcPanel({
     }
     setLoading(true);
     api
-      .grpcServices({ protoPath })
+      .grpcServices({ protoPath, reflection, target: request?.url || '', tls })
       .then((result) => {
         if (cancelled) return;
         if (!result?.ok) {
@@ -153,7 +158,7 @@ export default function GrpcPanel({
     };
     // Reload only when the file changes; the selection is reconciled above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [protoPath]);
+  }, [protoPath, reflection, request?.url, tls]);
 
   // Keep the newest stream message visible.
   useEffect(() => {
@@ -168,10 +173,11 @@ export default function GrpcPanel({
     methods.find((method) => method.name === grpc.method) || methods[0] || null;
   const kind = selectedMethod?.streaming || null;
   const jsonError = messageProblem(grpc.message);
-  const ready = !!protoPath && !!selectedService && !!selectedMethod && !jsonError;
+  const ready = (!!protoPath || reflection) && !!selectedService && !!selectedMethod && !jsonError;
   const busy = !!sending || !!streamActive;
   const canInvoke = ready && kind === 'unary' && !busy;
-  const canStream = ready && kind === 'server' && !busy;
+  const canStream = ready && kind !== 'unary' && !busy;
+  const canSendStream = streamActive && (kind === 'client' || kind === 'bidi');
 
   async function chooseProto() {
     if (!api || typeof api.pickFile !== 'function') return;
@@ -199,7 +205,10 @@ export default function GrpcPanel({
   }
 
   const hasSelectionError =
-    !!protoPath && !loading && !loadError && (!selectedService || !selectedMethod);
+    (!!protoPath || reflection) &&
+    !loading &&
+    !loadError &&
+    (!selectedService || !selectedMethod);
 
   return (
     <section className="response-panel grpc-panel" data-testid="grpc-panel">
@@ -236,9 +245,9 @@ export default function GrpcPanel({
               onClick={onStartStream}
               disabled={!canStream}
               title={
-                kind && kind !== 'server'
-                  ? 'Select a server-streaming method'
-                  : 'Start server stream'
+                kind === 'unary'
+                  ? 'Select a streaming method'
+                  : 'Start stream'
               }
               data-testid="grpc-stream"
             >
@@ -266,9 +275,23 @@ export default function GrpcPanel({
             placeholder="Choose a .proto file"
             data-testid="grpc-proto-path"
           />
-          <button className="mini-btn" onClick={chooseProto} data-testid="grpc-choose-proto">
+          <button
+            className="mini-btn"
+            onClick={chooseProto}
+            data-testid="grpc-choose-proto"
+            disabled={reflection}
+          >
             Choose .proto
           </button>
+          <label className="grpc-reflection-toggle">
+            <input
+              type="checkbox"
+              checked={reflection}
+              data-testid="grpc-reflection"
+              onChange={(e) => patchGrpc({ reflection: e.target.checked, service: '', method: '' })}
+            />
+            Server reflection
+          </label>
         </div>
 
         <div className="grpc-select-row">
@@ -324,8 +347,13 @@ export default function GrpcPanel({
         {selectedMethod && (
           <div className="grpc-signature" data-testid="grpc-signature">
             <code>
+              {selectedMethod.streaming === 'client' || selectedMethod.streaming === 'bidi'
+                ? 'stream '
+                : ''}
               {selectedMethod.requestType} →{' '}
-              {selectedMethod.streaming === 'server' ? 'stream ' : ''}
+              {selectedMethod.streaming === 'server' || selectedMethod.streaming === 'bidi'
+                ? 'stream '
+                : ''}
               {selectedMethod.responseType}
             </code>
           </div>
@@ -392,6 +420,40 @@ export default function GrpcPanel({
         </div>
       )}
 
+      {canSendStream && (
+        <div className="grpc-stream-composer">
+          <textarea
+            className="ws-input grpc-message"
+            value={streamDraft}
+            onChange={(e) => setStreamDraft(e.target.value)}
+            rows={3}
+            placeholder="Message JSON"
+            data-testid="grpc-stream-message"
+          />
+          <div className="grpc-stream-actions">
+            <button
+              type="button"
+              className="mini-btn"
+              data-testid="grpc-stream-send"
+              onClick={async () => {
+                const ok = await onSendStream?.(streamDraft);
+                if (ok !== false) setStreamDraft('');
+              }}
+            >
+              Send message
+            </button>
+            <button
+              type="button"
+              className="mini-btn"
+              data-testid="grpc-stream-end"
+              onClick={onEndStream}
+            >
+              End stream
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="grpc-output">
         {response && (
           <div
@@ -429,7 +491,7 @@ export default function GrpcPanel({
                   <span className="ws-type text">{entry.type || 'event'}</span>
                   <span className="meta ws-time">{formatTime(entry.at)}</span>
                 </div>
-                {entry.type === 'data' ? (
+                {entry.type === 'data' || entry.type === 'sent' ? (
                   <pre className="ws-preview">{JSON.stringify(entry.message, null, 2)}</pre>
                 ) : entry.type === 'end' ? (
                   <div className="grpc-event-text">{formatStatus(entry.status)}</div>

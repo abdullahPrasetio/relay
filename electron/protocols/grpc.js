@@ -1,13 +1,13 @@
 // gRPC transport. All proto loading and calls live in the main process; the
 // renderer only sends JSON-shaped payloads and receives plain objects.
 //
-// Supported in this phase:
-//   - .proto files on disk (no server reflection).
+// Supported:
+//   - .proto files on disk or server reflection.
 //   - unary calls (30 s deadline).
-//   - server-streaming calls (no deadline; cancel via `cancelStream`).
+//   - server, client, and bidi streaming (no deadline; cancel via `cancelStream`).
 //
-// Deliberately out of scope: server reflection, client streaming, bidi
-// streaming, TLS client certificates, per-call compression settings.
+// Deliberately out of scope: TLS client certificates and per-call compression
+// settings.
 //
 // Contract:
 //   loadServices({ protoPath, reflection? })
@@ -30,10 +30,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import grpc from '@grpc/grpc-js';
 import protoLoader from '@grpc/proto-loader';
+import { Client as ReflectionClient } from 'grpc-reflection-js';
 
 const UNARY_DEADLINE_MS = 30000;
 const MAX_CACHED_DEFINITIONS = 32;
-const REFLECTION_ERROR = 'Server reflection is not supported';
+const REFLECTION_CACHE_LIMIT = 16;
+const reflectionCache = new Map();
 
 const LOADER_OPTIONS = {
   keepCase: true,
@@ -262,9 +264,139 @@ function loadDefinition(protoPath) {
   return entry;
 }
 
+const PLAIN_OPTIONS = {
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true,
+};
+
+function genericClientForService(root, service) {
+  const definitions = {};
+  for (const [name, method] of Object.entries(service.methods || {})) {
+    const requestType = method.resolvedRequestType;
+    const responseType = method.resolvedResponseType;
+    if (!requestType || !responseType) continue;
+    definitions[name] = {
+      path: `/${String(service.fullName || '').replace(/^\./, '')}/${name}`,
+      requestStream: !!method.requestStream,
+      responseStream: !!method.responseStream,
+      requestSerialize: (value) =>
+        Buffer.from(requestType.encode(requestType.fromObject(value)).finish()),
+      requestDeserialize: (buffer) =>
+        requestType.toObject(requestType.decode(buffer), PLAIN_OPTIONS),
+      responseSerialize: (value) =>
+        Buffer.from(responseType.encode(responseType.fromObject(value)).finish()),
+      responseDeserialize: (buffer) =>
+        responseType.toObject(responseType.decode(buffer), PLAIN_OPTIONS),
+    };
+  }
+  return grpc.makeGenericClientConstructor(definitions, service.fullName);
+}
+
+function serviceDescriptor(root, fullName) {
+  const clean = String(fullName || '').replace(/^\./, '');
+  try {
+    return root.lookupService(clean);
+  } catch {
+    return null;
+  }
+}
+
+async function reflectionDefinition(target, tls) {
+  const normalized = normalizeTarget(target);
+  if (normalized.error) return { error: normalized.error };
+  const useTls = typeof tls === 'boolean' ? tls : normalized.tls;
+  const key = `${normalized.target}|${useTls ? 'tls' : 'plain'}`;
+  const cached = reflectionCache.get(key);
+  if (cached) return cached;
+
+  const credentials = useTls
+    ? grpc.credentials.createSsl()
+    : grpc.credentials.createInsecure();
+  const client = new ReflectionClient(normalized.target, credentials);
+  try {
+    const names = await client.listServices();
+    const services = [];
+    const roots = new Map();
+    for (const rawName of names) {
+      const name = String(rawName || '').replace(/^\./, '');
+      if (!name || name.startsWith('grpc.reflection.')) continue;
+      let root;
+      try {
+        root = await client.fileContainingSymbol(name);
+      } catch {
+        continue;
+      }
+      const service = serviceDescriptor(root, name);
+      if (!service) continue;
+      roots.set(name, root);
+      services.push({
+        name,
+        methods: Object.entries(service.methods || {}).map(([methodName, def]) => ({
+          name: methodName,
+          requestType: def.resolvedRequestType?.name || '',
+          responseType: def.resolvedResponseType?.name || '',
+          streaming: streamingKind(def),
+        })),
+      });
+    }
+    services.sort((a, b) => a.name.localeCompare(b.name));
+    for (const service of services) {
+      service.methods.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    const entry = { reflection: true, services, roots, ctors: new Map() };
+    if (reflectionCache.size >= REFLECTION_CACHE_LIMIT) {
+      reflectionCache.delete(reflectionCache.keys().next().value);
+    }
+    reflectionCache.set(key, entry);
+    return entry;
+  } catch (err) {
+    return { error: `Server reflection failed: ${err?.message || String(err)}` };
+  } finally {
+    try {
+      client.grpcClient?.close?.();
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
+async function getDefinition({ protoPath, reflection, target, tls } = {}) {
+  if (reflection) return reflectionDefinition(target, tls);
+  return loadDefinition(protoPath);
+}
+
 function findService(entry, serviceName) {
   const wanted = String(serviceName || '').trim().replace(/^\./, '');
   if (!wanted) return { error: 'A service name is required' };
+
+  if (entry.reflection) {
+    const exact = entry.services.find((service) => service.name === wanted);
+    const suffix = entry.services.filter(
+      (service) => service.name === wanted || service.name.endsWith(`.${wanted}`)
+    );
+    const match = exact || (suffix.length === 1 ? suffix[0] : null);
+    if (!match) {
+      if (suffix.length > 1) {
+        return {
+          error: `Service "${wanted}" is ambiguous: ${suffix
+            .map((service) => service.name)
+            .join(', ')}`,
+        };
+      }
+      return { error: `Service "${wanted}" was not found via reflection` };
+    }
+    const root = entry.roots.get(match.name);
+    const service = root && serviceDescriptor(root, match.name);
+    if (!service) return { error: `Service "${match.name}" descriptor is unavailable` };
+    let ctor = entry.ctors.get(match.name);
+    if (!ctor) {
+      ctor = genericClientForService(root, service);
+      entry.ctors.set(match.name, ctor);
+    }
+    return { name: match.name, ctor };
+  }
 
   const all = [];
   const visit = (node, prefix) => {
@@ -319,9 +451,19 @@ function closeClient(client) {
  * `reflection: true` is an explicit request for a feature this phase does not
  * implement; it returns the documented error instead of guessing.
  */
-export function loadServices({ protoPath, reflection, useReflection } = {}) {
-  if (reflection || useReflection) return { ok: false, error: REFLECTION_ERROR };
-  const entry = loadDefinition(protoPath);
+export async function loadServices({
+  protoPath,
+  reflection,
+  useReflection,
+  target,
+  tls,
+} = {}) {
+  const entry = await getDefinition({
+    protoPath,
+    reflection: reflection || useReflection,
+    target,
+    tls,
+  });
   if (entry.error) return { ok: false, error: entry.error };
   return { ok: true, services: entry.services };
 }
@@ -331,7 +473,7 @@ export function loadServices({ protoPath, reflection, useReflection } = {}) {
  * `[{ key, value, enabled }]`. `tls: true` enables TLS (a `grpcs://` target
  * implies it unless `tls` is an explicit boolean).
  */
-export function invokeUnary({
+export async function invokeUnary({
   target,
   protoPath,
   service,
@@ -344,12 +486,10 @@ export function invokeUnary({
   const started = now();
   const fail = (error) => ({ ok: false, error, durationMs: now() - started });
 
-  if (reflection) return fail(REFLECTION_ERROR);
-
   const normalized = normalizeTarget(target);
   if (normalized.error) return fail(normalized.error);
 
-  const entry = loadDefinition(protoPath);
+  const entry = await getDefinition({ protoPath, reflection, target, tls });
   if (entry.error) return fail(entry.error);
 
   const foundService = findService(entry, service);
@@ -425,7 +565,7 @@ export function invokeUnary({
  *   { type: 'end', status?, at }
  *   { type: 'error', message, at }
  */
-export function startServerStream({
+export async function startServerStream({
   id,
   target,
   protoPath,
@@ -434,6 +574,7 @@ export function startServerStream({
   message,
   metadata,
   tls,
+  reflection,
   onEvent,
 } = {}) {
   const sessionId = typeof id === 'string' ? id.trim() : '';
@@ -442,7 +583,7 @@ export function startServerStream({
   const normalized = normalizeTarget(target);
   if (normalized.error) return { ok: false, error: normalized.error };
 
-  const entry = loadDefinition(protoPath);
+  const entry = await getDefinition({ protoPath, reflection, target, tls });
   if (entry.error) return { ok: false, error: entry.error };
 
   const foundService = findService(entry, service);
@@ -452,25 +593,19 @@ export function startServerStream({
   if (foundMethod.error) return { ok: false, error: foundMethod.error };
 
   const kind = streamingKind(foundMethod.def);
-  if (kind !== 'server') {
-    return {
-      ok: false,
-      error:
-        kind === 'unary'
-          ? `Method "${foundMethod.name}" is unary; use Invoke instead`
-          : `Method "${foundMethod.name}" is ${kind}-streaming; only server streaming is supported`,
-    };
+  if (kind === 'unary') {
+    return { ok: false, error: `Method "${foundMethod.name}" is unary; use Invoke instead` };
   }
 
   const parsed = parseMessage(message);
   if (!parsed.ok) return { ok: false, error: parsed.error };
 
-  // Replacing the same renderer id must not leak the previous call.
   if (streams.has(sessionId)) cancelStream(sessionId);
 
   const useTls = typeof tls === 'boolean' ? tls : normalized.tls;
   const session = {
     id: sessionId,
+    kind,
     onEvent,
     call: null,
     client: null,
@@ -493,15 +628,40 @@ export function startServerStream({
 
   try {
     session.client = createClient(foundService.ctor, normalized.target, useTls);
-    const call = session.client[foundMethod.name](
-      parsed.value,
-      buildMetadata(metadata)
-    );
+    const grpcMetadata = buildMetadata(metadata);
+    let call;
+    if (kind === 'server') {
+      call = session.client[foundMethod.name](parsed.value, grpcMetadata);
+    } else if (kind === 'client') {
+      call = session.client[foundMethod.name](grpcMetadata, {}, (err, response) => {
+        if (session.settled) return;
+        if (err) {
+          emit({ type: 'error', message: errMessage(err), at: now() });
+          session.settled = true;
+          cleanup();
+          return;
+        }
+        emit({ type: 'data', message: toPlain(response), at: now() });
+        emit({
+          type: 'end',
+          status: { code: 0, details: 'OK' },
+          at: now(),
+        });
+        session.settled = true;
+        cleanup();
+      });
+    } else {
+      call = session.client[foundMethod.name](grpcMetadata);
+    }
     session.call = call;
     streams.set(sessionId, session);
 
-    let status = null;
+    if (kind !== 'server' && parsed.value && Object.keys(parsed.value).length > 0) {
+      call.write(parsed.value);
+      emit({ type: 'sent', message: toPlain(parsed.value), at: now() });
+    }
 
+    let status = null;
     call.on('data', (payload) => {
       emit({ type: 'data', message: toPlain(payload), at: now() });
     });
@@ -511,18 +671,13 @@ export function startServerStream({
     });
     call.on('error', (err) => {
       if (session.settled) return;
-      // Emit before flipping `settled`; `emit` itself drops late events.
       emit({ type: 'error', message: errMessage(err), at: now() });
       session.settled = true;
       cleanup();
     });
     call.on('end', () => {
       if (session.settled) return;
-      emit({
-        type: 'end',
-        status: status || { code: 0, details: 'OK' },
-        at: now(),
-      });
+      emit({ type: 'end', status: status || { code: 0, details: 'OK' }, at: now() });
       session.settled = true;
       cleanup();
     });
@@ -534,6 +689,42 @@ export function startServerStream({
   }
 
   return { ok: true };
+}
+
+/** Send one JSON message on a client/bidi stream. */
+export function sendStream(id, message) {
+  const session = streams.get(String(id || ''));
+  if (!session || session.settled || !session.call) {
+    return { ok: false, error: 'The stream is not open' };
+  }
+  if (session.kind === 'server') {
+    return { ok: false, error: 'Server-streaming calls do not accept messages' };
+  }
+  const parsed = parseMessage(message);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  try {
+    session.call.write(parsed.value);
+    return { ok: true, message: toPlain(parsed.value) };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+/** Half-close a client/bidi stream; the server response still arrives. */
+export function endStream(id) {
+  const session = streams.get(String(id || ''));
+  if (!session || session.settled || !session.call) {
+    return { ok: false, error: 'The stream is not open' };
+  }
+  if (session.kind === 'server') {
+    return { ok: false, error: 'Server-streaming calls are ended by the server' };
+  }
+  try {
+    session.call.end();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
 }
 
 /**

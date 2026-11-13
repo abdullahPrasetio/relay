@@ -59,6 +59,7 @@ export function newGrpcConfig() {
     message: '{}',
     metadata: [], // [{ key, value, enabled }]
     streaming: false,
+    reflection: false,
   };
 }
 

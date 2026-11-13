@@ -15,4 +15,6 @@ message EchoReply {
 service Echo {
   rpc Say (EchoRequest) returns (EchoReply);
   rpc Count (EchoRequest) returns (stream EchoReply);
+  rpc Upload (stream EchoRequest) returns (EchoReply);
+  rpc Chat (stream EchoRequest) returns (stream EchoReply);
 }

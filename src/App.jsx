@@ -183,6 +183,7 @@ function grpcPayloadFor(request) {
     message: grpc.message ?? '{}',
     metadata: Array.isArray(grpc.metadata) ? grpc.metadata : [],
     tls: isGrpcTls(request?.url || ''),
+    reflection: grpc.reflection === true,
   };
 }
 
@@ -190,7 +191,7 @@ function grpcPayloadFor(request) {
 // `onChange`, so a tab switch re-reads them from the request itself.
 function grpcMissingField(request) {
   const grpc = request?.grpc || {};
-  if (!grpc.protoPath) return 'Choose a .proto file';
+  if (!grpc.protoPath && !grpc.reflection) return 'Choose a .proto file or enable reflection';
   if (!grpc.service || !grpc.method) return 'Choose a service and method';
   return null;
 }
@@ -1209,6 +1210,53 @@ export default function App() {
     [updateTab]
   );
 
+  const sendGrpcStreamMessage = useCallback(
+    async (message) => {
+      const tab = tabs.find((entry) => entry.tabId === activeTabId);
+      if (!tab?.grpcStreamId) return false;
+      const api = typeof window !== 'undefined' ? window.api : null;
+      if (!api || typeof api.grpcStreamSend !== 'function') return false;
+      try {
+        const result = await api.grpcStreamSend({ id: tab.grpcStreamId, message });
+        if (!result?.ok) {
+          updateTab(tab.tabId, { grpcError: result?.error || 'Could not send message' });
+          return false;
+        }
+        updateTab(tab.tabId, {
+          grpcError: null,
+          grpcLog: appendWsLog(tab.grpcLog, {
+            type: 'sent',
+            message: result.message,
+            at: Date.now(),
+          }),
+        });
+        return true;
+      } catch (err) {
+        updateTab(tab.tabId, { grpcError: err?.message || String(err) });
+        return false;
+      }
+    },
+    [tabs, activeTabId, updateTab]
+  );
+
+  const endGrpcStream = useCallback(async () => {
+    const tab = tabs.find((entry) => entry.tabId === activeTabId);
+    if (!tab?.grpcStreamId) return false;
+    const api = typeof window !== 'undefined' ? window.api : null;
+    if (!api || typeof api.grpcStreamEnd !== 'function') return false;
+    try {
+      const result = await api.grpcStreamEnd(tab.grpcStreamId);
+      if (!result?.ok) {
+        updateTab(tab.tabId, { grpcError: result?.error || 'Could not end the stream' });
+        return false;
+      }
+      return true;
+    } catch (err) {
+      updateTab(tab.tabId, { grpcError: err?.message || String(err) });
+      return false;
+    }
+  }, [tabs, activeTabId, updateTab]);
+
   // Stop an open stream locally *and* in main. `reason` lands in the log so a
   // cancelled stream never looks like a server-side end.
   const cancelGrpcStream = useCallback((tabId, sessionId, reason = 'Cancelled') => {
@@ -1505,7 +1553,12 @@ export default function App() {
       setTabs((prev) =>
         prev.map((tab) => {
           if (tab.grpcStreamId !== id) return tab;
-          if (event.type === 'data' || event.type === 'end' || event.type === 'error') {
+          if (
+            event.type === 'data' ||
+            event.type === 'sent' ||
+            event.type === 'end' ||
+            event.type === 'error'
+          ) {
             return { ...tab, grpcLog: appendWsLog(tab.grpcLog, event) };
           }
           return tab;
@@ -2596,6 +2649,8 @@ export default function App() {
                   const tab = tabs.find((t) => t.tabId === activeTabId);
                   if (tab && !tab.sending) startGrpcStream(tab);
                 }}
+                onSendStream={sendGrpcStreamMessage}
+                onEndStream={endGrpcStream}
                 onCancelStream={() =>
                   cancelGrpcStream(activeTab.tabId, activeTab.grpcStreamId, 'Cancelled')
                 }

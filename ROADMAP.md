@@ -273,7 +273,7 @@ Tujuan: menutup gap protokol dan menyediakan jalur CI.
 
 - [x] Abstraksi `ProtocolAdapter` di core; HTTP tetap default. — `electron/protocols/index.js` (`protocolFor`/`getAdapter`, http/https = `request`, ws/mqtt/socketio/grpc = `stream`); engine HTTP tidak berubah.
 - [x] WebSocket: connect, headers, message history, close, binary frames. — `ws` manager + `WebSocketPanel`; tes terhadap server `ws` nyata; history 500 pesan/1 MB, frame biner base64, tanpa reconnect/heartbeat.
-- [x] gRPC: proto upload, unary + server streaming, reflection jika memungkinkan. — `@grpc/proto-loader` dari file .proto (bukan upload-isian), unary + server streaming + cancel, metadata, TLS by scheme; **reflection belum** (ditolak dengan pesan jelas), client/bidi hanya terdaftar.
+- [x] gRPC: proto upload, unary + server/client/bidi streaming, reflection. — `@grpc/proto-loader` dari file .proto atau `grpc-reflection-js`; unary + server/client/bidi + cancel, metadata, TLS by scheme; reflection diuji terhadap server `@grpc/reflection`.
 - [x] MQTT: connect/publish/subscribe, QoS. — `mqtt` manager, QoS 0/1/2 + retain, subscribe/unsubscribe, history 500/1 MB; tes integrasi terhadap broker `aedes` nyata.
 - [x] Socket.IO: connect/emit/listen. — `socket.io-client`, aturan URL eksplisit `socketio://`/`socketios://` (http(s) tetap HTTP), `onAny` listener, emit argumen JSON.
 - [x] GraphQL: schema introspection + autocomplete di editor. — `src/lib/graphql.js` + tombol Fetch schema di tab GraphQL; completion provider Monaco (bahasa `graphql` tersedia di bundle).

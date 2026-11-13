@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld('api', {
   grpcServices: (payload) => ipcRenderer.invoke('grpc:services', payload),
   grpcInvoke: (payload) => ipcRenderer.invoke('grpc:invoke', payload),
   grpcStreamStart: (payload) => ipcRenderer.invoke('grpc:stream', payload),
+  grpcStreamSend: (payload) => ipcRenderer.invoke('grpc:stream-send', payload),
+  grpcStreamEnd: (id) => ipcRenderer.invoke('grpc:stream-end', id),
   grpcStreamCancel: (id) => ipcRenderer.invoke('grpc:cancel', id),
   onGrpcEvent: (cb) => {
     const handler = (_event, payload) => cb(payload);

@@ -2,10 +2,13 @@ import { fileURLToPath } from 'node:url';
 import grpc from '@grpc/grpc-js';
 import protoLoader from '@grpc/proto-loader';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ReflectionService } from '@grpc/reflection';
 import {
   loadServices,
   invokeUnary,
   startServerStream,
+  sendStream,
+  endStream,
   cancelStream,
   closeAll,
   normalizeTarget,
@@ -38,6 +41,21 @@ async function startServer({ delayMs = 0 } = {}) {
         count: Number(call.request.count) || 0,
       });
     },
+    Upload(call, callback) {
+      const parts = [];
+      call.on('data', (req) => parts.push(req.message));
+      call.on('end', () =>
+        callback(null, { message: parts.join(','), count: parts.length })
+      );
+    },
+    Chat(call) {
+      let count = 0;
+      call.on('data', (req) => {
+        count += 1;
+        call.write({ message: `echo ${req.message}`, count });
+      });
+      call.on('end', () => call.end());
+    },
     Count(call) {
       const total = Number(call.request.count) || 0;
       let sent = 0;
@@ -56,6 +74,9 @@ async function startServer({ delayMs = 0 } = {}) {
       else call.end();
     },
   });
+
+  const reflection = new ReflectionService(packageDefinition);
+  reflection.addToServer(server);
 
   const port = await new Promise((resolve, reject) => {
     server.bindAsync(
@@ -167,20 +188,10 @@ describe('gRPC proto loading', () => {
     expect(typeof empty.error).toBe('string');
   });
 
-  it('reports server reflection as unsupported', async () => {
+  it('requires a target when reflection is enabled', async () => {
     const result = await loadServices({ reflection: true });
-    expect(result).toEqual({ ok: false, error: 'Server reflection is not supported' });
-
-    const invoked = await invokeUnary({
-      target: '127.0.0.1:1',
-      protoPath: PROTO_PATH,
-      service: 'relay.test.Echo',
-      method: 'Say',
-      message: '{}',
-      reflection: true,
-    });
-    expect(invoked.ok).toBe(false);
-    expect(invoked.error).toBe('Server reflection is not supported');
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/target/i);
   });
 });
 
@@ -278,7 +289,7 @@ describe('gRPC server streaming', () => {
     const { target } = await startServer();
     const { events, onEvent, waitFor } = collector();
 
-    const started = startServerStream({
+    const started = await startServerStream({
       id: 'stream-1',
       target,
       protoPath: PROTO_PATH,
@@ -306,7 +317,7 @@ describe('gRPC server streaming', () => {
     const { target } = await startServer({ delayMs: 20 });
     const { events, onEvent, waitFor } = collector();
 
-    startServerStream({
+    await startServerStream({
       id: 'stream-cancel',
       target,
       protoPath: PROTO_PATH,
@@ -328,7 +339,7 @@ describe('gRPC server streaming', () => {
 
   it('rejects unary methods and unknown ids on the stream API', async () => {
     const { target } = await startServer();
-    const unary = startServerStream({
+    const unary = await startServerStream({
       id: 'stream-unary',
       target,
       protoPath: PROTO_PATH,
@@ -340,7 +351,7 @@ describe('gRPC server streaming', () => {
     expect(unary.ok).toBe(false);
     expect(unary.error).toMatch(/is unary/);
 
-    const noId = startServerStream({
+    const noId = await startServerStream({
       target,
       protoPath: PROTO_PATH,
       service: 'relay.test.Echo',
@@ -350,5 +361,68 @@ describe('gRPC server streaming', () => {
     expect(noId.ok).toBe(false);
 
     expect(cancelStream('nope')).toBe(false);
+  });
+});
+
+
+describe('gRPC reflection and client/bidi streaming', () => {
+  it('lists services through server reflection', async () => {
+    const { target } = await startServer();
+    const result = await loadServices({ reflection: true, target, tls: false });
+    expect(result.ok).toBe(true);
+    const service = result.services.find((entry) => entry.name === 'relay.test.Echo');
+    expect(service).toBeTruthy();
+    expect(service.methods.map((method) => method.name)).toContain('Upload');
+    expect(service.methods.find((method) => method.name === 'Chat').streaming).toBe('bidi');
+  });
+
+  it('runs a client-streaming call and returns the server response', async () => {
+    const { target } = await startServer();
+    const { events, onEvent, waitFor } = collector();
+
+    const started = await startServerStream({
+      id: 'client-stream',
+      target,
+      protoPath: PROTO_PATH,
+      service: 'relay.test.Echo',
+      method: 'Upload',
+      message: { message: 'a' },
+      onEvent,
+    });
+    expect(started).toEqual({ ok: true });
+
+    const sent = sendStream('client-stream', { message: 'b' });
+    expect(sent.ok).toBe(true);
+    expect(endStream('client-stream').ok).toBe(true);
+    await waitFor((event) => event.type === 'end');
+
+    const data = events.filter((event) => event.type === 'data');
+    expect(data).toHaveLength(1);
+    expect(data[0].message.message).toBe('a,b');
+    expect(data[0].message.count).toBe(2);
+  });
+
+  it('runs a bidirectional stream', async () => {
+    const { target } = await startServer();
+    const { events, onEvent, waitFor } = collector();
+
+    await startServerStream({
+      id: 'bidi-stream',
+      target,
+      protoPath: PROTO_PATH,
+      service: 'relay.test.Echo',
+      method: 'Chat',
+      message: { message: 'one' },
+      onEvent,
+    });
+    sendStream('bidi-stream', { message: 'two' });
+    endStream('bidi-stream');
+    await waitFor((event) => event.type === 'end');
+
+    const messages = events
+      .filter((event) => event.type === 'data')
+      .map((event) => event.message.message);
+    expect(messages).toEqual(['echo one', 'echo two']);
+    expect(events.some((event) => event.type === 'sent')).toBe(true);
   });
 });

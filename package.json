@@ -111,6 +111,7 @@
     "electron-updater": "^6.8.11",
     "fast-xml-parser": "^5.12.0",
     "graphql": "^17.0.2",
+    "grpc-reflection-js": "^0.3.0",
     "http-proxy-agent": "^7.0.2",
     "https-proxy-agent": "^7.0.6",
     "lodash": "^4.18.1",
@@ -126,6 +127,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
+    "@grpc/reflection": "^1.0.4",
     "@playwright/test": "^1.49.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

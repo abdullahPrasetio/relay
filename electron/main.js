@@ -43,6 +43,8 @@ import {
   loadServices as loadGrpcServices,
   invokeUnary as invokeGrpcUnary,
   startServerStream as startGrpcStream,
+  sendStream as sendGrpcStream,
+  endStream as endGrpcStream,
   cancelStream as cancelGrpcStream,
   closeAll as closeAllGrpcStreams,
 } from './protocols/grpc.js';
@@ -669,8 +671,8 @@ function registerIpc() {
   // Every handler returns a result object, including failures; nothing here
   // rejects. Stream events go only to the focused window as 'grpc:event'.
   ipcMain.handle('grpc:services', async (_event, payload) => {
-    const { protoPath, reflection, useReflection } = payload || {};
-    return loadGrpcServices({ protoPath, reflection, useReflection });
+    const { protoPath, reflection, useReflection, target, tls } = payload || {};
+    return loadGrpcServices({ protoPath, reflection, useReflection, target, tls });
   });
 
   ipcMain.handle('grpc:invoke', async (_event, payload) => {
@@ -689,7 +691,17 @@ function registerIpc() {
   });
 
   ipcMain.handle('grpc:stream', async (_event, payload) => {
-    const { id, target, protoPath, service, method, message, metadata, tls } = payload || {};
+    const {
+      id,
+      target,
+      protoPath,
+      service,
+      method,
+      message,
+      metadata,
+      tls,
+      reflection,
+    } = payload || {};
     return startGrpcStream({
       id,
       target,
@@ -699,9 +711,17 @@ function registerIpc() {
       message,
       metadata,
       tls,
+      reflection,
       onEvent: (event) => forwardGrpcEvent(id, event),
     });
   });
+
+  ipcMain.handle('grpc:stream-send', async (_event, payload) => {
+    const { id, message } = payload || {};
+    return sendGrpcStream(id, message);
+  });
+
+  ipcMain.handle('grpc:stream-end', async (_event, id) => endGrpcStream(id));
 
   ipcMain.handle('grpc:cancel', async (_event, id) => cancelGrpcStream(id));
 
