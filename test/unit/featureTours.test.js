@@ -6,6 +6,7 @@ import {
   coreFeatures,
   featureAvailable,
   newFeatures,
+  pendingAnnouncements,
   surfaceFeatures,
 } from '../../src/lib/featureTours/queue.js';
 import {
@@ -165,6 +166,26 @@ describe('feature tour queue', () => {
       'announced-manual',
     ]);
     expect(newFeatures(features, state, '0.26.0')).toEqual([]);
+  });
+
+  it('keeps a beta announcement visible even when the app version is unchanged', () => {
+    const features = [
+      sample({
+        id: 'help.featureGuide',
+        introducedIn: '0.27.0-beta.1',
+        announce: true,
+        auto: false,
+      }),
+    ];
+    const state = { ...emptyTourState(), lastAppVersion: '0.27.0-beta.1' };
+    expect(pendingAnnouncements(features, state, '0.27.0-beta.1').map((f) => f.id)).toEqual([
+      'help.featureGuide',
+    ]);
+    expect(
+      newFeatures(features, { ...state, lastAppVersion: '0.26.0' }, '0.27.0-beta.1').map(
+        (f) => f.id
+      )
+    ).toEqual(['help.featureGuide']);
   });
 
   it('honours availability predicates', () => {

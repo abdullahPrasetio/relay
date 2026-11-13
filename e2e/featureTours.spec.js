@@ -101,6 +101,8 @@ test('existing installs do not get the first-run welcome', async () => {
   try {
     await expect(page.getByTestId('feature-welcome')).toHaveCount(0);
     await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+    await expect(page.getByTestId('whats-new')).toBeVisible();
+    await page.getByTestId('whats-new-dismiss').click();
     await page.getByTestId('feature-guide-open').click();
     await expect(page.getByTestId('feature-guide')).toBeVisible();
   } finally {

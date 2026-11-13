@@ -89,3 +89,21 @@ export function newFeatures(features, state, currentVersion, context = {}) {
     )
   );
 }
+
+
+/**
+ * Announcements can be added to a build without changing the app version
+ * (for example, a beta catalog fix). Show any unseen announcement that is
+ * already part of this build, even when lastAppVersion is already current.
+ */
+export function pendingAnnouncements(features, state, currentVersion, context = {}) {
+  return sortSteps(
+    (features || []).filter(
+      (feature) =>
+        feature.announce === true &&
+        !state.seen?.[feature.id] &&
+        compareVersions(feature.introducedIn, currentVersion) <= 0 &&
+        featureAvailable(feature, context)
+    )
+  );
+}

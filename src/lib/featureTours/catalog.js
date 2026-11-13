@@ -471,7 +471,7 @@ export const FEATURE_TOURS = [
     body: 'Open this any time to browse every feature tip, replay one, or reset what you have already seen.',
     anchor: '[data-tour="app.help"]',
     placement: 'bottom',
-    introducedIn: '0.27.0',
+    introducedIn: '0.27.0-beta.1',
     announce: true,
     auto: false,
     priority: 1,

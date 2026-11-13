@@ -13,6 +13,7 @@ import {
   baselineForExisting,
   coreFeatures,
   newFeatures,
+  pendingAnnouncements,
   surfaceFeatures,
 } from './queue.js';
 
@@ -82,13 +83,25 @@ export function useFeatureTour({
       return;
     }
 
+    const pending = pendingAnnouncements(
+      FEATURE_TOURS,
+      state,
+      appVersion,
+      contextRef.current
+    );
+    const fresh =
+      compareVersions(appVersion, state.lastAppVersion) > 0
+        ? newFeatures(FEATURE_TOURS, state, appVersion, contextRef.current)
+        : [];
+    const announced = [...pending, ...fresh].filter(
+      (feature, index, list) => list.findIndex((entry) => entry.id === feature.id) === index
+    );
+    if (announced.length > 0) {
+      setWhatsNew(announced);
+      setSurfaceReady(false);
+      return;
+    }
     if (compareVersions(appVersion, state.lastAppVersion) > 0) {
-      const fresh = newFeatures(FEATURE_TOURS, state, appVersion, contextRef.current);
-      if (fresh.length) {
-        setWhatsNew(fresh);
-        setSurfaceReady(false);
-        return;
-      }
       persist({ ...state, lastAppVersion: appVersion });
     }
     setSurfaceReady(true);
