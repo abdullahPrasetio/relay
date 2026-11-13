@@ -5,6 +5,7 @@ import {
   baselineForExisting,
   coreFeatures,
   featureAvailable,
+  manualFeatures,
   newFeatures,
   pendingAnnouncements,
   surfaceFeatures,
@@ -222,6 +223,22 @@ describe('feature tour queue', () => {
         (f) => f.id
       )
     ).toEqual(['help.featureGuide']);
+  });
+
+  it('manual replay includes seen surface steps and falls back to essentials', () => {
+    const features = [
+      sample({ id: 'core', tour: 'essentials', surface: 'global' }),
+      sample({ id: 'request.seen', surface: 'request', priority: 20 }),
+      sample({ id: 'request.other', surface: 'request', priority: 10 }),
+      sample({ id: 'docs.only', surface: 'docs' }),
+    ];
+    const state = markSeen(emptyTourState(), ['request.seen'], 'skipped', '0.27.0');
+    expect(manualFeatures(features, 'request').map((f) => f.id)).toEqual([
+      'request.other',
+      'request.seen',
+    ]);
+    expect(manualFeatures(features, 'missing').map((f) => f.id)).toEqual(['core']);
+    expect(state.seen['request.seen'].action).toBe('skipped');
   });
 
   it('honours availability predicates', () => {

@@ -27,6 +27,28 @@ export function coreFeatures(features, state, context = {}) {
   );
 }
 
+/**
+ * Manual replay ignores the seen state: the user explicitly asked to see the
+ * tips for the current screen. Fall back to the core tour when a surface has
+ * no entries of its own.
+ */
+export function manualFeatures(features, surface, context = {}) {
+  const surfaceSteps = sortSteps(
+    (features || []).filter(
+      (feature) =>
+        feature.tour !== 'essentials' &&
+        feature.surface === surface &&
+        featureAvailable(feature, context)
+    )
+  );
+  if (surfaceSteps.length > 0) return surfaceSteps;
+  return sortSteps(
+    (features || []).filter(
+      (feature) => feature.tour === 'essentials' && featureAvailable(feature, context)
+    )
+  );
+}
+
 export function surfaceFeatures(features, state, surface, context = {}) {
   if (!surface) return [];
   return sortSteps(

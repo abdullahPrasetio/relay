@@ -2550,6 +2550,7 @@ export default function App() {
         searchQuery={globalSearch}
         onSearch={setGlobalSearch}
         onOpenFeatureGuide={tours.openGuide}
+        onStartTips={() => tours.startManualTour(tourSurface)}
       />
 
       {store.saveError && (

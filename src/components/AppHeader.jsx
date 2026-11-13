@@ -4,7 +4,7 @@ import WorkspaceSwitcher from './WorkspaceSwitcher.jsx';
 // Top application bar: brand, workspace switcher, a centered search field, and
 // the signed-in account label. App-level actions live in the activity rail so
 // the header stays uncluttered.
-export default function AppHeader({ store, cloud, searchQuery, onSearch, onOpenFeatureGuide }) {
+export default function AppHeader({ store, cloud, searchQuery, onSearch, onOpenFeatureGuide, onStartTips }) {
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -26,6 +26,15 @@ export default function AppHeader({ store, cloud, searchQuery, onSearch, onOpenF
       </div>
 
       <div className="topbar-right">
+        <button
+          type="button"
+          className="topbar-tips"
+          title="Show feature tips for this screen"
+          data-testid="feature-tour-start"
+          onClick={onStartTips}
+        >
+          Tips
+        </button>
         <button
           type="button"
           className="topbar-help"

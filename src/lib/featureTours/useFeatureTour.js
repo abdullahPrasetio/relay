@@ -12,6 +12,7 @@ import {
   announcedForCurrent,
   baselineForExisting,
   coreFeatures,
+  manualFeatures,
   newFeatures,
   pendingAnnouncements,
   surfaceFeatures,
@@ -245,6 +246,25 @@ export function useFeatureTour({
   const openGuide = useCallback(() => setGuideOpen(true), []);
   const closeGuide = useCallback(() => setGuideOpen(false), []);
 
+  const startManualTour = useCallback(
+    (surfaceName) => {
+      const steps = manualFeatures(FEATURE_TOURS, surfaceName, contextRef.current);
+      if (steps.length === 0) {
+        setGuideOpen(true);
+        return false;
+      }
+      setWelcomeOpen(false);
+      setWhatsNew(null);
+      setGuideOpen(false);
+      setSurfaceReady(true);
+      queueKind.current = 'manual';
+      setQueue(steps);
+      setIndex(0);
+      return true;
+    },
+    []
+  );
+
   const showFeature = useCallback((feature) => {
     if (!feature) return;
     setGuideOpen(false);
@@ -306,6 +326,7 @@ export function useFeatureTour({
     skipTour,
     openGuide,
     closeGuide,
+    startManualTour,
     showFeature,
     setEnabled,
     reset,

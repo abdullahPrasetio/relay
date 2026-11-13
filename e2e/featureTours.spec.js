@@ -221,3 +221,19 @@ test('a beta state that hid the guide announcement reopens it once', async () =>
     await closeApp(session);
   }
 });
+
+test('manual Tips button starts a tour for the current screen', async () => {
+  const userData = makeUserData();
+  const session = await launchAppAt(userData, TOUR_ENV, { keepDashboard: true });
+  const { page } = session;
+
+  try {
+    await page.getByTestId('feature-welcome-skip').click();
+    await page.getByTestId('feature-tour-start').click();
+    await expect(page.getByTestId('feature-tour')).toContainText('Import existing work');
+    await page.getByTestId('feature-tour-skip').click();
+    await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+  } finally {
+    await closeApp(session);
+  }
+});
