@@ -185,3 +185,39 @@ test('an app update queues new features once', async () => {
     await closeApp(session);
   }
 });
+
+test('a beta state that hid the guide announcement reopens it once', async () => {
+  const userData = makeUserData();
+  const session = await launchAppAt(userData, TOUR_ENV, { keepDashboard: true });
+  const { page } = session;
+
+  try {
+    await page.evaluate(() => {
+      localStorage.setItem(
+        'relay-feature-tours-v1',
+        JSON.stringify({
+          schemaVersion: 1,
+          lastAppVersion: '0.27.0-beta.2',
+          enabled: true,
+          seen: {
+            'help.featureGuide': {
+              action: 'completed',
+              version: '0.27.0-beta.2',
+              at: '2026-11-13T00:00:00.000Z',
+            },
+          },
+        })
+      );
+    });
+    await page.reload();
+    await waitForAppReady(page, { keepDashboard: true });
+    await expect(page.getByTestId('whats-new')).toBeVisible();
+    await page.getByTestId('whats-new-dismiss').click();
+
+    await page.reload();
+    await waitForAppReady(page, { keepDashboard: true });
+    await expect(page.getByTestId('whats-new')).toHaveCount(0);
+  } finally {
+    await closeApp(session);
+  }
+});

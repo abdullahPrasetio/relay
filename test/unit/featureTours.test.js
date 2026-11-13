@@ -77,7 +77,7 @@ describe('feature tour state', () => {
   it('normalizes malformed state instead of throwing', () => {
     expect(normalizeTourState(null)).toEqual(emptyTourState());
     expect(normalizeTourState({ seen: 'nope', enabled: false, lastAppVersion: ' 1.2.3 ' })).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       lastAppVersion: '1.2.3',
       enabled: false,
       seen: {},
@@ -94,6 +94,26 @@ describe('feature tour state', () => {
       good: { action: 'skipped', version: '1.0.0', at: 'now' },
       bad: { action: 'completed', version: '', at: '' },
     });
+  });
+
+  it('reopens the beta Feature Guide announcement from schema 1 once', () => {
+    const migrated = normalizeTourState({
+      schemaVersion: 1,
+      lastAppVersion: '0.27.0-beta.2',
+      seen: {
+        'help.featureGuide': { action: 'completed', version: '0.27.0-beta.2', at: 'now' },
+        'request.send': { action: 'completed', version: '0.26.0', at: 'now' },
+      },
+    });
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.seen['help.featureGuide']).toBeUndefined();
+    expect(migrated.seen['request.send']).toBeTruthy();
+    expect(
+      normalizeTourState({
+        schemaVersion: 2,
+        seen: { 'help.featureGuide': { action: 'skipped' } },
+      }).seen['help.featureGuide']
+    ).toBeTruthy();
   });
 
   it('loads absent and corrupt values as absent', () => {

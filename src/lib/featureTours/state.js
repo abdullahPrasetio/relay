@@ -3,7 +3,7 @@
 // workspace file. Reads and writes are best-effort so a disabled localStorage
 // can never block startup.
 export const TOUR_STORAGE_KEY = 'relay-feature-tours-v1';
-export const TOUR_SCHEMA_VERSION = 1;
+export const TOUR_SCHEMA_VERSION = 2;
 
 export function emptyTourState() {
   return {
@@ -79,6 +79,10 @@ export function normalizeTourState(raw) {
       at: typeof entry.at === 'string' ? entry.at : '',
     };
   }
+  // Schema 1 baseline-marked the Feature Guide announcement as seen even
+  // though the beta builds never showed it. Re-open that announcement once;
+  // schema 2 keeps normal seen/skipped behavior.
+  if ((Number(raw.schemaVersion) || 1) < 2) delete seen['help.featureGuide'];
   return {
     schemaVersion: TOUR_SCHEMA_VERSION,
     lastAppVersion: cleanVersion(raw.lastAppVersion) || '0.0.0',
