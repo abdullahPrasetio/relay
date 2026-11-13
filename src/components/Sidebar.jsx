@@ -8,6 +8,7 @@ import {
   addFolder,
   addRequest,
   duplicateNode,
+  flattenRequests,
   moveNode,
   moveNodeTo,
   moveNodeBefore,
@@ -81,6 +82,8 @@ export default function Sidebar({
   onEditEnvironment,
   onRun,
   onSyncConfluence,
+  docsTarget = null,
+  onOpenDocs,
   view = 'collections',
   query: externalQuery,
   onQueryChange,
@@ -343,6 +346,7 @@ export default function Sidebar({
           {view === 'collections' && 'Collections'}
           {view === 'environments' && 'Environments'}
           {view === 'history' && 'History'}
+          {view === 'docs' && 'Documentation'}
         </span>
       </div>
 
@@ -488,6 +492,48 @@ export default function Sidebar({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {view === 'docs' && (
+        <div className="sidebar-content docs-nav">
+          <button
+            type="button"
+            className={`docs-nav-item${
+              !docsTarget || docsTarget.type === 'workspace' ? ' active' : ''
+            }`}
+            data-testid="docs-nav-workspace"
+            onClick={() => onOpenDocs?.({ type: 'workspace' })}
+          >
+            <Icon name="workspace" size={15} />
+            <span className="docs-nav-label">Workspace overview</span>
+          </button>
+          <div className="docs-nav-title">Collections</div>
+          {collections.length === 0 && (
+            <div className="sidebar-empty">No collections yet.</div>
+          )}
+          {collections.map((collection) => (
+            <button
+              type="button"
+              key={collection.id}
+              className={`docs-nav-item${
+                docsTarget?.type === 'collection' &&
+                docsTarget.collectionId === collection.id
+                  ? ' active'
+                  : ''
+              }`}
+              data-testid={`docs-nav-collection-${collection.id}`}
+              onClick={() =>
+                onOpenDocs?.({ type: 'collection', collectionId: collection.id })
+              }
+            >
+              <Icon name="collection" size={15} />
+              <span className="docs-nav-label">{collection.name}</span>
+              <span className="docs-nav-count">
+                {flattenRequests(collection).length}
+              </span>
+            </button>
+          ))}
         </div>
       )}
 

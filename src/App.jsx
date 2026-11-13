@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './components/Sidebar.jsx';
 import RequestPanel from './components/RequestPanel.jsx';
 import WorkspaceDashboard from './components/WorkspaceDashboard.jsx';
+import DocsPage from './components/DocsPage.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import ResponsePanel from './components/ResponsePanel.jsx';
 import WebSocketPanel from './components/WebSocketPanel.jsx';
@@ -327,6 +328,7 @@ export default function App() {
   const [codeModal, setCodeModal] = useState(null); // {request}
   const [runner, setRunner] = useState(null); // {title, requests, collection}
   const [railView, setRailView] = useState('collections');
+  const [docsTarget, setDocsTarget] = useState({ type: 'workspace' });
   const [globalSearch, setGlobalSearch] = useState('');
   const [setVarModal, setSetVarModal] = useState(null); // { value }
   const [editVarModal, setEditVarModal] = useState(null); // { name, scope, value }
@@ -2557,6 +2559,11 @@ export default function App() {
         />
         <Sidebar
           view={railView}
+          docsTarget={docsTarget}
+          onOpenDocs={(target) => {
+            setDocsTarget(target || { type: 'workspace' });
+            setRailView('docs');
+          }}
           workspaceId={store.activeWorkspaceId}
           pinnedIds={pinnedState.ids}
           onTogglePin={togglePin}
@@ -2585,6 +2592,20 @@ export default function App() {
         />
 
         <main className="workspace">
+          {railView === 'docs' ? (
+            <DocsPage
+              workspace={store.activeWorkspace}
+              target={docsTarget}
+              onOpenCollection={(collectionId) =>
+                setDocsTarget({ type: 'collection', collectionId })
+              }
+              onOpenRequest={(request, view) => {
+                setRailView('collections');
+                openRequest(request, view);
+              }}
+            />
+          ) : (
+            <>
           <TabBar
             tabs={tabs}
             activeTabId={activeTabId}
@@ -2702,6 +2723,8 @@ export default function App() {
               />
             )}
             </SplitPane>
+          )}
+            </>
           )}
         </main>
       </div>

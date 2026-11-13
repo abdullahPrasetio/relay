@@ -8,6 +8,7 @@ const ITEMS = [
   { id: 'collections', label: 'Collections', icon: 'collection' },
   { id: 'environments', label: 'Environments', icon: 'globe' },
   { id: 'history', label: 'History', icon: 'clock' },
+  { id: 'docs', label: 'Docs', icon: 'file' },
 ];
 
 function syncTitle(cloud) {
@@ -56,6 +57,7 @@ export default function ActivityRail({
             className={`rail-item ${active === it.id ? 'active' : ''}`}
             title={it.label}
             onClick={() => onSelect(it.id)}
+            data-testid={`rail-${it.id}`}
           >
             <Icon name={it.icon} size={20} />
             <span className="rail-label">{it.label}</span>
