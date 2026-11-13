@@ -51,10 +51,13 @@ export function baselineForExisting(features, currentVersion) {
   const now = new Date().toISOString();
   for (const feature of features || []) {
     if (!feature?.id) continue;
-    const isCurrentAnnouncement =
+    // Announcements must stay unseen until the user actually acknowledges
+    // them. This also covers an announcement introduced in an earlier beta
+    // when the user upgrades to a later beta.
+    const isAnnouncement =
       feature.announce === true &&
-      compareVersions(feature.introducedIn, currentVersion) === 0;
-    if (isCurrentAnnouncement) continue;
+      compareVersions(feature.introducedIn, currentVersion) <= 0;
+    if (isAnnouncement) continue;
     if (compareVersions(feature.introducedIn, currentVersion) <= 0) {
       seen[feature.id] = { action: 'completed', version: currentVersion, at: now };
     }
@@ -72,7 +75,7 @@ export function announcedForCurrent(features, currentVersion) {
     (features || []).filter(
       (feature) =>
         feature.announce === true &&
-        compareVersions(feature.introducedIn, currentVersion) === 0
+        compareVersions(feature.introducedIn, currentVersion) <= 0
     )
   );
 }

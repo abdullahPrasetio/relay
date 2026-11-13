@@ -125,6 +125,22 @@ describe('feature tour queue', () => {
     expect(baseline.seen.new).toBeTruthy();
   });
 
+  it('keeps announcements from an earlier beta pending on a later beta', () => {
+    const features = [
+      sample({ id: 'old', introducedIn: '0.26.0' }),
+      sample({
+        id: 'help',
+        introducedIn: '0.27.0-beta.1',
+        announce: true,
+        auto: false,
+      }),
+    ];
+    const baseline = baselineForExisting(features, '0.27.0-beta.2');
+    expect(baseline.seen.old).toBeTruthy();
+    expect(baseline.seen.help).toBeUndefined();
+    expect(announcedForCurrent(features, '0.27.0-beta.2').map((f) => f.id)).toEqual(['help']);
+  });
+
   it('keeps current-version announcements pending for an existing install', () => {
     const features = [
       sample({ id: 'old', introducedIn: '0.26.0' }),
