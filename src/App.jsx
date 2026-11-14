@@ -36,6 +36,7 @@ import WhatsNewModal from './components/WhatsNewModal.jsx';
 import UpdateModal from './components/UpdateModal.jsx';
 import UpdateCheckModal from './components/UpdateCheckModal.jsx';
 import { markDonationPromptShown, shouldShowDonationPrompt } from './lib/donationPrompt.js';
+import { readUpdateChannel, writeUpdateChannel } from './lib/updateChannel.js';
 import RequestSettingsModal from './components/RequestSettingsModal.jsx';
 import CloudAuthModal from './components/CloudAuthModal.jsx';
 import CloudDevicesModal from './components/CloudDevicesModal.jsx';
@@ -352,7 +353,9 @@ export default function App() {
   const [updatePromptOpen, setUpdatePromptOpen] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [autoInstallUpdates, setAutoInstallUpdates] = useState(false);
+  const [updateChannel, setUpdateChannel] = useState(() => readUpdateChannel(''));
   const autoInstallRef = useRef(false);
+  const checkedUpdateChannelRef = useRef('');
   const [cloudAuthOpen, setCloudAuthOpen] = useState(false);
 
   // Updater status comes from the main process. The preference is renderer
@@ -390,6 +393,46 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!appVersion) return;
+    setUpdateChannel(readUpdateChannel(appVersion));
+  }, [appVersion]);
+
+  useEffect(() => {
+    window.api?.setUpdateChannel?.(updateChannel);
+  }, [updateChannel]);
+
+  // Stable is checked by the main process at startup. Beta needs an explicit
+  // check after the renderer knows its channel (and on macOS that check goes
+  // through the custom installer path, not electron-updater).
+  useEffect(() => {
+    if (!appInfo?.isPackaged || !appVersion || !appPlatform || updateChannel !== 'beta') return;
+    const key = `${appVersion}:${updateChannel}:${appPlatform}`;
+    if (checkedUpdateChannelRef.current === key) return;
+    checkedUpdateChannelRef.current = key;
+    if (updateModalOpen) return;
+    const api = typeof window !== 'undefined' ? window.api : null;
+    const check =
+      appPlatform === 'darwin' && api?.macCheckUpdate
+        ? api.macCheckUpdate({ channel: 'beta' })
+        : api?.checkForUpdates?.({ channel: 'beta' });
+    Promise.resolve(check)
+      .then((result) => {
+        if (appPlatform === 'darwin' && result?.ok && result.data?.available) {
+          setUpdateStatus({ state: 'available', version: result.data.version, channel: 'beta' });
+          setUpdatePromptOpen(true);
+        }
+      })
+      .catch(() => {});
+  }, [appInfo?.isPackaged, appVersion, updateChannel, appPlatform, updateModalOpen]);
+
+  const changeUpdateChannel = useCallback((channel) => {
+    const next = channel === 'beta' ? 'beta' : 'stable';
+    setUpdateChannel(next);
+    writeUpdateChannel(next);
+    window.api?.setUpdateChannel?.(next);
+  }, []);
+
   const toggleAutoInstallUpdates = useCallback((enabled) => {
     setAutoInstallUpdates(enabled);
     autoInstallRef.current = enabled;
@@ -420,7 +463,7 @@ export default function App() {
       return;
     }
     setMacUpdate({ busy: true, progress: null, error: '' });
-    const result = await api.macInstallUpdate();
+    const result = await api.macInstallUpdate({ channel: updateChannel });
     if (!result?.ok) {
       setMacUpdate({
         busy: false,
@@ -428,7 +471,7 @@ export default function App() {
         error: result?.error || 'Could not install the update.',
       });
     }
-  }, []);
+  }, [updateChannel]);
 
   // Daily reminder. E2E launches set RELAY_DISABLE_DONATION_PROMPT=1 so only
   // the specs that opt in see it; the header button always opens the modal.
@@ -2978,6 +3021,8 @@ export default function App() {
           status={updateStatus}
           platform={appPlatform}
           autoInstall={autoInstallUpdates}
+          channel={updateChannel}
+          onChangeChannel={changeUpdateChannel}
           onToggleAutoInstall={toggleAutoInstallUpdates}
           onInstall={installUpdate}
           onMacInstall={installMacUpdate}

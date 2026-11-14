@@ -7,6 +7,7 @@ import {
   buildInstallerScript,
   checkMacUpdate,
   downloadToFile,
+  cleanupStaleUpdateFiles,
   sha512Base64,
 } from './macUpdate.js';
 import { sendRequest, fetchOAuth2Token } from '../packages/core/src/request-engine.js';
@@ -122,6 +123,7 @@ let mainWindow = null;
 let mcp = null;
 let updater = null;
 let lastUpdateStatus = null;
+let updateChannel = 'stable';
 let pendingAutoInstall = null;
 
 // Set once the renderer confirmed it is fine to quit (no unsaved work, or the
@@ -257,9 +259,14 @@ app.whenReady().then(() => {
   });
   createWindow();
 
+  // Remove only old leftovers; an installer from the previous run may still
+  // be using the current zip.
+  cleanupStaleUpdateFiles(app.getPath('temp'));
+
   // Best-effort; no-op in dev and when RELAY_DISABLE_UPDATER=1.
   initAutoUpdate({
     app,
+    channel: updateChannel,
     onStatus: (status) => {
       lastUpdateStatus = status;
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -330,6 +337,15 @@ function workspaceRelativePath(relative) {
 }
 
 // ---- IPC surface: the renderer can only call these channels. ----
+function applyUpdateChannel(channel) {
+  updateChannel = channel === 'beta' ? 'beta' : 'stable';
+  if (updater) {
+    if ('allowPrerelease' in updater) updater.allowPrerelease = updateChannel === 'beta';
+    if ('channel' in updater) updater.channel = updateChannel === 'beta' ? 'beta' : 'latest';
+  }
+  return updateChannel;
+}
+
 function registerIpc() {
   // Local mock server (collection + saved examples) — start/stop/status IPC.
   registerMockIpc({ ipcMain, store, BrowserWindow });
@@ -829,40 +845,56 @@ function registerIpc() {
   });
 
   ipcMain.handle('updater:get-status', () => lastUpdateStatus);
-  ipcMain.handle('updater:mac-check', async () => {
+  ipcMain.handle('updater:mac-check', async (_event, payload = {}) => {
     if (process.platform !== 'darwin') {
       return { ok: false, error: 'The custom installer is macOS-only.' };
     }
+    const channel = applyUpdateChannel(payload?.channel);
     try {
       const data = await checkMacUpdate({
         currentVersion: app.getVersion(),
         arch: process.arch,
+        channel,
       });
       return { ok: true, data };
     } catch (err) {
       return { ok: false, error: err?.message || String(err) };
     }
   });
-  ipcMain.handle('updater:mac-install', async () => {
+  ipcMain.handle('updater:mac-install', async (_event, payload = {}) => {
     if (process.platform !== 'darwin') {
       return { ok: false, error: 'The custom installer is macOS-only.' };
     }
-    const notify = (payload) => {
+    const channel = applyUpdateChannel(payload?.channel);
+    const notify = (status) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('updater:mac-progress', payload);
+        mainWindow.webContents.send('updater:mac-progress', status);
       }
+    };
+    let zipPath = null;
+    let scriptPath = null;
+    const cleanup = () => {
+      if (zipPath) fs.rmSync(zipPath, { force: true });
+      if (scriptPath) fs.rmSync(scriptPath, { force: true });
+      zipPath = null;
+      scriptPath = null;
+    };
+    const fail = (code, error) => {
+      cleanup();
+      return { ok: false, code, error };
     };
     try {
       const info = await checkMacUpdate({
         currentVersion: app.getVersion(),
         arch: process.arch,
+        channel,
       });
       if (!info.available) {
         return { ok: false, code: 'no_update', error: 'No newer release was found.' };
       }
       await systemPreferences.promptTouchID(`Authorize Relay ${info.version} update`);
       notify({ phase: 'downloading', percent: 0, version: info.version });
-      const zipPath = path.join(
+      zipPath = path.join(
         app.getPath('temp'),
         `relay-update-${info.version}-${process.pid}.zip`
       );
@@ -871,29 +903,23 @@ function registerIpc() {
       });
       const checksum = await sha512Base64(zipPath);
       if (checksum !== info.sha512) {
-        fs.rmSync(zipPath, { force: true });
-        return { ok: false, code: 'checksum', error: 'Update checksum mismatch.' };
+        return fail('checksum', 'Update checksum mismatch.');
       }
 
       const appPath = path.resolve(app.getPath('exe'), '../../..');
       if (!appPath.endsWith('.app') || appPath.includes('/AppTranslocation/')) {
-        return {
-          ok: false,
-          code: 'install_path',
-          error: 'Move Relay into /Applications before installing updates.',
-        };
+        return fail('install_path', 'Move Relay into /Applications before installing updates.');
       }
       try {
         fs.accessSync(path.dirname(appPath), fs.constants.W_OK);
       } catch {
-        return {
-          ok: false,
-          code: 'permission',
-          error: 'Relay cannot write to its install folder. Reinstall it in /Applications.',
-        };
+        return fail(
+          'permission',
+          'Relay cannot write to its install folder. Reinstall it in /Applications.'
+        );
       }
 
-      const scriptPath = path.join(
+      scriptPath = path.join(
         app.getPath('temp'),
         `relay-install-${info.version}-${process.pid}.sh`
       );
@@ -907,10 +933,12 @@ function registerIpc() {
       setTimeout(() => app.exit(0), 400);
       return { ok: true, version: info.version };
     } catch (err) {
+      cleanup();
       return { ok: false, error: err?.message || String(err) };
     }
   });
-  ipcMain.handle('updater:check', async () => {
+  ipcMain.handle('updater:check', async (_event, payload = {}) => {
+    applyUpdateChannel(payload?.channel);
     if (!updater) return { ok: false, error: 'Updater is unavailable.' };
     try {
       await updater.checkForUpdates();
@@ -919,6 +947,10 @@ function registerIpc() {
       return { ok: false, error: err?.message || String(err) };
     }
   });
+  ipcMain.handle('updater:set-channel', (_event, channel) => ({
+    ok: true,
+    channel: applyUpdateChannel(channel),
+  }));
   ipcMain.handle('updater:install', (_event, payload = {}) => {
     if (!updater) return { ok: false, error: 'Updater is unavailable.' };
     updater.quitAndInstall(payload.silent !== false, true);

@@ -123,6 +123,26 @@ describe('initAutoUpdate', () => {
     expect(updater.autoDownload).toBe(false);
   });
 
+  it('enables prerelease updates on the beta channel', async () => {
+    const updater = {
+      on() {},
+      autoDownload: false,
+      allowPrerelease: false,
+      channel: 'latest',
+      async checkForUpdates() {},
+    };
+    await initAutoUpdate({
+      app: { isPackaged: true },
+      autoUpdater: updater,
+      channel: 'beta',
+    });
+    expect(updater.allowPrerelease).toBe(true);
+    expect(updater.channel).toBe('beta');
+    await initAutoUpdate({ app: { isPackaged: true }, autoUpdater: updater, channel: 'stable' });
+    expect(updater.allowPrerelease).toBe(false);
+    expect(updater.channel).toBe('latest');
+  });
+
   it('publishes statuses and leaves install-on-quit opt-in', async () => {
     const listeners = {};
     const statuses = [];

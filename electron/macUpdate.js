@@ -13,21 +13,62 @@ import fs from 'node:fs';
 
 const REPO = 'abdullahPrasetio/relay';
 export const LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
+export const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases?per_page=30`;
 
 export function compareVersions(a, b) {
-  const parse = (value) =>
-    String(value || '')
-      .replace(/^v/i, '')
-      .split('.')
-      .map((part) => Number.parseInt(part, 10) || 0);
+  const parse = (value) => {
+    const clean = String(value || '').replace(/^v/i, '');
+    const [core, prerelease = ''] = clean.split('+', 1)[0].split('-', 2);
+    return {
+      core: core.split('.').map((part) => Number.parseInt(part, 10) || 0),
+      prerelease: prerelease ? prerelease.split('.') : [],
+    };
+  };
   const left = parse(a);
   const right = parse(b);
-  const length = Math.max(left.length, right.length);
+  const length = Math.max(left.core.length, right.core.length);
   for (let i = 0; i < length; i += 1) {
-    const diff = (left[i] || 0) - (right[i] || 0);
-    if (diff !== 0) return diff > 0 ? 1 : -1;
+    const x = left.core[i] || 0;
+    const y = right.core[i] || 0;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  if (left.prerelease.length === 0 && right.prerelease.length === 0) return 0;
+  if (left.prerelease.length === 0) return 1;
+  if (right.prerelease.length === 0) return -1;
+  const preLength = Math.max(left.prerelease.length, right.prerelease.length);
+  for (let i = 0; i < preLength; i += 1) {
+    const x = left.prerelease[i];
+    const y = right.prerelease[i];
+    if (x == null) return -1;
+    if (y == null) return 1;
+    const nx = Number.parseInt(x, 10);
+    const ny = Number.parseInt(y, 10);
+    const xNumeric = Number.isFinite(nx) && String(nx) === x;
+    const yNumeric = Number.isFinite(ny) && String(ny) === y;
+    if (xNumeric && yNumeric && nx !== ny) return nx > ny ? 1 : -1;
+    if (xNumeric !== yNumeric) return xNumeric ? -1 : 1;
+    if (x !== y) return x > y ? 1 : -1;
   }
   return 0;
+}
+
+/**
+ * Pick the highest non-draft release newer than the running version.
+ * Stable ignores prereleases; beta includes both stable and prerelease builds.
+ */
+export function selectMacRelease(releases, { currentVersion, channel = 'stable' } = {}) {
+  const beta = channel === 'beta';
+  let best = null;
+  for (const release of Array.isArray(releases) ? releases : []) {
+    if (!release || release.draft) continue;
+    if (!beta && release.prerelease) continue;
+    const version = String(release.tag_name || '').replace(/^v/i, '');
+    if (!version || compareVersions(version, currentVersion) <= 0) continue;
+    if (!best || compareVersions(version, best.version) > 0) {
+      best = { release, version };
+    }
+  }
+  return best;
 }
 
 // Prefer the zip that matches the running architecture; universal covers both.
@@ -82,21 +123,38 @@ export function parseLatestMacYml(text) {
 export async function checkMacUpdate({
   currentVersion,
   arch = process.arch,
+  channel = 'stable',
   fetchImpl = fetch,
 } = {}) {
-  const response = await fetchImpl(LATEST_RELEASE_URL, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Relay-Updater' },
-  });
-  if (!response.ok) {
-    throw new Error(`GitHub release check failed (HTTP ${response.status}).`);
+  const beta = channel === 'beta';
+  let release;
+  if (beta) {
+    const response = await fetchImpl(RELEASES_URL, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Relay-Updater' },
+    });
+    if (!response.ok) {
+      throw new Error(`GitHub release check failed (HTTP ${response.status}).`);
+    }
+    const releases = await response.json();
+    const selected = selectMacRelease(releases, { currentVersion, channel });
+    if (!selected) return { available: false, version: currentVersion, channel };
+    release = selected.release;
+  } else {
+    const response = await fetchImpl(LATEST_RELEASE_URL, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Relay-Updater' },
+    });
+    if (!response.ok) {
+      throw new Error(`GitHub release check failed (HTTP ${response.status}).`);
+    }
+    release = await response.json();
+    if (!release || release.draft || release.prerelease) {
+      return { available: false, reason: 'no-release', channel };
+    }
   }
-  const release = await response.json();
-  if (!release || release.draft || release.prerelease) {
-    return { available: false, reason: 'no-release' };
-  }
+
   const version = String(release.tag_name || '').replace(/^v/i, '');
   if (!version || compareVersions(version, currentVersion) <= 0) {
-    return { available: false, version };
+    return { available: false, version, channel };
   }
 
   const metaAsset = (release.assets || []).find((asset) => asset.name === 'latest-mac.yml');
@@ -117,6 +175,8 @@ export async function checkMacUpdate({
   return {
     available: true,
     version,
+    channel,
+    prerelease: release.prerelease === true,
     assetName: asset.name,
     url: asset.browser_download_url,
     sha512: file.sha512,
@@ -131,6 +191,7 @@ export async function downloadToFile(url, destination, { onProgress, fetchImpl =
   const total = Number(response.headers.get('content-length')) || 0;
   const stream = fs.createWriteStream(destination);
   let received = 0;
+  let failed = false;
   try {
     for await (const chunk of response.body) {
       received += chunk.length;
@@ -143,10 +204,21 @@ export async function downloadToFile(url, destination, { onProgress, fetchImpl =
         percent: total > 0 ? Math.min(100, (received / total) * 100) : null,
       });
     }
+  } catch (err) {
+    failed = true;
+    throw err;
   } finally {
     await new Promise((resolve, reject) => {
-      stream.end((err) => (err ? reject(err) : resolve()));
+      stream.end((err) => {
+        if (err) {
+          failed = true;
+          reject(err);
+          return;
+        }
+        resolve();
+      });
     });
+    if (failed) fs.rmSync(destination, { force: true });
   }
   return { size: received };
 }
@@ -174,7 +246,14 @@ set -u
 PID=${Number(pid)}
 APP=${shellQuote(appPath)}
 ZIP=${shellQuote(zipPath)}
+SCRIPT="$0"
 BACKUP="\${APP}.relay-backup"
+TMP=""
+cleanup() {
+  if [ -n "$TMP" ]; then /bin/rm -rf "$TMP"; fi
+  /bin/rm -f "$ZIP" "$SCRIPT"
+}
+trap cleanup EXIT
 while /bin/kill -0 "$PID" 2>/dev/null; do /bin/sleep 0.5; done
 TMP="$(/usr/bin/mktemp -d "\${TMPDIR:-/tmp}/relay-update.XXXXXX")" || exit 1
 if ! /usr/bin/ditto -x -k "$ZIP" "$TMP"; then exit 1; fi
@@ -186,6 +265,7 @@ if /usr/bin/ditto "$NEW_APP" "$APP"; then
   /usr/bin/xattr -dr com.apple.quarantine "$APP" >/dev/null 2>&1 || true
   /usr/bin/open "$APP"
   /bin/rm -rf "$BACKUP" "$TMP" "$ZIP"
+  TMP=""
 else
   /bin/rm -rf "$APP"
   /bin/mv "$BACKUP" "$APP"
@@ -193,4 +273,32 @@ else
   exit 1
 fi
 `;
+}
+
+
+/**
+ * Best-effort removal of leftovers from a previous crash. Only old files are
+ * touched so an installer that is still running is never deleted.
+ */
+export function cleanupStaleUpdateFiles(dir, { now = Date.now(), maxAgeMs = 24 * 60 * 60 * 1000 } = {}) {
+  let names;
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const name of names) {
+    if (!/^relay-(update|install)-/.test(name)) continue;
+    const target = `${dir}/${name}`;
+    try {
+      const stat = fs.statSync(target);
+      if (stat.mtimeMs > now - maxAgeMs) continue;
+      fs.rmSync(target, { recursive: true, force: true });
+      removed += 1;
+    } catch {
+      /* best-effort */
+    }
+  }
+  return removed;
 }

@@ -6584,3 +6584,21 @@ select:not([multiple])::-ms-expand {
   border-color: var(--accent);
   color: var(--text);
 }
+
+
+.update-channel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+.update-channel select {
+  min-width: 110px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-3);
+  color: var(--text);
+  font-size: 12px;
+}

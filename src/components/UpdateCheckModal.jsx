@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Modal from './Modal.jsx';
 import Icon from './Icon.jsx';
 
@@ -28,6 +28,8 @@ export default function UpdateCheckModal({
   status,
   platform,
   autoInstall,
+  channel = 'stable',
+  onChangeChannel,
   onToggleAutoInstall,
   onInstall,
   onMacInstall,
@@ -38,8 +40,16 @@ export default function UpdateCheckModal({
 }) {
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState('');
+  const [localStatus, setLocalStatus] = useState(null);
   const isMac = platform === 'darwin';
-  const ready = status?.state === 'ready' || (isMac && status?.state === 'available');
+  const displayStatus = localStatus || status;
+  const ready =
+    displayStatus?.state === 'ready' || (isMac && displayStatus?.state === 'available');
+
+  useEffect(() => {
+    setLocalStatus(null);
+    setCheckError('');
+  }, [channel]);
 
   async function check() {
     const api = typeof window !== 'undefined' ? window.api : null;
@@ -50,8 +60,21 @@ export default function UpdateCheckModal({
     setChecking(true);
     setCheckError('');
     try {
-      const result = await api.checkForUpdates();
-      if (!result?.ok) setCheckError(result?.error || 'Could not check for updates.');
+      if (isMac && api.macCheckUpdate) {
+        const result = await api.macCheckUpdate({ channel });
+        if (!result?.ok) {
+          setCheckError(result?.error || 'Could not check for updates.');
+        } else {
+          setLocalStatus(
+            result.data?.available
+              ? { state: 'available', version: result.data.version }
+              : { state: 'none', version: result.data?.version }
+          );
+        }
+      } else {
+        const result = await api.checkForUpdates({ channel });
+        if (!result?.ok) setCheckError(result?.error || 'Could not check for updates.');
+      }
     } catch (err) {
       setCheckError(err?.message || String(err));
     } finally {
@@ -75,9 +98,9 @@ export default function UpdateCheckModal({
             className="mini-btn"
             data-testid="update-check"
             onClick={check}
-            disabled={checking || status?.state === 'checking'}
+            disabled={checking || displayStatus?.state === 'checking'}
           >
-            {checking || status?.state === 'checking' ? 'Checking…' : 'Check for updates'}
+            {checking || displayStatus?.state === 'checking' ? 'Checking…' : 'Check for updates'}
           </button>
           {ready &&
             (isMac ? (
@@ -107,20 +130,31 @@ export default function UpdateCheckModal({
         </div>
         <h3 className="update-title">Relay {version || '…'}</h3>
         <p className="auth-hint" data-testid="update-check-status">
-          {statusLabel(status)}
+          {statusLabel(displayStatus)}
         </p>
-        {(progress?.percent != null || status?.state === 'downloading') && (
+        {(progress?.percent != null || displayStatus?.state === 'downloading') && (
           <div className="update-progress" data-testid="update-progress">
             <div
               style={{
                 width: `${Math.max(
                   0,
-                  Math.min(100, progress?.percent ?? status?.percent ?? 0)
+                  Math.min(100, progress?.percent ?? displayStatus?.percent ?? 0)
                 )}%`,
               }}
             />
           </div>
         )}
+        <label className="settings-check update-channel">
+          <span>Update channel</span>
+          <select
+            data-testid="update-channel"
+            value={channel}
+            onChange={(event) => onChangeChannel?.(event.target.value)}
+          >
+            <option value="stable">Stable</option>
+            <option value="beta">Beta</option>
+          </select>
+        </label>
         {!isMac && (
           <label className="settings-check update-auto">
             <input

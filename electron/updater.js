@@ -127,7 +127,7 @@ export function updateStatus(event, payload = {}) {
  * `autoUpdater` is injectable so tests can exercise the wiring without
  * importing electron-updater, and so Electron-only code stays lazy.
  */
-export async function initAutoUpdate({ app, autoUpdater, onStatus } = {}) {
+export async function initAutoUpdate({ app, autoUpdater, onStatus, channel = 'stable' } = {}) {
   if (!app) return null;
 
   const disabled = process.env.RELAY_DISABLE_UPDATER === '1';
@@ -142,6 +142,12 @@ export async function initAutoUpdate({ app, autoUpdater, onStatus } = {}) {
       return null;
     }
   }
+
+  // Beta channel opts into prerelease feeds. The custom macOS installer has
+  // its own channel handling, but electron-updater still needs this flag for
+  // Windows/Linux (and for the initial mac availability check).
+  if ('allowPrerelease' in updater) updater.allowPrerelease = channel === 'beta';
+  if ('channel' in updater) updater.channel = channel === 'beta' ? 'beta' : 'latest';
 
   // Download in the background. The renderer owns the prompt; installing on
   // quit is opt-in via the "silent update" preference.
