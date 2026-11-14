@@ -2663,6 +2663,7 @@ export default function App() {
             setRailView('docs');
           }}
           workspaceId={store.activeWorkspaceId}
+          workspaceName={store.activeWorkspace?.name || ''}
           pinnedIds={pinnedState.ids}
           onTogglePin={togglePin}
           query={globalSearch}

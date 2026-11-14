@@ -27,6 +27,29 @@ export const ACCENTS = [
   { id: 'red', label: 'Red' },
 ];
 
+export const ACCENT_HEX = Object.freeze({
+  indigo: '#6366f1',
+  postman: '#ff6c37',
+  sky: '#0ea5e9',
+  emerald: '#10b981',
+  violet: '#a855f7',
+  rose: '#f43f5e',
+  amber: '#f59e0b',
+  slate: '#64748b',
+  teal: '#14b8a6',
+  cyan: '#06b6d4',
+  blue: '#3b82f6',
+  fuchsia: '#d946ef',
+  pink: '#ec4899',
+  red: '#ef4444',
+});
+
+export function accentHex(appearance) {
+  const next = normalizeAppearance(appearance);
+  if (next.accent === 'custom' && next.customAccent) return next.customAccent;
+  return ACCENT_HEX[next.accent] || ACCENT_HEX.indigo;
+}
+
 export const DEFAULT_APPEARANCE = Object.freeze({ mode: 'system', accent: 'indigo' });
 
 export function normalizeHex(value) {

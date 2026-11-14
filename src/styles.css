@@ -6602,3 +6602,106 @@ select:not([multiple])::-ms-expand {
   color: var(--text);
   font-size: 12px;
 }
+
+/* ===== Documentation export ===== */
+.docs-export-section-title {
+  margin: 16px 0 8px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.docs-export-templates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.docs-export-template {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-2);
+  cursor: pointer;
+}
+.docs-export-template.active {
+  border-color: var(--accent);
+  background: rgb(var(--accent-rgb) / 0.08);
+}
+.docs-export-template input {
+  align-self: flex-start;
+  margin: 0 0 2px;
+}
+.docs-export-template strong {
+  font-size: 12.5px;
+}
+.docs-export-template span {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.docs-export-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+.docs-export-grid .form-row {
+  margin-bottom: 8px;
+}
+.docs-export-grid .form-row span {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.docs-export-grid input,
+.docs-export-grid select,
+.docs-export textarea {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-3);
+  color: var(--text);
+  font: inherit;
+}
+.docs-export-grid input[type='color'] {
+  padding: 3px;
+  height: 34px;
+}
+.docs-export-wide {
+  grid-column: 1 / -1;
+}
+.docs-export-check {
+  margin: 8px 0 0;
+}
+.docs-export-preview {
+  width: 100%;
+  height: 58vh;
+  min-height: 360px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+}
+@media (max-width: 640px) {
+  .docs-export-templates,
+  .docs-export-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+.docs-export-preview-wrap {
+  position: relative;
+}
+.docs-export-preview-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font-size: 12px;
+  border-radius: 7px;
+}

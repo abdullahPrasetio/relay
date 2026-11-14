@@ -15,6 +15,7 @@ import {
 } from '../lib/collectionTree.js';
 import { toPostmanCollection } from '../lib/postmanFormat.js';
 import { collectionToHtml, suggestDocsName } from '../lib/apiDocs.js';
+import ExportDocsModal from './ExportDocsModal.jsx';
 import { importAny } from '../lib/import/index.js';
 import { toPostmanEnvironment, fromPostmanEnvironment } from '../lib/environmentFormat.js';
 import TreeNode from './TreeNode.jsx';
@@ -60,6 +61,7 @@ function collectFolderIds(items, out) {
 
 export default function Sidebar({
   workspaceId = null,
+  workspaceName = '',
   collections,
   onChangeCollections,
   environments,
@@ -105,6 +107,7 @@ export default function Sidebar({
   const [historyMethod, setHistoryMethod] = useState('all');
   const [historyStatus, setHistoryStatus] = useState('all');
   const [collectionMenu, setCollectionMenu] = useState(null); // { id, x, y }
+  const [docsExportCollection, setDocsExportCollection] = useState(null);
 
   const dnd = {
     onDragStart(collectionId, nodeId) {
@@ -204,20 +207,20 @@ export default function Sidebar({
 
   // Static HTML API docs. Uses the native save dialog when the Electron
   // bridge is available and a Blob download in the browser.
-  async function exportDocs(collection) {
-    const html = collectionToHtml(collection);
+  async function exportDocs(collection, options = {}) {
+    const html = collectionToHtml(collection, { workspaceName, ...options });
     const suggestedName = suggestDocsName(collection);
     const bridge = typeof window !== 'undefined' ? window.api : null;
     if (bridge?.saveResponse) {
       try {
         const result = await bridge.saveResponse({ suggestedName, text: html });
-        if (result?.saved === false && result.error) {
-          dialogs.alert(result.error, { title: 'Export Docs' });
+        if (result?.saved === false) {
+          return result.error ? { ok: false, error: result.error } : { ok: false };
         }
+        return { ok: true };
       } catch (err) {
-        dialogs.alert(err.message, { title: 'Export Docs' });
+        return { ok: false, error: err.message || String(err) };
       }
-      return;
     }
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
@@ -226,6 +229,7 @@ export default function Sidebar({
     a.download = suggestedName;
     a.click();
     URL.revokeObjectURL(url);
+    return { ok: true };
   }
 
   function onImportClick() {
@@ -325,7 +329,7 @@ export default function Sidebar({
         },
       },
       { label: 'Export (Postman v2.1)', onClick: () => exportCollection(collection) },
-      { label: 'Export docs (HTML)', onClick: () => exportDocs(collection) },
+      { label: 'Export docs…', onClick: () => setDocsExportCollection(collection) },
       { label: 'Sync to Confluence…', onClick: () => onSyncConfluence?.(collection.id) },
       { label: 'Delete', danger: true, onClick: () => deleteCollection(collection.id, collection.name) },
     ];
@@ -634,6 +638,14 @@ export default function Sidebar({
             </div>
           ))}
         </div>
+      )}
+      {docsExportCollection && (
+        <ExportDocsModal
+          collection={docsExportCollection}
+          workspaceName={workspaceName}
+          onExport={(options) => exportDocs(docsExportCollection, options)}
+          onClose={() => setDocsExportCollection(null)}
+        />
       )}
     </aside>
   );

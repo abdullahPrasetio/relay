@@ -274,6 +274,49 @@ describe('collectionToHtml', () => {
 
 });
 
+describe('document templates and metadata', () => {
+  it('renders template, theme, accent, author, recipient and disclaimer', () => {
+    const html = collectionToHtml(fixture(), {
+      generatedAt: '2026-10-27T12:00:00.000Z',
+      template: 'professional',
+      theme: 'dark',
+      accent: '#ff0000',
+      language: 'id',
+      documentTitle: 'Custom <Docs>',
+      author: 'Alice <Security>',
+      preparedFor: 'Bob & Team',
+      organization: 'Acme',
+      version: '1.2',
+      classification: 'Internal',
+      disclaimer: 'No <liability> accepted.',
+    });
+
+    expect(html).toContain('<html lang="id" data-theme="dark" style="--accent: #ff0000">');
+    expect(html).toContain('body class="docs-page template-professional"');
+    expect(html).toContain('Disusun oleh');
+    expect(html).toContain('Ditujukan untuk');
+    expect(html).toContain('Penafian');
+    expect(html).toContain('Custom &lt;Docs&gt;');
+    expect(html).toContain('Alice &lt;Security&gt;');
+    expect(html).toContain('Bob &amp; Team');
+    expect(html).toContain('No &lt;liability&gt; accepted.');
+    expect(html).not.toContain('Alice <Security>');
+    expect(html).not.toContain('No <liability>');
+  });
+
+  it('supports minimal and system themes, and omits an empty disclaimer', () => {
+    const html = collectionToHtml(fixture(), {
+      generatedAt: '2026-10-27T12:00:00.000Z',
+      template: 'minimal',
+      theme: 'system',
+      disclaimer: '',
+    });
+    expect(html).toContain('template-minimal');
+    expect(html).toContain('data-theme="system"');
+    expect(html).not.toContain('class="disclaimer"');
+  });
+});
+
 describe('suggestDocsName', () => {
   it('slugifies the collection name and appends the docs extension', () => {
     expect(suggestDocsName({ name: 'Payments API & Stuff' })).toBe(
