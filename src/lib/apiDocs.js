@@ -530,22 +530,30 @@ const STYLE = `
   .template-minimal header.docs-header { border-bottom: 2px solid var(--border); padding-bottom: 1.4rem; }
   .template-minimal .disclaimer { border: 1px solid var(--border); border-left: 3px solid var(--accent); }
   .docs { position: relative; z-index: 1; }
-  .watermark {
+  .watermark-layer {
     position: fixed;
-    z-index: 0;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%) rotate(-28deg);
-    color: var(--text);
-    opacity: .055;
-    font-size: clamp(38px, 6vw, 72px);
-    font-weight: 800;
-    letter-spacing: .08em;
-    text-align: center;
-    white-space: nowrap;
+    inset: 0;
+    z-index: 2;
+    overflow: hidden;
     pointer-events: none;
     user-select: none;
   }
+  .watermark {
+    position: absolute;
+    color: var(--text);
+    opacity: .045;
+    font-size: clamp(20px, 3.2vw, 46px);
+    font-weight: 800;
+    letter-spacing: .08em;
+    white-space: nowrap;
+    transform: rotate(-28deg);
+  }
+  .watermark-1 { left: 2%; top: 12%; }
+  .watermark-2 { left: 38%; top: 10%; }
+  .watermark-3 { left: 74%; top: 12%; }
+  .watermark-4 { left: 2%; top: 55%; }
+  .watermark-5 { left: 38%; top: 53%; }
+  .watermark-6 { left: 74%; top: 55%; }
   .appendix h2 { margin-top: 0; }
   .appendix h3 { margin: 1rem 0 .4rem; font-size: .9rem; }
   .appendix-tree { list-style: none; margin: 0; padding: 0; }
@@ -694,7 +702,13 @@ export function collectionToHtml(
       'Relay documentation'
     : '';
   const watermarkHtml = watermarkLabel
-    ? `<div class="watermark" aria-hidden="true">${escapeHtml(watermarkLabel)}</div>`
+    ? `<div class="watermark-layer" aria-hidden="true">${Array.from(
+        { length: 6 },
+        (_, index) =>
+          `<span class="watermark watermark-${index + 1}">${escapeHtml(
+            watermarkLabel
+          )}</span>`
+      ).join('')}</div>`
     : '';
   const resolvedFrom =
     resolveVariables && environment?.name

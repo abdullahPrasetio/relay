@@ -273,8 +273,11 @@ export default function ExportDocsModal({
                 onChange={(event) => set({ watermark: event.target.checked })}
                 data-testid="docs-export-watermark"
               />
-              Include watermark
+              Include watermark (on by default)
             </label>
+            <p className="auth-hint docs-export-hint">
+              Uncheck to remove the watermark from this export. New exports start with it on.
+            </p>
             <label className="form-row">
               <span>Watermark text (leave empty for Prepared by / Prepared for)</span>
               <input

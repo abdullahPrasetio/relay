@@ -63,7 +63,9 @@ export function normalizeDocsOptions(raw) {
       : DEFAULT_DOCS_OPTIONS.language,
     includeExamples: src.includeExamples !== false,
     resolveVariables: src.resolveVariables !== false,
-    watermark: src.watermark !== false,
+    // Watermark is mandatory-by-default; unchecking only affects the
+    // current export and is not persisted as the next default.
+    watermark: true,
     watermarkText: text(src.watermarkText),
     includeCollectionSummary: src.includeCollectionSummary !== false,
     includeCollectionJson: src.includeCollectionJson === true,

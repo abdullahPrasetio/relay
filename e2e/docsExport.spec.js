@@ -36,6 +36,14 @@ test('exports documentation with template, metadata and disclaimer', async () =>
     expect(html).toContain('Lampiran collection');
     expect(html).toContain('Definisi collection (JSON)');
     expect(html).not.toContain('<script');
+
+    await page.getByTestId('docs-export-preview-toggle').click();
+    await page.getByTestId('docs-export-watermark').uncheck();
+    await page.getByTestId('docs-export-preview-toggle').click();
+    const withoutWatermark = await page
+      .getByTestId('docs-export-preview')
+      .evaluate((node) => node.srcdoc);
+    expect(withoutWatermark).not.toContain('Disusun oleh Alice • Untuk Bob');
   } finally {
     await closeApp(session);
   }

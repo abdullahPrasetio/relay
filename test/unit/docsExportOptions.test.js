@@ -38,6 +38,7 @@ describe('documentation export options', () => {
     const options = normalizeDocsOptions({});
     expect(options.resolveVariables).toBe(true);
     expect(options.watermark).toBe(true);
+    expect(normalizeDocsOptions({ watermark: false }).watermark).toBe(true);
     expect(options.includeCollectionSummary).toBe(true);
     expect(options.includeCollectionJson).toBe(false);
     expect(options.watermarkText).toBe('');

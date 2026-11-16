@@ -294,6 +294,7 @@ describe('variable resolution, watermark and appendix', () => {
     expect(html).toContain('https://api.test/42/form');
     expect(html).toContain('Variables resolved from: Sandbox');
     expect(html).toContain('Prepared by Alice • For Bob');
+    expect((html.match(/class="watermark watermark-/g) || []).length).toBe(6);
     expect(html).toContain('Collection appendix');
     expect(html).toContain('Collection summary');
     expect(html).toContain('Collection definition (JSON)');
