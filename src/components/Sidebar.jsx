@@ -208,9 +208,28 @@ export default function Sidebar({
   // Static HTML API docs. Uses the native save dialog when the Electron
   // bridge is available and a Blob download in the browser.
   async function exportDocs(collection, options = {}) {
-    const html = collectionToHtml(collection, { workspaceName, ...options });
-    const suggestedName = suggestDocsName(collection);
+    const environment = (environments || []).find((entry) => entry.id === activeEnvId) || null;
+    const html = collectionToHtml(collection, {
+      workspaceName,
+      environment,
+      globals,
+      ...options,
+    });
     const bridge = typeof window !== 'undefined' ? window.api : null;
+    if (options.format === 'pdf') {
+      if (!bridge?.exportDocsPdf) {
+        return { ok: false, error: 'PDF export requires the desktop app.' };
+      }
+      try {
+        return await bridge.exportDocsPdf({
+          html,
+          suggestedName: suggestDocsName(collection).replace(/\.html$/i, '.pdf'),
+        });
+      } catch (err) {
+        return { ok: false, error: err?.message || String(err) };
+      }
+    }
+    const suggestedName = suggestDocsName(collection);
     if (bridge?.saveResponse) {
       try {
         const result = await bridge.saveResponse({ suggestedName, text: html });
@@ -643,6 +662,8 @@ export default function Sidebar({
         <ExportDocsModal
           collection={docsExportCollection}
           workspaceName={workspaceName}
+          environment={(environments || []).find((entry) => entry.id === activeEnvId) || null}
+          globals={globals}
           onExport={(options) => exportDocs(docsExportCollection, options)}
           onClose={() => setDocsExportCollection(null)}
         />

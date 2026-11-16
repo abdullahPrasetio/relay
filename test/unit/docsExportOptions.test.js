@@ -34,6 +34,15 @@ describe('documentation export options', () => {
     expect(normalized.disclaimer).toBe(DEFAULT_DOCS_DISCLAIMER);
   });
 
+  it('defaults advanced options to safe values', () => {
+    const options = normalizeDocsOptions({});
+    expect(options.resolveVariables).toBe(true);
+    expect(options.watermark).toBe(true);
+    expect(options.includeCollectionSummary).toBe(true);
+    expect(options.includeCollectionJson).toBe(false);
+    expect(options.watermarkText).toBe('');
+  });
+
   it('round-trips through storage', () => {
     const storage = memoryStorage();
     expect(writeDocsOptions({ ...DEFAULT_DOCS_OPTIONS, author: 'Alice', template: 'minimal' }, storage)).toBe(true);

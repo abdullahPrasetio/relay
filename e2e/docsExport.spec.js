@@ -16,6 +16,12 @@ test('exports documentation with template, metadata and disclaimer', async () =>
     await page.getByTestId('docs-export-author').fill('Alice');
     await page.getByTestId('docs-export-prepared-for').fill('Bob');
     await page.getByTestId('docs-export-disclaimer').fill('No liability accepted.');
+    await page.getByTestId('docs-export-json').check();
+    await expect(page.getByTestId('docs-export-json')).toBeChecked();
+    await expect(page.getByTestId('docs-export-summary')).toBeChecked();
+    await expect(page.getByTestId('docs-export-resolve-vars')).toBeChecked();
+    await expect(page.getByTestId('docs-export-watermark')).toBeChecked();
+    await expect(page.getByTestId('docs-export-pdf')).toBeVisible();
 
     await page.getByTestId('docs-export-preview-toggle').click();
     const html = await page.getByTestId('docs-export-preview').evaluate((node) => node.srcdoc);
@@ -26,6 +32,9 @@ test('exports documentation with template, metadata and disclaimer', async () =>
     expect(html).toContain('Alice');
     expect(html).toContain('Bob');
     expect(html).toContain('No liability accepted.');
+    expect(html).toContain('Disusun oleh Alice • Untuk Bob');
+    expect(html).toContain('Lampiran collection');
+    expect(html).toContain('Definisi collection (JSON)');
     expect(html).not.toContain('<script');
   } finally {
     await closeApp(session);

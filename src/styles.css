@@ -6705,3 +6705,8 @@ select:not([multiple])::-ms-expand {
   font-size: 12px;
   border-radius: 7px;
 }
+
+.docs-export-hint {
+  margin: 2px 0 8px;
+  font-size: 11.5px;
+}

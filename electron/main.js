@@ -844,6 +844,46 @@ function registerIpc() {
     }
   });
 
+  ipcMain.handle('docs:export-pdf', async (_event, payload = {}) => {
+    const html = typeof payload?.html === 'string' ? payload.html : '';
+    if (!html) return { ok: false, error: 'The documentation HTML is empty.' };
+    const suggestedName = String(payload?.suggestedName || 'documentation.pdf');
+    const tempPath = path.join(
+      app.getPath('temp'),
+      `relay-docs-${Date.now()}-${process.pid}.html`
+    );
+    let win = null;
+    try {
+      fs.writeFileSync(tempPath, html, 'utf8');
+      win = new BrowserWindow({
+        show: false,
+        webPreferences: {
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          javascript: false,
+        },
+      });
+      await win.loadFile(tempPath);
+      const pdf = await win.webContents.printToPDF({
+        printBackground: true,
+        pageSize: 'A4',
+      });
+      const result = await dialog.showSaveDialog(mainWindow || undefined, {
+        defaultPath: suggestedName,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (result.canceled) return { ok: true, saved: false };
+      fs.writeFileSync(result.filePath, pdf);
+      return { ok: true, saved: true, filePath: result.filePath };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    } finally {
+      if (win && !win.isDestroyed()) win.destroy();
+      fs.rmSync(tempPath, { force: true });
+    }
+  });
+
   ipcMain.handle('updater:get-status', () => lastUpdateStatus);
   ipcMain.handle('updater:mac-check', async (_event, payload = {}) => {
     if (process.platform !== 'darwin') {

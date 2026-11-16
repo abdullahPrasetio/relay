@@ -274,6 +274,50 @@ describe('collectionToHtml', () => {
 
 });
 
+describe('variable resolution, watermark and appendix', () => {
+  it('resolves non-secret variables and leaves secrets redacted', () => {
+    const html = collectionToHtml(fixture(), {
+      generatedAt: '2026-10-27T12:00:00.000Z',
+      environment: {
+        name: 'Sandbox',
+        variables: [{ key: 'id', value: '42', enabled: true, type: 'default' }],
+      },
+      globals: [{ key: 'region', value: 'ap-southeast', enabled: true, type: 'default' }],
+      resolveVariables: true,
+      author: 'Alice',
+      preparedFor: 'Bob',
+      watermark: true,
+      includeCollectionSummary: true,
+      includeCollectionJson: true,
+    });
+
+    expect(html).toContain('https://api.test/42/form');
+    expect(html).toContain('Variables resolved from: Sandbox');
+    expect(html).toContain('Prepared by Alice • For Bob');
+    expect(html).toContain('Collection appendix');
+    expect(html).toContain('Collection summary');
+    expect(html).toContain('Collection definition (JSON)');
+    expect(html).toContain('&quot;key&quot;: &quot;baseUrl&quot;');
+    expect(html).toContain('&quot;value&quot;: &quot;https://api.test&quot;');
+    expect(html).toContain('&quot;value&quot;: &quot;••••&quot;');
+    expect(html).not.toContain(SECRET);
+    expect(html).not.toContain('auth-secret-token');
+  });
+
+  it('can disable resolution and appendix output', () => {
+    const html = collectionToHtml(fixture(), {
+      generatedAt: '2026-10-27T12:00:00.000Z',
+      resolveVariables: false,
+      watermark: false,
+      includeCollectionSummary: false,
+      includeCollectionJson: false,
+    });
+    expect(html).toContain('https://api.test/{{id}}/form');
+    expect(html).not.toContain('Collection appendix');
+    expect(html).not.toContain('class="watermark"');
+  });
+});
+
 describe('document templates and metadata', () => {
   it('renders template, theme, accent, author, recipient and disclaimer', () => {
     const html = collectionToHtml(fixture(), {

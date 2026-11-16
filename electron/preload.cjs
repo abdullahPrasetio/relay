@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('api', {
   confirmClose: () => ipcRenderer.invoke('app:close-confirmed'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
   getUpdateStatus: () => ipcRenderer.invoke('updater:get-status'),
+  exportDocsPdf: (payload) => ipcRenderer.invoke('docs:export-pdf', payload),
   checkForUpdates: (payload) => ipcRenderer.invoke('updater:check', payload),
   installUpdate: (payload) => ipcRenderer.invoke('updater:install', payload),
   setAutoInstallUpdates: (enabled) => ipcRenderer.invoke('updater:set-auto-install', enabled),
