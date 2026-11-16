@@ -225,7 +225,7 @@ function buildWebSocketUrl(resolved) {
   return url.toString();
 }
 
-function newTab(request) {
+function newTab(request, { dashboard = false } = {}) {
   const req = request ? normalizeRequest(request) : newRequest();
   return {
     tabId: uid('tab'),
@@ -254,9 +254,11 @@ function newTab(request) {
     grpcError: null,
     dirty: false,
     savedCollectionId: null,
-    // The pristine launch tab opens on the workspace dashboard until the user
-    // starts a request; this flag is UI-only and never persisted.
-    dashboardDismissed: false,
+    // Only the untouched launch tab opens on the workspace dashboard; every
+    // other tab is something the user explicitly opened/created. Keying this
+    // off tab identity (not request content) keeps an empty saved request
+    // from being mistaken for the welcome screen.
+    dashboardDismissed: !dashboard,
     // Transient UI intent, e.g. opening a saved example from the sidebar.
     view: null,
   };
@@ -317,7 +319,7 @@ export default function App() {
   // prompts for non-read actions.
   const mcp = useMcpBridge({ store, cloud, appearance });
   const dialogs = useDialogs();
-  const [tabs, setTabs] = useState(() => [newTab()]);
+  const [tabs, setTabs] = useState(() => [newTab(null, { dashboard: true })]);
   const [activeTabId, setActiveTabId] = useState(() => tabs[0].tabId);
   const [pinnedState, setPinnedState] = useState(() => ({
     workspaceId: store.activeWorkspaceId,
@@ -2178,7 +2180,8 @@ export default function App() {
       const { collections: next, node } = addRequest(store.collections, collectionId, folderId, req);
       store.setCollections(next);
       // Rebind the tab to the saved node (so later saves update in place).
-      updateTab(activeTabId, { request: node, dirty: false });
+      // A saved request is real content, so the dashboard must let it show.
+      updateTab(activeTabId, { request: node, dirty: false, dashboardDismissed: true });
       setSaveModal(null);
     },
     [tabs, activeTabId, store, updateTab]
@@ -2203,8 +2206,6 @@ export default function App() {
 
   const addTab = useCallback(() => {
     const tab = newTab();
-    // The + button means "new request", not "go home": skip the dashboard.
-    tab.dashboardDismissed = true;
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.tabId);
   }, []);
@@ -2433,7 +2434,8 @@ export default function App() {
       setTabs((prev) => {
         const next = prev.filter((t) => !ids.has(t.tabId));
         if (next.length === 0) {
-          const fresh = newTab();
+          // Closing the last tab returns to the workspace home, same as launch.
+          const fresh = newTab(null, { dashboard: true });
           setActiveTabId(fresh.tabId);
           return [fresh];
         }

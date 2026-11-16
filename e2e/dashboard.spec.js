@@ -249,3 +249,55 @@ test('secret scan finds neutral variables and marks them secret', async () => {
     await closeApp(session);
   }
 });
+
+test('opening an empty saved request shows the editor, not the dashboard', async () => {
+  // A saved request can legitimately be named "Untitled Request" with an empty
+  // URL (sidebar "Add Request" creates exactly that). The dashboard must only
+  // own the untouched launch tab, otherwise adding/opening such a request
+  // leaves the welcome screen on top and the new request appears missing.
+  const data = seed();
+  data.workspaces[0].collections[0].items.push({
+    id: 'req_blank',
+    type: 'request',
+    name: 'Untitled Request',
+    method: 'GET',
+    url: '',
+  });
+  const userData = makeUserData();
+  fs.writeFileSync(path.join(userData, 'rest-tamer-data.json'), JSON.stringify(data, null, 2));
+  const session = await launchAppAt(userData, {}, { keepDashboard: true });
+  const { page } = session;
+
+  try {
+    await page.waitForSelector('.collection-row');
+    await page.getByTestId('collections-expand-all').click();
+    await page.locator('.request-row', { hasText: 'Untitled Request' }).click();
+
+    await expect(page.getByTestId('workspace-dashboard')).toHaveCount(0);
+    await expect(page.locator('.url-input')).toBeVisible();
+    await expect(page.locator('.req-tab-label.active, .req-tab.active')).toContainText('Untitled Request');
+  } finally {
+    await closeApp(session);
+  }
+});
+
+test('sidebar Add Request opens the editor immediately', async () => {
+  const userData = makeUserData();
+  fs.writeFileSync(path.join(userData, 'rest-tamer-data.json'), JSON.stringify(seed(), null, 2));
+  const session = await launchAppAt(userData, {}, { keepDashboard: true });
+  const { page } = session;
+
+  try {
+    const collection = page.locator('.collection-row').first();
+    await collection.getByTitle('Collection actions').click();
+    await page.getByRole('button', { name: 'Add Request', exact: true }).click();
+
+    await expect(page.getByTestId('workspace-dashboard')).toHaveCount(0);
+    await expect(page.locator('.url-input')).toBeVisible();
+
+    // Adding into a collapsed collection must reveal the new node too.
+    await expect(page.locator('.request-row', { hasText: 'Untitled Request' })).toHaveCount(1);
+  } finally {
+    await closeApp(session);
+  }
+});

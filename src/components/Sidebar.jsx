@@ -9,6 +9,7 @@ import {
   addRequest,
   duplicateNode,
   flattenRequests,
+  findNodePath,
   moveNode,
   moveNodeTo,
   moveNodeBefore,
@@ -309,6 +310,15 @@ export default function Sidebar({
     addRequest(collectionId, parentFolderId) {
       const { collections: next, node } = addRequest(collections, collectionId, parentFolderId);
       onChangeCollections(next);
+      // Reveal the new request: open the collection and every folder above it,
+      // otherwise adding into a collapsed tree looks like nothing happened.
+      const chain = parentFolderId ? findNodePath(next, parentFolderId) || [] : [];
+      setTreeState((prev) => {
+        if (prev.workspaceId !== workspaceId) return prev;
+        const nodes = { ...prev.nodes };
+        for (const item of [collectionId, ...chain.map((entry) => entry.id)]) nodes[item] = true;
+        return { ...prev, nodes };
+      });
       onOpenRequest(node);
     },
     duplicate(collectionId, nodeId) {
