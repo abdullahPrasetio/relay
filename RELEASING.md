@@ -67,21 +67,30 @@ produces an unsigned `.exe` (SmartScreen warns on first run).
   automatic; the user is asked before `quitAndInstall()`.
 - Set `RELAY_DISABLE_UPDATER=1` in the environment to disable checks for a
   broken release.
+- **Beta tags must be GitHub prereleases.** The Stable channel reads
+  `/releases/latest`, which ignores prereleases. The build workflow adds
+  `--prerelease` automatically when the tag contains a semver suffix such as
+  `-beta.1`; a beta published as a normal release can be offered to Stable
+  users. Mark an accidentally normal beta release as prerelease with
+  `gh release edit <tag> --prerelease`.
+- Users can choose Stable or Beta in **Updates**. Beta builds default to the
+  Beta channel; the choice is stored locally and can be changed at any time.
 
 ### macOS limitation
 
-Squirrel.Mac refuses to install an update over an unsigned app. Unsigned mac
-builds (the CI default when no Apple secrets exist) can download an update but
-cannot apply it. Signed **and** notarized builds are required for macOS
-self-update. Additionally, the mac target currently builds a `.dmg` only;
-electron-updater's macOS updater consumes the `.zip` artifact, so add a `zip`
-target to `build.mac.target` before relying on mac auto-update.
+Squirrel.Mac refuses to install an update over an unsigned app. Relay uses its
+custom macOS installer for this case: it downloads the release zip, verifies the
+checksum, swaps the app, and relaunches. The mac target therefore builds both
+`.dmg` and `.zip`; keep the zip target or mac auto-update breaks. Signed **and**
+notarized builds remain the recommended path for Gatekeeper and Squirrel.Mac.
 
 ## Version bump and tag
 
 1. Bump `version` in `package.json` (semver; electron-updater only offers newer
    versions).
-2. Commit, then tag: `git tag v0.2.0 && git push origin v0.2.0`.
+2. Commit, then tag: `git tag v0.2.0 && git push origin v0.2.0` for stable,
+   or `git tag v0.2.0-beta.1 && git push origin v0.2.0-beta.1` for beta.
+   The workflow marks tags containing `-` as GitHub prereleases.
 3. The `release` job attaches artifacts to the GitHub release for the tag. If
    you need update metadata, publish locally with `npm run release` instead, or
    attach the generated `latest*.yml` files to the release manually.

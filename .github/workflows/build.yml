@@ -170,7 +170,14 @@ jobs:
             echo "No installers found in release/" >&2
             exit 1
           fi
+          # A tag with a semver prerelease suffix must never become GitHub's
+          # "latest" release: the Stable update channel reads /releases/latest.
+          prerelease=()
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
           gh release create "${GITHUB_REF_NAME}" "${files[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
             --title "Relay ${GITHUB_REF_NAME}" \
-            --generate-notes
+            --generate-notes \
+            "${prerelease[@]}"
