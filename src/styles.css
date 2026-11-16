@@ -1809,6 +1809,12 @@ input.has-unresolved-var {
   color: var(--red);
 }
 
+.var-tip-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .var-tip-link {
   background: none;
   border: none;

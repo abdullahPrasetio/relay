@@ -16,7 +16,9 @@ export default function EditVariableModal({
   onSave,
 }) {
   const [value, setValue] = useState(variable?.value ?? '');
-  const [scope, setScope] = useState(variable?.scope || scopeOptions[0]?.value || 'globals');
+  const [scope, setScope] = useState(
+    variable?.scope || scopeOptions.find((option) => !option.disabled)?.value || 'globals'
+  );
 
   function submit() {
     onSave({ name: variable.name, scope, value });
@@ -61,7 +63,7 @@ export default function EditVariableModal({
             onChange={(e) => setScope(e.target.value)}
           >
             {scopeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
+              <option key={option.value} value={option.value} disabled={option.disabled}>
                 {option.label}
               </option>
             ))}

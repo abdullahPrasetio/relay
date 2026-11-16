@@ -2047,17 +2047,26 @@ export default function App() {
       const owning = activeTab?.request?.id
         ? findRequestCollection(store.collections, activeTab.request.id)
         : null;
-      const options = [];
-      if (activeEnv) {
-        options.push({ value: 'environment', label: `Environment — ${activeEnv.name}` });
-      }
-      if (owning) {
-        options.push({ value: 'collection', label: `Collection — ${owning.name}` });
-      }
-      options.push({ value: 'globals', label: 'Globals' });
+      const options = [
+        {
+          value: 'environment',
+          label: activeEnv
+            ? `Environment — ${activeEnv.name}`
+            : 'Environment (none active)',
+          disabled: !activeEnv,
+        },
+        {
+          value: 'collection',
+          label: owning
+            ? `Collection — ${owning.name}`
+            : 'Collection (save request first)',
+          disabled: !owning,
+        },
+        { value: 'globals', label: 'Globals' },
+      ];
       setEditVarModal({
         name,
-        scope: hit?.scope || options[0]?.value || 'globals',
+        scope: hit?.scope || options.find((option) => !option.disabled)?.value || 'globals',
         value: hit?.value || '',
         scopeEditable: !hit,
         scopeOptions: options,

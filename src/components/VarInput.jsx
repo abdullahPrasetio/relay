@@ -23,7 +23,7 @@ function scopeLabel(scope) {
 //    action, so variables can be updated from URL, params, headers and auth.
 // Behaves like a normal <input> otherwise.
 export default function VarInput({ value, onChange, className, placeholder, type = 'text', readOnly }) {
-  const { lookup, onSetVariable, onShowVariables } = useVarContext();
+  const { lookup, onSetVariable, onEditVariable, onShowVariables } = useVarContext();
   const [tipOpen, setTipOpen] = useState(false);
   const [selectionText, setSelectionText] = useState('');
 
@@ -105,17 +105,30 @@ export default function VarInput({ value, onChange, className, placeholder, type
                     </span>
                     <span>{scopeLabel(hit?.scope)}</span>
                   </span>
-                  <button
-                    type="button"
-                    className="var-tip-link"
-                    data-testid="variables-in-request"
-                    onClick={() => {
-                      setTipOpen(false);
-                      onShowVariables();
-                    }}
-                  >
-                    Variables in request →
-                  </button>
+                  <span className="var-tip-actions">
+                    <button
+                      type="button"
+                      className="var-tip-link"
+                      data-testid={`var-edit-${name}`}
+                      onClick={() => {
+                        setTipOpen(false);
+                        onEditVariable(name);
+                      }}
+                    >
+                      {hit ? 'Edit' : 'Set variable'}
+                    </button>
+                    <button
+                      type="button"
+                      className="var-tip-link"
+                      data-testid="variables-in-request"
+                      onClick={() => {
+                        setTipOpen(false);
+                        onShowVariables();
+                      }}
+                    >
+                      Variables in request →
+                    </button>
+                  </span>
                 </span>
               </span>
             );
