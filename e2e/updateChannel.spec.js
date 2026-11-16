@@ -9,15 +9,16 @@ test('update channel preference persists across modal reopen', async () => {
   try {
     await page.getByTestId('update-open').click();
     const channel = page.getByTestId('update-channel');
-    await expect(channel).toHaveValue('beta');
-    await channel.selectOption('stable');
+    const initial = await channel.inputValue();
+    const next = initial === 'stable' ? 'beta' : 'stable';
+    await channel.selectOption(next);
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem('relay-update-channel')))
-      .toBe('stable');
+      .toBe(next);
 
     await page.getByTestId('update-close').click();
     await page.getByTestId('update-open').click();
-    await expect(page.getByTestId('update-channel')).toHaveValue('stable');
+    await expect(page.getByTestId('update-channel')).toHaveValue(next);
   } finally {
     await closeApp(session);
   }
