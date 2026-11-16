@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   UPDATE_CHANNEL_KEY,
+  isNewerVersion,
   normalizeUpdateChannel,
   readUpdateChannel,
   statusMatchesChannel,
@@ -27,6 +28,13 @@ describe('update channel preference', () => {
     expect(readUpdateChannel('0.28.0-beta.1', storage)).toBe('stable');
     const beta = memoryStorage({ [UPDATE_CHANNEL_KEY]: 'beta' });
     expect(readUpdateChannel('0.28.0', beta)).toBe('beta');
+  });
+
+  it('detects newer versions and stable-over-prerelease ordering', () => {
+    expect(isNewerVersion('0.30.0-beta.3', '0.30.0-beta.2')).toBe(true);
+    expect(isNewerVersion('0.29.0', '0.30.0-beta.2')).toBe(false);
+    expect(isNewerVersion('0.30.0', '0.30.0-beta.2')).toBe(true);
+    expect(isNewerVersion('0.30.0-beta.2', '0.30.0-beta.2')).toBe(false);
   });
 
   it('ignores statuses emitted for another channel', () => {

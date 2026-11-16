@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Modal from './Modal.jsx';
-import { statusMatchesChannel } from '../lib/updateChannel.js';
+import { isNewerVersion, statusMatchesChannel } from '../lib/updateChannel.js';
 import Icon from './Icon.jsx';
 
 function statusLabel(status) {
@@ -42,8 +42,22 @@ export default function UpdateCheckModal({
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState('');
   const [localStatus, setLocalStatus] = useState(null);
+  const channelRef = useRef(channel);
+  channelRef.current = channel;
   const isMac = platform === 'darwin';
-  const displayStatus = localStatus || (statusMatchesChannel(status, channel) ? status : null);
+  const statusForChannel =
+    localStatus && statusMatchesChannel(localStatus, channel)
+      ? localStatus
+      : status && statusMatchesChannel(status, channel)
+        ? status
+        : null;
+  const displayStatus =
+    statusForChannel &&
+    (statusForChannel.state !== 'available' && statusForChannel.state !== 'ready'
+      ? true
+      : !statusForChannel.version || !version || isNewerVersion(statusForChannel.version, version))
+      ? statusForChannel
+      : null;
   const ready =
     displayStatus?.state === 'ready' || (isMac && displayStatus?.state === 'available');
 
@@ -53,6 +67,7 @@ export default function UpdateCheckModal({
   }, [channel]);
 
   async function check() {
+    const checkChannel = channel;
     const api = typeof window !== 'undefined' ? window.api : null;
     if (!api?.checkForUpdates) {
       setCheckError('Update checks require the desktop app.');
@@ -64,20 +79,26 @@ export default function UpdateCheckModal({
       if (isMac && api.macCheckUpdate) {
         const result = await api.macCheckUpdate({ channel });
         if (!result?.ok) {
-          setCheckError(result?.error || 'Could not check for updates.');
-        } else {
+          if (checkChannel === channelRef.current) {
+            setCheckError(result?.error || 'Could not check for updates.');
+          }
+        } else if (checkChannel === channelRef.current) {
           setLocalStatus(
             result.data?.available
-              ? { state: 'available', version: result.data.version }
-              : { state: 'none', version: result.data?.version }
+              ? { state: 'available', version: result.data.version, channel: checkChannel }
+              : { state: 'none', version: result.data?.version, channel: checkChannel }
           );
         }
       } else {
         const result = await api.checkForUpdates({ channel });
-        if (!result?.ok) setCheckError(result?.error || 'Could not check for updates.');
+        if (!result?.ok && checkChannel === channelRef.current) {
+          setCheckError(result?.error || 'Could not check for updates.');
+        }
       }
     } catch (err) {
-      setCheckError(err?.message || String(err));
+      if (checkChannel === channelRef.current) {
+        setCheckError(err?.message || String(err));
+      }
     } finally {
       setChecking(false);
     }
