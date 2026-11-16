@@ -110,7 +110,7 @@ export default function ExportDocsModal({
             <iframe
               className="docs-export-preview"
               title="Documentation preview"
-              sandbox=""
+              sandbox="allow-scripts"
               srcDoc={html}
               onLoad={() => setPreviewLoaded(true)}
               data-testid="docs-export-preview"

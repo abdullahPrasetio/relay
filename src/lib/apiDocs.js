@@ -1,10 +1,12 @@
 // Static HTML API documentation for a collection.
 //
 // Pure module: no DOM, no Electron. The returned document is a single
-// self-contained HTML string with inline CSS and no scripts or external
-// assets, so it can be saved and opened anywhere. Secrets are never emitted:
+// self-contained HTML string with inline CSS and no external assets. Copy
+// buttons use tiny inline handlers that only read the adjacent <pre> text, so
+// the document still works when saved and opened offline. Secrets are never emitted:
 // `type: 'secret'` variables are rendered as `(secret)` and request auth shows
 // only the scheme name.
+import { toCurl } from './codegen.js';
 import {
   bodyValidationFields,
   normalizeFieldValidations,
@@ -120,6 +122,36 @@ function fieldTable(fields, validations = {}) {
   return kvTable(fields, { validations });
 }
 
+function codeBlock(text, className = '') {
+  return `<div class="code-block${className ? ` ${className}` : ''}"><button type="button" class="copy-btn" title="Copy code" onclick="navigator.clipboard.writeText(this.parentElement.querySelector('pre').innerText).then(()=>{this.textContent='Copied'}).catch(()=>{this.textContent='Copy failed'})">Copy</button><pre>${escapeHtml(
+    text
+  )}</pre></div>`;
+}
+
+function curlRequest(request) {
+  const sensitive = /(authorization|token|secret|password|passphrase|api[-_]?key)/i;
+  return {
+    ...request,
+    auth: { type: 'none' },
+    headers: (request.headers || []).map((row) =>
+      sensitive.test(String(row?.key || '')) ? { ...row, value: '••••' } : row
+    ),
+  };
+}
+
+function renderCurl(request) {
+  const curl = toCurl(curlRequest(request));
+  if (!curl) return '';
+  const authType = request?.auth?.type;
+  const note =
+    authType && authType !== 'none' && authType !== 'inherit'
+      ? '<p class="muted">Auth headers are redacted from this sample.</p>'
+      : '';
+  return `<details class="curl-sample" open><summary>cURL</summary>${note}${codeBlock(
+    curl
+  )}</details>`;
+}
+
 function renderBody(body, fieldValidations) {
   const mode = body?.mode || 'none';
   if (mode === 'none') return '';
@@ -131,7 +163,7 @@ function renderBody(body, fieldValidations) {
     const raw = body?.raw ?? '';
     if (!String(raw).trim()) return '';
     return [
-      `<h4>Body</h4><pre>${escapeHtml(prettyJson(String(raw)))}</pre>`,
+      `<h4>Body</h4>${codeBlock(prettyJson(String(raw)))}`,
       fieldDocs,
     ].join('');
   }
@@ -148,9 +180,9 @@ function renderBody(body, fieldValidations) {
     if (!String(query).trim() && !String(variables).trim()) return '';
     return [
       '<h4>GraphQL query</h4>',
-      `<pre>${escapeHtml(String(query))}</pre>`,
+      codeBlock(String(query)),
       String(variables).trim()
-        ? `<h4>GraphQL variables</h4><pre>${escapeHtml(prettyJson(String(variables)))}</pre>${fieldDocs}`
+        ? `<h4>GraphQL variables</h4>${codeBlock(prettyJson(String(variables)))}${fieldDocs}`
         : '',
     ].join('');
   }
@@ -177,7 +209,7 @@ function renderExamples(examples) {
       `<p class="meta"><span class="status">${escapeHtml(status)}</span>`,
       contentType ? ` · ${escapeHtml(contentType)}` : '',
       '</p>',
-      bodyText.trim() ? `<pre>${escapeHtml(prettyJson(bodyText))}</pre>` : '<p class="muted">(empty body)</p>',
+      bodyText.trim() ? codeBlock(prettyJson(bodyText)) : '<p class="muted">(empty body)</p>',
       '</div>',
     ].join('');
   });
@@ -205,6 +237,7 @@ function renderRequestCard(request, id, includeExamples, resolve = (value) => va
       ? `<p class="description">${escapeHtml(request.description)}</p>`
       : '',
     `<p class="auth">Auth: <code>${escapeHtml(authType)}</code></p>`,
+    renderCurl(request),
     pathFields.length
       ? `<h4>Path variables</h4>${kvTable(pathFields, {
           validations: validations.path,
@@ -418,9 +451,9 @@ function renderAppendix(collection, { includeSummary, includeJson, labels }) {
     ? `<h3>${escapeHtml(labels.summary)}</h3>${renderSummaryItems(collection.items)}`
     : '';
   const definition = includeJson
-    ? `<h3>${escapeHtml(labels.definition)}</h3><pre>${escapeHtml(
+    ? `<h3>${escapeHtml(labels.definition)}</h3>${codeBlock(
         JSON.stringify(redactCollection(collection), null, 2)
-      )}</pre>`
+      )}`
     : '';
   return `<section class="appendix"><h2>${escapeHtml(labels.appendix)}</h2>${summary}${definition}</section>`;
 }
@@ -561,8 +594,37 @@ const STYLE = `
   .appendix-folder strong { font-size: .92rem; }
   .appendix-request { color: var(--muted); }
   .appendix-request .method { min-width: 3.5rem; margin-right: .25rem; }
+  .code-block { position: relative; }
+  .code-block pre { margin: 0; }
+  .copy-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--muted);
+    font: 600 10px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    cursor: pointer;
+    opacity: .6;
+    transition: opacity .12s;
+  }
+  .code-block:hover .copy-btn,
+  .copy-btn:focus { opacity: 1; }
+  .curl-sample { margin: .7rem 0; }
+  .curl-sample summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: .8rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .curl-sample .code-block { margin-top: .4rem; }
   @page { size: A4; margin: 14mm; }
   @media print {
+    .copy-btn { display: none; }
     body { background: #fff; color: #000; padding: 0; }
     .docs { max-width: none; }
     header.docs-header, .toc, .variables, .folder, .request, .disclaimer { break-inside: avoid; border-color: #ccc; }

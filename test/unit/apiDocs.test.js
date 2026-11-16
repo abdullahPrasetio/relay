@@ -203,6 +203,15 @@ describe('collectionToHtml', () => {
     expect(html).not.toContain('auth-secret-token');
   });
 
+  it('includes copyable cURL samples with redacted auth headers', () => {
+    const html = collectionToHtml(fixture(), { generatedAt: '2026-10-27T12:00:00.000Z' });
+    expect(html).toContain('<details class="curl-sample" open><summary>cURL</summary>');
+    expect(html).toContain('curl --location --request GET');
+    expect(html).toContain('class="copy-btn"');
+    expect(html).toContain('Auth headers are redacted from this sample.');
+    expect(html).not.toContain('auth-secret-token');
+  });
+
   it('includes saved examples by default and omits them on request', () => {
     const withExamples = collectionToHtml(fixture(), {
       generatedAt: '2026-10-27T12:00:00.000Z',
