@@ -29,3 +29,9 @@ export function writeUpdateChannel(channel, storage) {
     return false;
   }
 }
+
+
+/** Ignore a status emitted for another channel (for example a stale beta check). */
+export function statusMatchesChannel(status, channel) {
+  return !status?.channel || status.channel === channel;
+}
