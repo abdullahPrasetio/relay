@@ -3,6 +3,7 @@ import {
   UPDATE_CHANNEL_KEY,
   normalizeUpdateChannel,
   readUpdateChannel,
+  statusMatchesChannel,
   writeUpdateChannel,
 } from '../../src/lib/updateChannel.js';
 
@@ -26,6 +27,13 @@ describe('update channel preference', () => {
     expect(readUpdateChannel('0.28.0-beta.1', storage)).toBe('stable');
     const beta = memoryStorage({ [UPDATE_CHANNEL_KEY]: 'beta' });
     expect(readUpdateChannel('0.28.0', beta)).toBe('beta');
+  });
+
+  it('ignores statuses emitted for another channel', () => {
+    expect(statusMatchesChannel({ state: 'available', channel: 'beta' }, 'stable')).toBe(false);
+    expect(statusMatchesChannel({ state: 'available', channel: 'beta' }, 'beta')).toBe(true);
+    expect(statusMatchesChannel({ state: 'none' }, 'stable')).toBe(true);
+    expect(statusMatchesChannel(null, 'stable')).toBe(true);
   });
 
   it('normalizes and persists unknown values as stable', () => {

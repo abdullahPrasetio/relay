@@ -354,6 +354,7 @@ export default function App() {
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [autoInstallUpdates, setAutoInstallUpdates] = useState(false);
   const [updateChannel, setUpdateChannel] = useState(() => readUpdateChannel(''));
+  const updateChannelRef = useRef(updateChannel);
   const autoInstallRef = useRef(false);
   const checkedUpdateChannelRef = useRef('');
   const [cloudAuthOpen, setCloudAuthOpen] = useState(false);
@@ -376,6 +377,7 @@ export default function App() {
     const isMac = /Mac/i.test(navigator.userAgent || '');
     const applyStatus = (status) => {
       if (!alive || !status) return;
+      if (status.channel && status.channel !== updateChannelRef.current) return;
       setUpdateStatus(status);
       const readyForPrompt =
         status.state === 'ready' || (isMac && status.state === 'available');
@@ -399,6 +401,7 @@ export default function App() {
   }, [appVersion]);
 
   useEffect(() => {
+    updateChannelRef.current = updateChannel;
     window.api?.setUpdateChannel?.(updateChannel);
   }, [updateChannel]);
 
@@ -426,12 +429,36 @@ export default function App() {
       .catch(() => {});
   }, [appInfo?.isPackaged, appVersion, updateChannel, appPlatform, updateModalOpen]);
 
-  const changeUpdateChannel = useCallback((channel) => {
-    const next = channel === 'beta' ? 'beta' : 'stable';
-    setUpdateChannel(next);
-    writeUpdateChannel(next);
-    window.api?.setUpdateChannel?.(next);
-  }, []);
+  const changeUpdateChannel = useCallback(
+    (channel) => {
+      const next = channel === 'beta' ? 'beta' : 'stable';
+      setUpdateChannel(next);
+      writeUpdateChannel(next);
+      window.api?.setUpdateChannel?.(next);
+      // Drop any status from the previous channel before re-checking. Without
+      // this, a beta result can remain visible after selecting Stable.
+      setUpdateStatus(null);
+      setUpdatePromptOpen(false);
+      if (!appInfo?.isPackaged) return;
+      const api = typeof window !== 'undefined' ? window.api : null;
+      if (appPlatform === 'darwin' && api?.macCheckUpdate) {
+        api
+          .macCheckUpdate({ channel: next })
+          .then((result) => {
+            if (!result?.ok) return;
+            setUpdateStatus(
+              result.data?.available
+                ? { state: 'available', version: result.data.version, channel: next }
+                : { state: 'none', channel: next }
+            );
+          })
+          .catch(() => {});
+      } else {
+        api?.checkForUpdates?.({ channel: next }).catch(() => {});
+      }
+    },
+    [appInfo?.isPackaged, appPlatform]
+  );
 
   const toggleAutoInstallUpdates = useCallback((enabled) => {
     setAutoInstallUpdates(enabled);

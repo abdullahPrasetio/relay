@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Modal from './Modal.jsx';
+import { statusMatchesChannel } from '../lib/updateChannel.js';
 import Icon from './Icon.jsx';
 
 function statusLabel(status) {
@@ -42,7 +43,7 @@ export default function UpdateCheckModal({
   const [checkError, setCheckError] = useState('');
   const [localStatus, setLocalStatus] = useState(null);
   const isMac = platform === 'darwin';
-  const displayStatus = localStatus || status;
+  const displayStatus = localStatus || (statusMatchesChannel(status, channel) ? status : null);
   const ready =
     displayStatus?.state === 'ready' || (isMac && displayStatus?.state === 'available');
 

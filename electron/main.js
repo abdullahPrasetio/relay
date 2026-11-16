@@ -268,9 +268,9 @@ app.whenReady().then(() => {
     app,
     channel: updateChannel,
     onStatus: (status) => {
-      lastUpdateStatus = status;
+      lastUpdateStatus = status ? { ...status, channel: updateChannel } : status;
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('updater:status', status);
+        mainWindow.webContents.send('updater:status', lastUpdateStatus);
       }
     },
   })
@@ -947,10 +947,12 @@ function registerIpc() {
       return { ok: false, error: err?.message || String(err) };
     }
   });
-  ipcMain.handle('updater:set-channel', (_event, channel) => ({
-    ok: true,
-    channel: applyUpdateChannel(channel),
-  }));
+  ipcMain.handle('updater:set-channel', (_event, channel) => {
+    const previous = updateChannel;
+    const next = applyUpdateChannel(channel);
+    if (previous !== next) lastUpdateStatus = null;
+    return { ok: true, channel: next };
+  });
   ipcMain.handle('updater:install', (_event, payload = {}) => {
     if (!updater) return { ok: false, error: 'Updater is unavailable.' };
     updater.quitAndInstall(payload.silent !== false, true);
