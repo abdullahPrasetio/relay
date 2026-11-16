@@ -666,9 +666,14 @@ body {
 
 /* Body editor */
 .body-modes {
+  position: sticky;
+  top: 0;
+  z-index: 4;
   display: flex;
   gap: 16px;
   margin-bottom: 8px;
+  padding: 4px 0 6px;
+  background: var(--bg);
 }
 .radio {
   display: flex;

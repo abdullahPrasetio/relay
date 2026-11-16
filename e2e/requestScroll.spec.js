@@ -32,6 +32,14 @@ function seed() {
                 method: 'GET',
                 url: 'http://localhost:3000/health',
                 headers,
+                body: {
+                  mode: 'form-urlencoded',
+                  form: Array.from({ length: 40 }, (_, i) => ({
+                    key: `field${i + 1}`,
+                    value: `value${i + 1}`,
+                    enabled: true,
+                  })),
+                },
               },
             ],
           },
@@ -76,6 +84,16 @@ test('request URL bar stays fixed while the editor scrolls', async () => {
     expect(Math.abs(after.y - before.y)).toBeLessThan(1);
     await expect(page.locator('.request-panel .send-btn')).toBeVisible();
     expect(await page.locator('.split-top').evaluate((el) => el.scrollTop)).toBe(0);
+
+    await page.locator('.request-panel .tabs').getByRole('button', { name: /^Body/ }).click();
+    const modes = page.locator('.body-modes');
+    const modesBefore = await modes.boundingBox();
+    await content.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    const modesAfter = await modes.boundingBox();
+    expect(Math.abs(modesAfter.y - modesBefore.y)).toBeLessThan(1);
+    await expect(modes).toBeVisible();
   } finally {
     await closeApp(session);
   }
