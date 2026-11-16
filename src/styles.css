@@ -1296,6 +1296,25 @@ body {
   overflow: auto;
   min-height: 0;
 }
+/* Postman-style request pane: the method/URL/Send bar and tabs stay pinned;
+   only the active request editor scrolls. Without this the whole pane scrolled
+   and the URL bar disappeared on long Headers/Body content. */
+.split-top {
+  overflow: hidden;
+}
+.split-top > .request-panel {
+  overflow: hidden;
+}
+.request-panel > .req-namebar,
+.request-panel > .url-bar,
+.request-panel > .tabs {
+  flex: 0 0 auto;
+}
+.request-panel > .tab-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
 /* Make each pane's panel fill the pane: without this the response panel was
    only as tall as its content and the body editor collapsed to a few pixels. */
 .split-top > *,
