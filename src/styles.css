@@ -672,8 +672,12 @@ body {
   display: flex;
   gap: 16px;
   margin-bottom: 8px;
-  padding: 4px 0 6px;
+  padding: 10px 0 6px;
   background: var(--bg);
+}
+
+.tab-content.body-tab-content {
+  padding-top: 0;
 }
 .radio {
   display: flex;

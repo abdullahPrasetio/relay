@@ -222,7 +222,7 @@ export default function RequestPanel({
       <div
         className={`tab-content${
           tab === 'Pre-request' || tab === 'Tests' ? ' script-tab-content' : ''
-        }`}
+        }${tab === 'Body' ? ' body-tab-content' : ''}`}
       >
         {tab === 'Params' && (
           <ParamsTab request={request} patch={patch} />
