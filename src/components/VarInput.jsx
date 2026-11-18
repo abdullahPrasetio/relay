@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import Icon from './Icon.jsx';
 import { useVarContext } from './VarContext.jsx';
 
 const VAR_RE = /\{\{\s*([\w.-]+)\s*\}\}/g;
@@ -26,6 +27,7 @@ export default function VarInput({ value, onChange, className, placeholder, type
   const { lookup, onSetVariable, onEditVariable, onShowVariables } = useVarContext();
   const [tipOpen, setTipOpen] = useState(false);
   const [selectionText, setSelectionText] = useState('');
+  const [revealed, setRevealed] = useState(false);
 
   const tokens = extractTokens(value);
   const hasVars = tokens.length > 0;
@@ -59,8 +61,8 @@ export default function VarInput({ value, onChange, className, placeholder, type
       onMouseLeave={() => setTipOpen(false)}
     >
       <input
-        type={type}
-        className={`${className || ''} ${hasVars ? (anyUnresolved ? 'has-unresolved-var' : 'has-var') : ''}`}
+        type={type === 'password' && revealed ? 'text' : type}
+        className={`${className || ''} ${type === 'password' ? 'has-reveal' : ''} ${hasVars ? (anyUnresolved ? 'has-unresolved-var' : 'has-var') : ''}`}
         value={value ?? ''}
         placeholder={placeholder}
         readOnly={readOnly}
@@ -72,6 +74,17 @@ export default function VarInput({ value, onChange, className, placeholder, type
         onBlur={() => setSelectionText('')}
         title={hasVars ? tokens.map((name) => `${name} = ${lookup(name)?.value ?? '(unresolved)'}`).join('\n') : undefined}
       />
+      {type === 'password' && (
+        <button
+          type="button"
+          className="var-reveal-btn"
+          title={revealed ? 'Hide value' : 'Show value'}
+          aria-label={revealed ? 'Hide value' : 'Show value'}
+          onClick={() => setRevealed((value) => !value)}
+        >
+          <Icon name={revealed ? 'eyeOff' : 'eye'} size={14} />
+        </button>
+      )}
       {selectionText && (
         <button
           type="button"

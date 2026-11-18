@@ -62,9 +62,10 @@ export default function KeyValueEditor({
             type="button"
             className="mini-btn"
             title={isRevealed ? 'Hide value' : 'Show value'}
+            aria-label={isRevealed ? 'Hide value' : 'Show value'}
             onClick={() => toggleReveal(i)}
           >
-            {isRevealed ? 'Hide' : 'Show'}
+            <Icon name={isRevealed ? 'eyeOff' : 'eye'} size={13} />
           </button>
         </div>
       );

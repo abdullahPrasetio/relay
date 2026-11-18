@@ -58,9 +58,11 @@ test('code panel keeps secret values hidden until explicitly revealed', async ()
     const code = page.locator('.modal .code-block');
     await expect(code).toContainText('{{token}}');
     await expect(code).not.toContainText('super-secret');
+    await expect(page.getByTestId('code-secret-note')).toBeVisible();
 
     await page.getByTestId('code-include-secrets').check();
     await expect(code).toContainText('super-secret');
+    await expect(page.getByTestId('code-secret-note')).toHaveCount(0);
   } finally {
     await closeApp(session);
   }

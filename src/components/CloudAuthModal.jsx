@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Modal from './Modal.jsx';
+import PasswordInput from './PasswordInput.jsx';
 
 const TABS = [
   { id: 'login', label: 'Sign in' },
@@ -104,9 +105,8 @@ export default function CloudAuthModal({ onClose, onSignIn, onSignUp }) {
         </div>
         <div className="form-row">
           <label htmlFor="cloud-password">Password</label>
-          <input
+          <PasswordInput
             id="cloud-password"
-            type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             autoComplete={registering ? 'new-password' : 'current-password'}

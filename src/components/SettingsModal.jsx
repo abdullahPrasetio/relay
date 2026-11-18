@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Modal from './Modal.jsx';
 import Icon from './Icon.jsx';
+import PasswordInput from './PasswordInput.jsx';
 
 // App-level network settings: proxy profiles, timeouts, redirect/TLS policy and
 // response size limits. Secrets (proxy passwords, client-cert passphrase) are
@@ -374,8 +375,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
             </div>
             <div className="form-row">
               <label>Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={p.password}
                 placeholder={p.hasPassword ? '•••• (unchanged)' : ''}
                 onChange={(e) => setProxy(p.id, { password: e.target.value })}
@@ -438,9 +438,8 @@ export default function SettingsModal({ settings, onSave, onClose }) {
       </div>
       <div className="form-row">
         <label htmlFor="settings-client-passphrase">Client key passphrase</label>
-        <input
+        <PasswordInput
           id="settings-client-passphrase"
-          type="password"
           value={draft.clientCertPassphrase}
           placeholder={draft.hasClientCertPassphrase ? '•••• (unchanged)' : ''}
           onChange={(e) => set({ clientCertPassphrase: e.target.value })}

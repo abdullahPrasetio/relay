@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import Modal from './Modal.jsx';
+import PasswordInput from './PasswordInput.jsx';
 import { validateSettingsDraft } from '../lib/confluenceUi.js';
 
 function toDraft(config) {
@@ -203,10 +204,9 @@ export default function ConfluenceSettingsModal({ workspace, onClose }) {
             <label htmlFor="confluence-token">
               {draft.authMethod === 'pat' ? 'Personal access token' : 'API token'}
             </label>
-            <input
+            <PasswordInput
               id="confluence-token"
               data-testid="confluence-token"
-              type="password"
               value={draft.token}
               onChange={(e) => set({ token: e.target.value, clearToken: false })}
               placeholder={draft.hasToken ? '•••• saved — leave blank to keep' : 'Paste token'}

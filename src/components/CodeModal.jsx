@@ -85,6 +85,12 @@ export default function CodeModal({ request, fullRequest = null, hasSecrets = fa
           Include resolved secret values
         </label>
       )}
+      {hasSecrets && !includeSecrets && (
+        <p className="auth-hint code-secret-note" data-testid="code-secret-note">
+          Secret values are masked. Basic Auth headers will not match until you enable
+          “Include resolved secret values”.
+        </p>
+      )}
       <pre className="code-block">{code}</pre>
       {copyErr && (
         <p className="auth-hint" style={{ color: 'var(--red)' }}>
