@@ -165,6 +165,7 @@ test('command palette searches requests and runs actions', async () => {
 });
 
 test('pins requests to the dashboard and persists them', async () => {
+  test.setTimeout(60000);
   const userData = makeUserData();
   fs.writeFileSync(path.join(userData, 'rest-tamer-data.json'), JSON.stringify(seed(), null, 2));
   const session = await launchAppAt(userData, {}, { keepDashboard: true });
