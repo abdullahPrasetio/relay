@@ -55,6 +55,7 @@ import { newCollection, newRequest, normalizeRequest, uid } from './lib/factory.
 import { isWebSocket, isMqtt, isSocketIo, isGrpc, isGrpcTls } from './lib/protocol.js';
 import { buildScopeVars, resolveRequest, varsToMap, maskSecrets } from '../packages/core/src/variables.js';
 import { collectSecretValues } from './lib/secretVars.js';
+import { hasSecretAuth, hasSecretRows, redactAuthForCode, safeVarsToMap } from './lib/codeSafety.js';
 import { runTests, runPreRequest } from './lib/testRunner.js';
 import { toCurl } from './lib/codegen.js';
 import {
@@ -1952,13 +1953,29 @@ export default function App() {
     if (!tab) return;
     const owningCollection = findRequestCollection(store.collections, tab.request.id);
     const chain = findNodePath(store.collections, tab.request.id) || [];
-    const vars = buildScopeVars({
+    const fullVars = buildScopeVars({
       collection: varsToMap(owningCollection?.variables),
       environment: varsToMap(activeEnv),
       globals: varsToMap(store.globals),
     });
-    const resolved = resolveRequest(withEffectiveAuth(tab.request, chain), vars);
-    setCodeModal({ request: resolved });
+    const safeVars = buildScopeVars({
+      collection: safeVarsToMap(owningCollection?.variables),
+      environment: safeVarsToMap(activeEnv?.variables),
+      globals: safeVarsToMap(store.globals),
+    });
+    const base = withEffectiveAuth(tab.request, chain);
+    const safeRequest = resolveRequest(
+      { ...base, auth: redactAuthForCode(base.auth) },
+      safeVars
+    );
+    const fullRequest = resolveRequest(base, fullVars);
+    setCodeModal({
+      request: safeRequest,
+      fullRequest,
+      hasSecrets:
+        hasSecretRows(owningCollection?.variables, activeEnv?.variables, store.globals) ||
+        hasSecretAuth(base.auth),
+    });
   }, [tabs, activeTabId, activeEnv, store]);
 
   const openRunner = useCallback(
@@ -3089,7 +3106,14 @@ export default function App() {
         />
       )}
 
-      {codeModal && <CodeModal request={codeModal.request} onClose={() => setCodeModal(null)} />}
+      {codeModal && (
+        <CodeModal
+          request={codeModal.request}
+          fullRequest={codeModal.fullRequest}
+          hasSecrets={codeModal.hasSecrets}
+          onClose={() => setCodeModal(null)}
+        />
+      )}
 
       {runner && (
         <RunnerModal

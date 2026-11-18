@@ -77,13 +77,14 @@ export default function VarInput({ value, onChange, className, placeholder, type
           type="button"
           className="var-selection-action"
           data-testid="var-set-variable"
+          title="Create a new variable from the selected text"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
             onSetVariable(selectionText);
             setSelectionText('');
           }}
         >
-          Set as variable
+          Create variable
         </button>
       )}
       {tipOpen && hasVars && (
@@ -95,7 +96,24 @@ export default function VarInput({ value, onChange, className, placeholder, type
                 {tokens.length > 1 && (
                   <span className="var-tip-name">{`{{${name}}}`}</span>
                 )}
-                <span className="var-tip-value-box" data-testid={`var-value-${name}`}>
+                <span
+                  className={`var-tip-value-box${hit ? '' : ' var-tip-value-action'}`}
+                  data-testid={`var-value-${name}`}
+                  role={hit ? undefined : 'button'}
+                  tabIndex={hit ? undefined : 0}
+                  title={hit ? undefined : `Set {{${name}}}`}
+                  onClick={() => {
+                    if (hit) return;
+                    setTipOpen(false);
+                    onEditVariable(name);
+                  }}
+                  onKeyDown={(event) => {
+                    if (hit || (event.key !== 'Enter' && event.key !== ' ')) return;
+                    event.preventDefault();
+                    setTipOpen(false);
+                    onEditVariable(name);
+                  }}
+                >
                   {hit ? hit.value : 'variable is not defined'}
                 </span>
                 <span className="var-tip-footer">
@@ -108,7 +126,7 @@ export default function VarInput({ value, onChange, className, placeholder, type
                   <span className="var-tip-actions">
                     <button
                       type="button"
-                      className="var-tip-link"
+                      className={`var-tip-link${hit ? '' : ' var-tip-primary'}`}
                       data-testid={`var-edit-${name}`}
                       onClick={() => {
                         setTipOpen(false);

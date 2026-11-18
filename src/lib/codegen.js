@@ -19,7 +19,9 @@ function buildUrl(request) {
   for (const p of request.params || []) {
     if (p && p.enabled !== false && p.key) url.searchParams.append(p.key, p.value ?? '');
   }
-  return url.toString();
+  // Keep unresolved {{variables}} readable in generated snippets; URL
+  // normalization percent-encodes the braces.
+  return url.toString().replace(/%7B%7B([\w.-]+)%7D%7D/gi, '{{$1}}');
 }
 
 function authHeaderLines(auth) {

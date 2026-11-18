@@ -53,6 +53,9 @@ export default function SetVariableModal({ value, hasEnvironment, onCancel, onSa
           <option value="globals">Globals</option>
         </select>
       </div>
+      {!name.trim() && (
+        <p className="auth-hint">Enter a variable name to enable Set.</p>
+      )}
       <p className="auth-hint">
         Use it later as <code>{'{{' + (name.trim() || 'name') + '}}'}</code>.
       </p>

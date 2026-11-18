@@ -1856,6 +1856,28 @@ input.has-unresolved-var {
   color: var(--accent);
 }
 
+.var-tip-link.var-tip-primary {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.var-tip-link.var-tip-primary:hover {
+  color: #fff;
+  filter: brightness(1.08);
+}
+
+.var-tip-value-action {
+  cursor: pointer;
+}
+
+.var-tip-value-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .request-vars-list {
   display: flex;
   flex-direction: column;
