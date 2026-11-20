@@ -249,4 +249,27 @@ describe('suggestConfluenceTitle', () => {
     );
     expect(suggestConfluenceTitle({ name: 'API', confluenceTitle: '' })).toBe('API');
   });
+
+  it('includes header enabled state and a validation legend', () => {
+    const xml = collectionToConfluenceStorage(
+      {
+        name: 'Validated',
+        items: [
+          {
+            type: 'request',
+            name: 'Create',
+            method: 'POST',
+            url: '/items',
+            headers: [{ key: 'X-Test', value: 'x', enabled: false }],
+            body: { mode: 'json', raw: '{"id":1}' },
+            fieldValidations: { body: { id: { rules: ['required', 'integer'], min: 1 } } },
+          },
+        ],
+      },
+      { generatedAt: 'x' }
+    );
+    expect(xml).toContain('<th>Enabled</th>');
+    expect(xml).toContain('Validation legend');
+    expect(xml).toContain('MIN 1');
+  });
 });

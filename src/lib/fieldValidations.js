@@ -31,7 +31,23 @@ export const VALIDATION_RULES = [
 ];
 
 export function emptyValidationRule() {
-  return { rules: [], min: 0, max: 0, description: '' };
+  return {
+    rules: [],
+    min: 0,
+    max: 0,
+    minLength: null,
+    maxLength: null,
+    minimum: null,
+    maximum: null,
+    minItems: null,
+    maxItems: null,
+    pattern: '',
+    format: '',
+    enum: [],
+    example: '',
+    default: '',
+    description: '',
+  };
 }
 
 function str(value) {
@@ -42,6 +58,29 @@ function boundedInt(value) {
   const n = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(n)) return 0;
   return Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.trunc(n)));
+}
+
+function optionalInt(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.trunc(n)));
+}
+
+function optionalNumber(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function enumValues(value) {
+  const source = Array.isArray(value) ? value : [];
+  const out = [];
+  for (const entry of source) {
+    const text = str(entry).trim();
+    if (text && !out.includes(text)) out.push(text);
+  }
+  return out;
 }
 
 /** Normalize one rule, dropping unknown/duplicate rules and empty fields. */
@@ -64,6 +103,17 @@ export function normalizeValidationRule(raw) {
     rules: [...known, ...custom],
     min: boundedInt(rule.min),
     max: boundedInt(rule.max),
+    minLength: optionalInt(rule.minLength),
+    maxLength: optionalInt(rule.maxLength),
+    minimum: optionalNumber(rule.minimum),
+    maximum: optionalNumber(rule.maximum),
+    minItems: optionalInt(rule.minItems),
+    maxItems: optionalInt(rule.maxItems),
+    pattern: str(rule.pattern).trim(),
+    format: str(rule.format).trim().toLowerCase(),
+    enum: enumValues(rule.enum),
+    example: str(rule.example),
+    default: str(rule.default),
     description: str(rule.description),
   };
 }
@@ -74,6 +124,17 @@ export function hasValidation(rule) {
     (Array.isArray(rule.rules) && rule.rules.length > 0) ||
     Number(rule.min) > 0 ||
     Number(rule.max) > 0 ||
+    rule.minLength != null ||
+    rule.maxLength != null ||
+    rule.minimum != null ||
+    rule.maximum != null ||
+    rule.minItems != null ||
+    rule.maxItems != null ||
+    str(rule.pattern).trim() !== '' ||
+    str(rule.format).trim() !== '' ||
+    (Array.isArray(rule.enum) && rule.enum.length > 0) ||
+    str(rule.example).trim() !== '' ||
+    str(rule.default).trim() !== '' ||
     str(rule.description).trim() !== ''
   );
 }
@@ -114,12 +175,36 @@ export function countValidatedFields(raw) {
   );
 }
 
+/** Min/max labels depend on the primary type rule. */
+export function minMaxLabels(rule) {
+  const rules = Array.isArray(rule?.rules) ? rule.rules : [];
+  if (rules.includes('integer') || rules.includes('numeric')) {
+    return { min: 'Min value', max: 'Max value' };
+  }
+  if (rules.includes('array')) return { min: 'Min items', max: 'Max items' };
+  if (rules.includes('string') || rules.includes('email') || rules.includes('url')) {
+    return { min: 'Min length', max: 'Max length' };
+  }
+  return { min: 'Min', max: 'Max' };
+}
+
 /** Human-readable badges for docs and tooltips. */
 export function validationTokens(rule) {
   if (!hasValidation(rule)) return [];
   const tokens = (rule.rules || []).map((value) => String(value).toUpperCase());
   if (Number(rule.min) > 0) tokens.push(`MIN ${rule.min}`);
   if (Number(rule.max) > 0) tokens.push(`MAX ${rule.max}`);
+  if (rule.minLength != null) tokens.push(`MIN LENGTH ${rule.minLength}`);
+  if (rule.maxLength != null) tokens.push(`MAX LENGTH ${rule.maxLength}`);
+  if (rule.minimum != null) tokens.push(`MIN VALUE ${rule.minimum}`);
+  if (rule.maximum != null) tokens.push(`MAX VALUE ${rule.maximum}`);
+  if (rule.minItems != null) tokens.push(`MIN ITEMS ${rule.minItems}`);
+  if (rule.maxItems != null) tokens.push(`MAX ITEMS ${rule.maxItems}`);
+  if (str(rule.pattern).trim()) tokens.push('PATTERN');
+  if (str(rule.format).trim()) tokens.push(`FORMAT ${String(rule.format).toUpperCase()}`);
+  if (Array.isArray(rule.enum) && rule.enum.length > 0) tokens.push(`ENUM ${rule.enum.length}`);
+  if (str(rule.example).trim()) tokens.push('EXAMPLE');
+  if (str(rule.default).trim()) tokens.push('DEFAULT');
   return tokens;
 }
 

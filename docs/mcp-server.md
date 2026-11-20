@@ -298,6 +298,35 @@ Buat collection:
 }
 ```
 
+Set metadata validasi request:
+
+```json
+{
+  "name": "relay_requests",
+  "arguments": {
+    "action": "set_validation",
+    "params": {
+      "requestId": "req_123",
+      "fieldValidations": {
+        "body": {
+          "id": {
+            "rules": ["required", "integer"],
+            "min": 1,
+            "max": 10,
+            "description": "ID referensi merchant"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+`fieldValidations` memakai struktur `{path, params, headers, body}` dan
+menggantikan seluruh map validasi request tersebut. Nilai dinormalisasi dengan
+aturan yang sama seperti UI. `relay_requests.get` mengembalikan metadata ini;
+`create` dan `update` juga menerima `fieldValidations`.
+
 Jalankan collection (scope `request`):
 
 ```json
@@ -337,7 +366,7 @@ variabel oleh script tidak ditulis kecuali diminta.
 | `relay_app` | read | `info` |
 | `relay_workspaces` | read / write | `list`, `get` / `create`, `rename`, `switch`, `delete` |
 | `relay_collections` | read / write | `list`, `get`, `export_postman` / `create`, `update`, `delete`, `add_folder`, `rename_node`, `delete_node`, `move_node`, `duplicate_node`, `import_postman` |
-| `relay_requests` | read / write | `list`, `get` / `create`, `update`, `delete`, `duplicate` |
+| `relay_requests` | read / write | `list`, `get` / `create`, `update`, `set_validation`, `delete`, `duplicate` |
 | `relay_environments` | read / write | `list` / `create`, `update`, `delete`, `activate`, `set_globals` |
 | `relay_execute` | request | `send`, `run_collection` |
 | `relay_protocol` | request | `open`, `send`, `close`, `events`, `grpc_services`, `grpc_invoke`, `grpc_stream_start`, `grpc_stream_cancel` |

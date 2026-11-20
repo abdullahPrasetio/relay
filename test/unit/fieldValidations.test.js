@@ -5,6 +5,7 @@ import {
   countValidatedFields,
   hasFieldValidations,
   hasValidation,
+  minMaxLabels,
   normalizeFieldValidations,
   normalizeValidationRule,
   validationTokens,
@@ -31,7 +32,7 @@ describe('field validation normalization', () => {
     expect(out.path.id.rules).toEqual(['required']);
     expect(out.params.q.rules).toEqual(['required', 'string', 'max:100']);
     expect(out.headers['X-Empty']).toBeUndefined();
-    expect(out.body['user.email']).toEqual({
+    expect(out.body['user.email']).toMatchObject({
       rules: ['required', 'email'],
       min: 0,
       max: 64,
@@ -44,7 +45,7 @@ describe('field validation normalization', () => {
     const out = normalizeFieldValidations({
       headers: { 'X-Note': { description: 'Optional' } },
     });
-    expect(out.headers['X-Note']).toEqual({
+    expect(out.headers['X-Note']).toMatchObject({
       rules: [],
       min: 0,
       max: 0,
@@ -57,12 +58,44 @@ describe('field validation normalization', () => {
     const empty = normalizeFieldValidations(undefined);
     expect(empty).toEqual({ path: {}, params: {}, headers: {}, body: {} });
     expect(hasFieldValidations(empty)).toBe(false);
-    expect(normalizeValidationRule(null)).toEqual({
+    expect(normalizeValidationRule(null)).toMatchObject({
       rules: [],
       min: 0,
       max: 0,
       description: '',
     });
+  });
+
+  it('normalizes standard JSON Schema constraints and renders tokens', () => {
+    const rule = normalizeValidationRule({
+      rules: ['string'],
+      minLength: 2,
+      maxLength: 12,
+      pattern: '^[a-z]+$',
+      format: 'email',
+      enum: ['a', 'b', 'a'],
+      example: 'ada@test.dev',
+      default: 'a',
+    });
+    expect(rule).toMatchObject({
+      minLength: 2,
+      maxLength: 12,
+      pattern: '^[a-z]+$',
+      format: 'email',
+      enum: ['a', 'b'],
+      example: 'ada@test.dev',
+      default: 'a',
+    });
+    expect(validationTokens(rule)).toEqual(
+      expect.arrayContaining(['STRING', 'MIN LENGTH 2', 'MAX LENGTH 12', 'PATTERN', 'FORMAT EMAIL', 'ENUM 2', 'EXAMPLE', 'DEFAULT'])
+    );
+  });
+
+  it('labels min/max according to the field type', () => {
+    expect(minMaxLabels({ rules: ['integer'] })).toEqual({ min: 'Min value', max: 'Max value' });
+    expect(minMaxLabels({ rules: ['string'] })).toEqual({ min: 'Min length', max: 'Max length' });
+    expect(minMaxLabels({ rules: ['array'] })).toEqual({ min: 'Min items', max: 'Max items' });
+    expect(minMaxLabels({ rules: [] })).toEqual({ min: 'Min', max: 'Max' });
   });
 
   it('produces deterministic badge tokens', () => {

@@ -185,14 +185,30 @@ export const MCP_TOOLS = {
       create: action('write', 'Create a request in a collection or folder.', {
         collectionId: strReq('Collection id.'),
         parentFolderId: str('Folder id; omit for the collection root.'),
-        request: objReq('Request fields (method, url, headers, body, ...).'),
+        request: objReq(
+          'Request fields (method, url, headers, body, fieldValidations, ...).'
+        ),
       }),
       update: action('write', 'Merge a patch into a stored request.', {
         requestId: strReq('Request id.'),
-        patch: objReq('Fields to merge; body/auth/settings/mock/grpc merge deeply.'),
+        patch: objReq(
+          'Fields to merge; body/auth/settings/mock/grpc merge deeply. fieldValidations is replaced wholesale.'
+        ),
         workspaceId: str('Workspace id; defaults to the active workspace.'),
         collectionId: str('Collection id, when the id is ambiguous.'),
       }),
+      set_validation: action(
+        'write',
+        'Replace one request\'s field validation metadata.',
+        {
+          requestId: strReq('Request id.'),
+          fieldValidations: objReq(
+            'Validation map: {path, params, headers, body}, each keyed by field name.'
+          ),
+          workspaceId: str('Workspace id; defaults to the active workspace.'),
+          collectionId: str('Collection id, when the id is ambiguous.'),
+        }
+      ),
       delete: action('write', 'Delete a stored request.', {
         requestId: strReq('Request id.'),
         workspaceId: str('Workspace id; defaults to the active workspace.'),

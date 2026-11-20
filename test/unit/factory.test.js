@@ -50,7 +50,7 @@ describe('request documentation defaults', () => {
       },
     });
     expect(req.description).toBe('Creates a user.');
-    expect(req.fieldValidations.headers['X-Key']).toEqual({
+    expect(req.fieldValidations.headers['X-Key']).toMatchObject({
       rules: ['required'],
       min: 0,
       max: 0,

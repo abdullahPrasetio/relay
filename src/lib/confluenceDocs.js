@@ -6,6 +6,7 @@
 // value can never break out of the macro. Secrets are never emitted.
 import {
   bodyValidationFields,
+  hasFieldValidations,
   normalizeFieldValidations,
   pathValidationFields,
   validationTokens,
@@ -226,6 +227,7 @@ function requestSection(request, depth, includeExamples) {
       : '',
     Array.isArray(request?.headers) && request.headers.length
       ? `<h3>Headers</h3>${fieldTable(request.headers, {
+          enabled: true,
           validations: validations.headers,
         })}`
       : '',
@@ -254,6 +256,35 @@ function renderItems(items, depth, includeExamples, counters) {
   return out.join('');
 }
 
+function collectionHasValidations(items) {
+  for (const node of Array.isArray(items) ? items : []) {
+    if (!node) continue;
+    if (node.type === 'folder') {
+      if (collectionHasValidations(node.items)) return true;
+    } else if (hasFieldValidations(node.fieldValidations)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function validationLegend() {
+  return [
+    '<h2>Validation legend</h2>',
+    '<p>Field rules describe the expected input. MIN/MAX apply to the field type: string length, numeric value, or array item count.</p>',
+    '<ul>',
+    '<li><strong>REQUIRED</strong> — must be present.</li>',
+    '<li><strong>NULLABLE</strong> — may be null.</li>',
+    '<li><strong>STRING / INTEGER / NUMERIC / BOOLEAN / ARRAY / OBJECT</strong> — expected type.</li>',
+    '<li><strong>EMAIL / URL</strong> — expected string format.</li>',
+    '<li><strong>UNIQUE</strong> — values must be unique.</li>',
+    '<li><strong>MIN / MAX</strong> — length, value, or item count, depending on type.</li>',
+    '<li><strong>FORMAT / PATTERN / ENUM</strong> — string format, regular expression, or allowed values.</li>',
+    '<li><strong>EXAMPLE / DEFAULT</strong> — sample value and fallback value.</li>',
+    '</ul>',
+  ].join('');
+}
+
 function documentationSection(coll, { workspaceName, includeExamples, generatedAt }) {
   const counters = { requests: 0, folders: 0 };
   const items = renderItems(coll.items, 0, includeExamples, counters);
@@ -272,6 +303,7 @@ function documentationSection(coll, { workspaceName, includeExamples, generatedA
     `<p><em>${meta.join(' · ')}</em></p>`,
     '<ac:structured-macro ac:name="toc"><ac:parameter ac:name="maxLevel">3</ac:parameter></ac:structured-macro>',
     variablesSection(coll.variables),
+    collectionHasValidations(coll.items) ? validationLegend() : '',
     items,
   ].join('');
 }

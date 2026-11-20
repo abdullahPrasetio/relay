@@ -6,6 +6,7 @@ import {
   collectValidationFields,
   countValidatedFields,
   hasValidation,
+  minMaxLabels,
   normalizeFieldValidations,
   validationTokens,
 } from '../lib/fieldValidations.js';
@@ -106,6 +107,7 @@ export default function RequestDocsPanel({ request, patch }) {
 function ValidationField({ section, field, rule, onChange, onClear }) {
   const current = rule || { rules: [], min: 0, max: 0, description: '' };
   const tokens = validationTokens(current);
+  const minMax = minMaxLabels(current);
   const slug = field.key.replace(/[^a-zA-Z0-9_-]+/g, '_');
   // Imported custom rules (for example "max:100") stay visible and removable.
   const customRules = current.rules.filter((value) => !VALIDATION_RULES.includes(value));
@@ -167,7 +169,7 @@ function ValidationField({ section, field, rule, onChange, onClear }) {
 
       <div className="validation-meta">
         <label>
-          Min
+          {minMax.min}
           <input
             type="number"
             min="0"
@@ -176,7 +178,7 @@ function ValidationField({ section, field, rule, onChange, onClear }) {
           />
         </label>
         <label>
-          Max
+          {minMax.max}
           <input
             type="number"
             min="0"
@@ -194,6 +196,71 @@ function ValidationField({ section, field, rule, onChange, onClear }) {
           />
         </label>
       </div>
+
+      <details className="validation-advanced">
+        <summary>More constraints</summary>
+        <div className="validation-meta validation-advanced-grid">
+          <label>
+            Format
+            <select
+              value={current.format || ''}
+              data-testid={`validation-format-${section}-${slug}`}
+              onChange={(e) => onChange({ ...current, format: e.target.value })}
+            >
+              <option value="">—</option>
+              <option value="email">email</option>
+              <option value="uri">uri / url</option>
+              <option value="uuid">uuid</option>
+              <option value="date">date</option>
+              <option value="date-time">date-time</option>
+            </select>
+          </label>
+          <label>
+            Pattern (regex)
+            <input
+              type="text"
+              value={current.pattern || ''}
+              placeholder="^[A-Z]{2}-\\d+$"
+              data-testid={`validation-pattern-${section}-${slug}`}
+              onChange={(e) => onChange({ ...current, pattern: e.target.value })}
+            />
+          </label>
+          <label className="validation-wide">
+            Enum values (comma separated)
+            <input
+              type="text"
+              value={(current.enum || []).join(', ')}
+              placeholder="NEW, PAID, SHIPPED"
+              data-testid={`validation-enum-${section}-${slug}`}
+              onChange={(e) =>
+                onChange({
+                  ...current,
+                  enum: e.target.value
+                    .split(',')
+                    .map((value) => value.trim())
+                    .filter(Boolean),
+                })
+              }
+            />
+          </label>
+          <label>
+            Example
+            <input
+              type="text"
+              value={current.example || ''}
+              onChange={(e) => onChange({ ...current, example: e.target.value })}
+            />
+          </label>
+          <label>
+            Default
+            <input
+              type="text"
+              value={current.default || ''}
+              onChange={(e) => onChange({ ...current, default: e.target.value })}
+            />
+          </label>
+        </div>
+      </details>
     </div>
   );
 }

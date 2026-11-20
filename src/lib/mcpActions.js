@@ -36,6 +36,7 @@ import {
   normalizeRequest,
 } from './factory.js';
 import { newWorkspace } from './workspace.js';
+import { normalizeFieldValidations } from './fieldValidations.js';
 import { runCollection } from './runner.js';
 import { isGrpcTls } from './protocol.js';
 import { collectionToHtml } from './apiDocs.js';
@@ -607,6 +608,29 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
             collections: updateRequestNode(workspace.collections || [], collection.id, next),
           });
           return { collectionId: collection.id, request: redactRequest(next) };
+        }
+        fail('not_found', `Request "${p.requestId}" not found.`);
+      },
+      set_validation: async (p) => {
+        const workspace = needWorkspace(p.workspaceId);
+        const collections = p.collectionId
+          ? [needCollection(workspace, p.collectionId)]
+          : workspace.collections || [];
+        for (const collection of collections) {
+          const node = findRequestNode(collection.items, p.requestId);
+          if (!node) continue;
+          const next = normalizeRequest({
+            ...node,
+            fieldValidations: normalizeFieldValidations(p.fieldValidations),
+          });
+          writeWorkspace(workspace, {
+            collections: updateRequestNode(workspace.collections || [], collection.id, next),
+          });
+          return {
+            collectionId: collection.id,
+            requestId: node.id,
+            fieldValidations: next.fieldValidations,
+          };
         }
         fail('not_found', `Request "${p.requestId}" not found.`);
       },

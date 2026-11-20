@@ -165,6 +165,7 @@ describe('collectionToHtml', () => {
     expect(html).toContain('<td>no</td>');
     expect(html).toContain('<h4>Headers</h4>');
     expect(html).toContain('<td>X-Test</td>');
+    expect(html).toContain('<th>Enabled</th>');
 
     // JSON body is pretty-printed (quotes escaped by escapeHtml).
     expect(html).toMatch(/<pre>\{[\s\S]*?&quot;a&quot;: 1/);
@@ -193,6 +194,38 @@ describe('collectionToHtml', () => {
     expect(html).toContain('<td>user.email</td>');
     expect(html).toContain('<td class="field-description">Primary email</td>');
     expect(html).toContain('Returns &quot;users&quot; &amp; &lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  it('includes a validation legend and standard constraint tokens', () => {
+    const html = collectionToHtml(
+      {
+        name: 'Validated',
+        items: [
+          {
+            type: 'request',
+            name: 'Create',
+            method: 'POST',
+            url: '/items',
+            body: { mode: 'json', raw: '{"email":"a@test.dev"}' },
+            fieldValidations: {
+              body: {
+                email: {
+                  rules: ['required', 'email'],
+                  minLength: 5,
+                  pattern: '^.+@.+$',
+                  enum: ['a@test.dev'],
+                },
+              },
+            },
+          },
+        ],
+      },
+      { generatedAt: 'x' }
+    );
+    expect(html).toContain('Validation legend');
+    expect(html).toContain('MIN LENGTH 5');
+    expect(html).toContain('PATTERN');
+    expect(html).toContain('ENUM 1');
   });
 
   it('shows the auth type but never credentials', () => {

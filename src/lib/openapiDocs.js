@@ -4,6 +4,8 @@
 // spec as raw JSON or embeds it in the Swagger UI macro. Only enabled fields
 // are emitted; credentials (Authorization/Cookie headers) are never included.
 
+import { normalizeFieldValidations } from './fieldValidations.js';
+
 const BODY_METHODS = new Set(['post', 'put', 'patch', 'delete']);
 
 const STATUS_TEXT = {
@@ -61,6 +63,93 @@ function typeOf(value) {
   return typeof value === 'object' ? 'object' : typeof value === 'string' ? 'string' : typeof value;
 }
 
+function schemaForRule(rule, fallback = 'string') {
+  if (!rule) return { type: fallback };
+  const rules = Array.isArray(rule.rules) ? rule.rules : [];
+  const type = rules.includes('integer')
+    ? 'integer'
+    : rules.includes('numeric')
+      ? 'number'
+      : rules.includes('boolean')
+        ? 'boolean'
+        : rules.includes('array')
+          ? 'array'
+          : rules.includes('object')
+            ? 'object'
+            : 'string';
+  const schema = { type };
+  if (rules.includes('nullable')) schema.nullable = true;
+  if (rules.includes('unique') && type === 'array') schema.uniqueItems = true;
+  if (rule.pattern) schema.pattern = rule.pattern;
+  if (rule.format) schema.format = rule.format;
+  else if (rules.includes('email')) schema.format = 'email';
+  else if (rules.includes('url')) schema.format = 'uri';
+  if (Array.isArray(rule.enum) && rule.enum.length) schema.enum = rule.enum;
+  if (rule.example) schema.example = rule.example;
+  if (rule.default) schema.default = rule.default;
+  if (type === 'integer' || type === 'number') {
+    const min = rule.minimum != null ? rule.minimum : Number(rule.min) > 0 ? Number(rule.min) : null;
+    const max = rule.maximum != null ? rule.maximum : Number(rule.max) > 0 ? Number(rule.max) : null;
+    if (min != null) schema.minimum = min;
+    if (max != null) schema.maximum = max;
+  } else if (type === 'array') {
+    const min = rule.minItems != null ? rule.minItems : Number(rule.min) > 0 ? Number(rule.min) : null;
+    const max = rule.maxItems != null ? rule.maxItems : Number(rule.max) > 0 ? Number(rule.max) : null;
+    if (min != null) schema.minItems = min;
+    if (max != null) schema.maxItems = max;
+  } else {
+    const min = rule.minLength != null ? rule.minLength : Number(rule.min) > 0 ? Number(rule.min) : null;
+    const max = rule.maxLength != null ? rule.maxLength : Number(rule.max) > 0 ? Number(rule.max) : null;
+    if (min != null) schema.minLength = min;
+    if (max != null) schema.maxLength = max;
+  }
+  return schema;
+}
+
+function schemaFromExample(value) {
+  if (Array.isArray(value)) {
+    return { type: 'array', items: value.length ? schemaFromExample(value[0]) : {} };
+  }
+  if (value && typeof value === 'object') {
+    const properties = {};
+    for (const [key, child] of Object.entries(value)) {
+      properties[key] = schemaFromExample(child);
+    }
+    return { type: 'object', properties };
+  }
+  if (typeof value === 'number') {
+    return { type: Number.isInteger(value) ? 'integer' : 'number', example: value };
+  }
+  if (typeof value === 'boolean') return { type: 'boolean', example: value };
+  if (value === null) return { type: 'object', nullable: true };
+  return { type: 'string', example: value };
+}
+
+function applyBodyValidations(schema, validations) {
+  const entries = Object.entries(validations || {});
+  if (entries.length === 0 || schema.type !== 'object') return schema;
+  schema.properties = schema.properties || {};
+  schema.required = schema.required || [];
+  for (const [path, rule] of entries) {
+    const parts = String(path).split('.').filter(Boolean);
+    if (!parts.length) continue;
+    let cursor = schema;
+    for (let i = 0; i < parts.length - 1; i += 1) {
+      cursor.properties = cursor.properties || {};
+      cursor.properties[parts[i]] = cursor.properties[parts[i]] || { type: 'object', properties: {} };
+      cursor = cursor.properties[parts[i]];
+    }
+    const leaf = parts[parts.length - 1];
+    const existing = cursor.properties[leaf] || {};
+    cursor.properties[leaf] = { ...existing, ...schemaForRule(rule, existing.type || 'string') };
+    if ((rule.rules || []).includes('required')) {
+      cursor.required = cursor.required || [];
+      if (!cursor.required.includes(leaf)) cursor.required.push(leaf);
+    }
+  }
+  return schema;
+}
+
 function slug(value) {
   return String(value || '')
     .toLowerCase()
@@ -92,16 +181,20 @@ export function requestPath(url) {
   return path.startsWith('/') ? path || '/' : `/${path}`;
 }
 
-function bodyContent(body) {
+function bodyContent(body, validations = {}) {
   if (!body || body.mode === 'none') return null;
   if (body.mode === 'json' || body.mode === 'raw') {
     const raw = String(body.raw || '');
     if (!raw.trim()) return null;
     const parsed = parseJson(raw);
     const value = parsed === undefined ? raw : parsed;
+    const schema = parsed === undefined
+      ? { type: 'string', example: value }
+      : applyBodyValidations({ ...schemaFromExample(value), example: value }, validations);
     return {
       mediaType: parsed === undefined ? 'text/plain' : 'application/json',
       example: value,
+      schema,
     };
   }
   if (body.mode === 'form-urlencoded' || body.mode === 'form-data') {
@@ -110,19 +203,26 @@ function bodyContent(body) {
       if (row.key) example[row.key] = row.value ?? '';
     }
     if (Object.keys(example).length === 0) return null;
+    const schema = applyBodyValidations(
+      { ...schemaFromExample(example), example },
+      validations
+    );
     return {
       mediaType:
         body.mode === 'form-data' ? 'multipart/form-data' : 'application/x-www-form-urlencoded',
       example,
+      schema,
     };
   }
   if (body.mode === 'graphql') {
     const query = String(body.graphql?.query || '').trim();
     if (!query) return null;
     const variables = parseJson(body.graphql?.variables);
+    const example = variables === undefined ? { query } : { query, variables };
     return {
       mediaType: 'application/json',
-      example: variables === undefined ? { query } : { query, variables },
+      example,
+      schema: applyBodyValidations({ ...schemaFromExample(example), example }, validations),
     };
   }
   return null;
@@ -130,6 +230,7 @@ function bodyContent(body) {
 
 function requestParameters(request, path) {
   const params = [];
+  const validations = normalizeFieldValidations(request?.fieldValidations);
   const pathVars = new Map(
     rows(request.pathVars)
       .filter((row) => row.key)
@@ -137,39 +238,46 @@ function requestParameters(request, path) {
   );
   for (const match of String(path).matchAll(/\{([^}]+)\}/g)) {
     const name = match[1];
+    const rule = validations.path[name];
     const parameter = {
       name,
       in: 'path',
       required: true,
-      schema: { type: 'string' },
+      schema: schemaForRule(rule, 'string'),
     };
     if (pathVars.has(name)) parameter.example = pathVars.get(name);
+    if (rule?.description) parameter.description = rule.description;
     params.push(parameter);
   }
 
   for (const row of rows(request.params)) {
     if (!row.key) continue;
-    params.push({
+    const rule = validations.params[row.key];
+    const parameter = {
       name: row.key,
       in: 'query',
-      required: false,
-      schema: { type: 'string' },
-      ...(row.value !== undefined ? { example: row.value } : {}),
-    });
+      required: (rule?.rules || []).includes('required'),
+      schema: schemaForRule(rule, 'string'),
+    };
+    if (row.value !== undefined) parameter.example = rule?.example || row.value;
+    if (rule?.description) parameter.description = rule.description;
+    params.push(parameter);
   }
 
   for (const row of rows(request.headers)) {
     const name = String(row.key || '').trim();
     if (!name || SECRET_HEADERS.has(name.toLowerCase())) continue;
-    params.push({
+    const rule = validations.headers[name];
+    const parameter = {
       name,
       in: 'header',
-      required: false,
-      schema: { type: 'string' },
-      ...(row.value !== undefined ? { example: row.value } : {}),
-    });
+      required: (rule?.rules || []).includes('required'),
+      schema: schemaForRule(rule, 'string'),
+    };
+    if (row.value !== undefined) parameter.example = rule?.example || row.value;
+    if (rule?.description) parameter.description = rule.description;
+    params.push(parameter);
   }
-
   return params;
 }
 
@@ -280,13 +388,14 @@ export function collectionToOpenApi(collection, { version = '1.0.0' } = {}) {
     if (parameters.length > 0) operation.parameters = parameters;
 
     if (BODY_METHODS.has(method)) {
-      const body = bodyContent(request.body);
+      const validations = normalizeFieldValidations(request.fieldValidations);
+      const body = bodyContent(request.body, validations.body);
       if (body) {
         operation.requestBody = {
           required: true,
           content: {
             [body.mediaType]: {
-              schema: { type: typeOf(body.example), example: body.example },
+              schema: body.schema || { type: typeOf(body.example), example: body.example },
             },
           },
         };

@@ -101,7 +101,14 @@ describe('collectionToOpenApi', () => {
       required: true,
       content: {
         'application/json': {
-          schema: { type: 'object', example: { sku: 'A-1', qty: 2 } },
+          schema: {
+            type: 'object',
+            example: { sku: 'A-1', qty: 2 },
+            properties: {
+              sku: { type: 'string', example: 'A-1' },
+              qty: { type: 'integer', example: 2 },
+            },
+          },
         },
       },
     });
@@ -114,6 +121,67 @@ describe('collectionToOpenApi', () => {
       operation.responses['201'].content['application/json'].examples.Created.value
     ).toEqual({ id: 42 });
     expect(operation.responses['422'].description).toBe('Unprocessable Entity');
+  });
+
+  it('maps validation metadata into OpenAPI parameters and body schema', () => {
+    const spec = collectionToOpenApi({
+      name: 'Validated',
+      items: [
+        {
+          id: 'req_v',
+          type: 'request',
+          name: 'Validated create',
+          method: 'POST',
+          url: 'https://api.test/items/:id',
+          params: [{ key: 'page', value: '1', enabled: true }],
+          headers: [{ key: 'X-Tenant', value: 'acme', enabled: true }],
+          body: { mode: 'json', raw: '{"id":1,"status":"NEW","email":"a@test.dev"}' },
+          fieldValidations: {
+            path: { id: { rules: ['required', 'string'], minLength: 2 } },
+            params: {
+              page: { rules: ['required', 'integer'], min: 1, max: 10, description: 'Page' },
+            },
+            headers: {
+              'X-Tenant': { rules: ['string'], minLength: 2, maxLength: 20, pattern: '^[a-z]+$' },
+            },
+            body: {
+              id: { rules: ['required', 'integer'], min: 1, max: 10 },
+              status: { rules: ['string'], enum: ['NEW', 'PAID'] },
+              email: { rules: ['email'] },
+            },
+          },
+        },
+      ],
+    });
+    const operation = spec.paths['/items/{id}'].post;
+    expect(operation.parameters).toEqual([
+      {
+        name: 'id',
+        in: 'path',
+        required: true,
+        schema: { type: 'string', minLength: 2 },
+      },
+      {
+        name: 'page',
+        in: 'query',
+        required: true,
+        schema: { type: 'integer', minimum: 1, maximum: 10 },
+        example: '1',
+        description: 'Page',
+      },
+      {
+        name: 'X-Tenant',
+        in: 'header',
+        required: false,
+        schema: { type: 'string', minLength: 2, maxLength: 20, pattern: '^[a-z]+$' },
+        example: 'acme',
+      },
+    ]);
+    const schema = operation.requestBody.content['application/json'].schema;
+    expect(schema.required).toEqual(['id']);
+    expect(schema.properties.id).toMatchObject({ type: 'integer', minimum: 1, maximum: 10 });
+    expect(schema.properties.status).toMatchObject({ type: 'string', enum: ['NEW', 'PAID'] });
+    expect(schema.properties.email).toMatchObject({ type: 'string', format: 'email' });
   });
 
   it('never emits authorization headers or disabled fields', () => {
@@ -148,6 +216,9 @@ describe('collectionToOpenApi', () => {
     expect(operation.requestBody.content['application/x-www-form-urlencoded'].schema).toEqual({
       type: 'object',
       example: { name: 'Ada' },
+      properties: {
+        name: { type: 'string', example: 'Ada' },
+      },
     });
   });
 

@@ -9,6 +9,7 @@
 import { toCurl } from './codegen.js';
 import {
   bodyValidationFields,
+  hasFieldValidations,
   normalizeFieldValidations,
   pathValidationFields,
   validationTokens,
@@ -250,7 +251,10 @@ function renderRequestCard(request, id, includeExamples, resolve = (value) => va
         })}`
       : '',
     headers.length
-      ? `<h4>Headers</h4>${kvTable(headers, { validations: validations.headers })}`
+      ? `<h4>Headers</h4>${kvTable(headers, {
+          enabled: true,
+          validations: validations.headers,
+        })}`
       : '',
     renderBody(request?.body, validations),
     includeExamples ? renderExamples(request?.examples) : '',
@@ -546,6 +550,12 @@ const STYLE = `
   .validation-token { display: inline-block; margin: 0 .2rem .15rem 0; padding: .05rem .3rem; border: 1px solid var(--border); border-radius: 3px; font-size: .7rem; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
   .field-description { white-space: pre-wrap; }
   .meta, .muted { color: var(--muted); font-size: .85rem; }
+  .validation-legend { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+  .validation-legend h2 { margin-top: 0; }
+  .validation-legend p { color: var(--muted); font-size: .86rem; }
+  .validation-legend ul { margin: .6rem 0 0; padding-left: 1.2rem; color: var(--muted); font-size: .86rem; }
+  .validation-legend li { margin: .2rem 0; }
+  .validation-legend strong { color: var(--text); }
   .disclaimer { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0 1rem; }
   .disclaimer h2 { margin: 0 0 .4rem; font-size: 1rem; }
   .disclaimer p { margin: 0; color: var(--muted); font-size: .86rem; white-space: pre-wrap; }
@@ -632,6 +642,35 @@ const STYLE = `
     body.template-minimal { background: #fff; }
   }
 `;
+
+function collectionHasValidations(items) {
+  for (const node of Array.isArray(items) ? items : []) {
+    if (!node) continue;
+    if (node.type === 'folder') {
+      if (collectionHasValidations(node.items)) return true;
+    } else if (hasFieldValidations(node.fieldValidations)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function validationLegend() {
+  return `<section class="validation-legend">
+<h2>Validation legend</h2>
+<p>Field rules describe the expected input. MIN/MAX apply to the field type: string length, numeric value, or array item count.</p>
+<ul>
+<li><strong>REQUIRED</strong> — must be present.</li>
+<li><strong>NULLABLE</strong> — may be null.</li>
+<li><strong>STRING / INTEGER / NUMERIC / BOOLEAN / ARRAY / OBJECT</strong> — expected type.</li>
+<li><strong>EMAIL / URL</strong> — expected string format.</li>
+<li><strong>UNIQUE</strong> — values must be unique.</li>
+<li><strong>MIN / MAX</strong> — length, value, or item count, depending on type.</li>
+<li><strong>FORMAT / PATTERN / ENUM</strong> — string format, regular expression, or allowed values.</li>
+<li><strong>EXAMPLE / DEFAULT</strong> — sample value and fallback value.</li>
+</ul>
+</section>`;
+}
 
 export function collectionToHtml(
   collection,
@@ -809,6 +848,7 @@ ${resolvedFrom}
 ${toc.length ? `<ul>${toc.join('')}</ul>` : '<p class="muted">No requests in this collection.</p>'}
 </nav>
 ${renderVariables(coll.variables)}
+${collectionHasValidations(coll.items) ? validationLegend() : ''}
 ${requestSections}
 ${appendix}
 ${disclaimerSection}
