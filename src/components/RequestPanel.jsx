@@ -416,7 +416,7 @@ function BodyEditor({ body, onChange, schemaState, onFetchSchema }) {
   const b = body || { mode: 'none', raw: '', form: [] };
   const isForm = b.mode === 'form-urlencoded' || b.mode === 'form-data';
   return (
-    <div className="body-editor">
+    <div className={`body-editor${b.mode === 'raw' || b.mode === 'json' ? ' body-editor-json' : ''}`}>
       <div className="body-modes">
         {BODY_MODES.map((mode) => (
           <label key={mode.id} className="radio">

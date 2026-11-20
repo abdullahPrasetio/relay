@@ -295,7 +295,12 @@ export default function CodeEditor({
           tabSize: 2,
           wordWrap: 'on',
           renderLineHighlight: 'line',
-          scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+          scrollbar: {
+            vertical: 'visible',
+            alwaysConsumeMouseWheel: true,
+            verticalScrollbarSize: 10,
+            horizontalScrollbarSize: 10,
+          },
         }}
       />
     </div>
