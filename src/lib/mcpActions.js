@@ -28,6 +28,7 @@ import {
   normalizeVariableRows,
   renameNode,
   updateRequestNode,
+  updateNodeValidations,
 } from './collectionTree.js';
 import {
   newCollection,
@@ -36,7 +37,10 @@ import {
   normalizeRequest,
 } from './factory.js';
 import { newWorkspace } from './workspace.js';
-import { normalizeFieldValidations } from './fieldValidations.js';
+import {
+  normalizeFieldValidations,
+  normalizeResponseValidations,
+} from './fieldValidations.js';
 import { runCollection } from './runner.js';
 import { isGrpcTls } from './protocol.js';
 import { collectionToHtml } from './apiDocs.js';
@@ -455,6 +459,55 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
         });
         return { deleted: p.collectionId };
       },
+      set_validation: async (p) => {
+        if (p.fieldValidations == null && p.responseValidations == null) {
+          fail('invalid_params', 'Provide fieldValidations and/or responseValidations.');
+        }
+        const workspace = needWorkspace(p.workspaceId);
+        const collection = needCollection(workspace, p.collectionId);
+        const patch = {
+          ...(p.fieldValidations != null
+            ? { fieldValidations: normalizeFieldValidations(p.fieldValidations) }
+            : {}),
+          ...(p.responseValidations != null
+            ? { responseValidations: normalizeResponseValidations(p.responseValidations) }
+            : {}),
+        };
+        if (p.folderId) {
+          if (!findFolder(collection, p.folderId)) {
+            fail('not_found', `Folder "${p.folderId}" not found.`);
+          }
+          const nextCollections = updateNodeValidations(
+            workspace.collections || [],
+            collection.id,
+            p.folderId,
+            patch
+          );
+          writeWorkspace(workspace, { collections: nextCollections });
+          const folder = findFolder(
+            nextCollections.find((c) => c.id === collection.id) || collection,
+            p.folderId
+          );
+          return {
+            collectionId: collection.id,
+            folderId: p.folderId,
+            fieldValidations: folder?.fieldValidations,
+            responseValidations: folder?.responseValidations,
+          };
+        }
+        const next = normalizeCollection({ ...collection, ...patch, id: collection.id });
+        writeWorkspace(workspace, {
+          collections: (workspace.collections || []).map((c) =>
+            c.id === collection.id ? next : c
+          ),
+        });
+        return {
+          collectionId: collection.id,
+          folderId: null,
+          fieldValidations: next.fieldValidations,
+          responseValidations: next.responseValidations,
+        };
+      },
       add_folder: async (p) => {
         const workspace = needWorkspace(p.workspaceId);
         needCollection(workspace, p.collectionId);
@@ -612,6 +665,9 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
         fail('not_found', `Request "${p.requestId}" not found.`);
       },
       set_validation: async (p) => {
+        if (p.fieldValidations == null && p.responseValidations == null) {
+          fail('invalid_params', 'Provide fieldValidations and/or responseValidations.');
+        }
         const workspace = needWorkspace(p.workspaceId);
         const collections = p.collectionId
           ? [needCollection(workspace, p.collectionId)]
@@ -621,7 +677,12 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
           if (!node) continue;
           const next = normalizeRequest({
             ...node,
-            fieldValidations: normalizeFieldValidations(p.fieldValidations),
+            ...(p.fieldValidations != null
+              ? { fieldValidations: normalizeFieldValidations(p.fieldValidations) }
+              : {}),
+            ...(p.responseValidations != null
+              ? { responseValidations: normalizeResponseValidations(p.responseValidations) }
+              : {}),
           });
           writeWorkspace(workspace, {
             collections: updateRequestNode(workspace.collections || [], collection.id, next),
@@ -630,6 +691,7 @@ export function createMcpActions({ store, cloud, appearance, windowApi = bridge(
             collectionId: collection.id,
             requestId: node.id,
             fieldValidations: next.fieldValidations,
+            responseValidations: next.responseValidations,
           };
         }
         fail('not_found', `Request "${p.requestId}" not found.`);

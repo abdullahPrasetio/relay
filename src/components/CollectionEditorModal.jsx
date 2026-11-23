@@ -2,15 +2,25 @@ import React, { useState } from 'react';
 import Modal from './Modal.jsx';
 import KeyValueEditor from './KeyValueEditor.jsx';
 import AuthPanel from './AuthPanel.jsx';
+import ValidationRulesEditor from './ValidationRulesEditor.jsx';
+import {
+  countResponseValidatedFields,
+  countValidatedFields,
+  normalizeFieldValidations,
+  normalizeResponseValidations,
+} from '../lib/fieldValidations.js';
 
 // Collection-level editor, echoing Postman's collection tabs:
 // Overview (description), Authorization, Variables, Scripts.
 // Auth and scripts here are inherited by requests inside the collection.
-const TABS = ['Overview', 'Authorization', 'Variables', 'Scripts'];
+const TABS = ['Overview', 'Authorization', 'Variables', 'Validation', 'Scripts'];
 
 export default function CollectionEditorModal({ collection, onClose, onChange }) {
   const [tab, setTab] = useState('Overview');
   const patch = (p) => onChange({ ...collection, ...p });
+  const validationCount =
+    countValidatedFields(normalizeFieldValidations(collection.fieldValidations)) +
+    countResponseValidatedFields(normalizeResponseValidations(collection.responseValidations));
 
   return (
     <Modal title={`Collection · ${collection.name}`} onClose={onClose} width={680}>
@@ -27,6 +37,9 @@ export default function CollectionEditorModal({ collection, onClose, onChange })
             )}
             {t === 'Variables' && (collection.variables?.length || 0) > 0 && (
               <span className="badge">{collection.variables.length}</span>
+            )}
+            {t === 'Validation' && validationCount > 0 && (
+              <span className="badge">{validationCount}</span>
             )}
             {t === 'Scripts' && (collection.preRequest?.trim() || collection.tests?.trim()) && (
               <span className="dot" />
@@ -117,6 +130,15 @@ export default function CollectionEditorModal({ collection, onClose, onChange })
             Reference with <code>{'{{name}}'}</code>. The active environment overrides these.
           </p>
         </>
+      )}
+
+      {tab === 'Validation' && (
+        <ValidationRulesEditor
+          container={collection}
+          fieldValidations={collection.fieldValidations}
+          responseValidations={collection.responseValidations}
+          onChange={patch}
+        />
       )}
 
       {tab === 'Scripts' && (

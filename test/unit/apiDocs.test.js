@@ -228,6 +228,75 @@ describe('collectionToHtml', () => {
     expect(html).toContain('ENUM 1');
   });
 
+  it('applies collection and folder validation rules to nested requests', () => {
+    const html = collectionToHtml(
+      {
+        name: 'Inherited',
+        fieldValidations: {
+          headers: { 'X-Key': { rules: ['required'], description: 'Tenant key' } },
+        },
+        items: [
+          {
+            type: 'folder',
+            name: 'Folder',
+            fieldValidations: {
+              headers: { 'X-Key': { description: 'Folder key' } },
+            },
+            items: [
+              {
+                type: 'request',
+                name: 'Get item',
+                method: 'GET',
+                url: '/items',
+                headers: [{ key: 'X-Key', value: 'abc' }],
+              },
+            ],
+          },
+        ],
+      },
+      { generatedAt: 'x' }
+    );
+    expect(html).toContain('X-Key');
+    expect(html).toContain('REQUIRED');
+    expect(html).toContain('Folder key');
+  });
+
+  it('renders response field validation from saved examples', () => {
+    const html = collectionToHtml(
+      {
+        name: 'Response docs',
+        items: [
+          {
+            type: 'request',
+            name: 'Get item',
+            method: 'GET',
+            url: '/items/1',
+            examples: [
+              {
+                name: 'OK',
+                response: {
+                  status: 200,
+                  contentType: 'application/json',
+                  headers: [{ key: 'X-Trace', value: 'abc' }],
+                  body: '{"id":1}',
+                },
+              },
+            ],
+            responseValidations: {
+              body: { id: { rules: ['required', 'integer'], minimum: 1 } },
+              headers: { 'X-Trace': { rules: ['string'] } },
+            },
+          },
+        ],
+      },
+      { generatedAt: 'x' }
+    );
+    expect(html).toContain('Response fields');
+    expect(html).toContain('Response body fields');
+    expect(html).toContain('MIN VALUE 1');
+    expect(html).toContain('X-Trace');
+  });
+
   it('shows the auth type but never credentials', () => {
     const html = collectionToHtml(fixture(), { generatedAt: '2026-10-27T12:00:00.000Z' });
     expect(html).toContain('Auth: <code>bearer</code>');

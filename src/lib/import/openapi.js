@@ -18,6 +18,11 @@ import {
   newKeyValue,
 } from '../factory.js';
 import { newFolder } from '../collectionTree.js';
+import {
+  hasValidation,
+  normalizeFieldValidations,
+  normalizeResponseValidations,
+} from '../fieldValidations.js';
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options'];
 
@@ -234,6 +239,86 @@ function pathToUrl(path) {
   return String(path || '').replace(/\{([^}/]+)\}/g, ':$1');
 }
 
+function schemaRule(schema, required, resolveRef) {
+  if (!schema || typeof schema !== 'object') return null;
+  const node = typeof schema.$ref === 'string' ? resolveRef(schema.$ref) : schema;
+  if (!node || typeof node !== 'object') return null;
+  const types = Array.isArray(node.type) ? node.type : [node.type];
+  const type = String(types.find((entry) => entry && entry !== 'null') || '').toLowerCase();
+  const rules = [];
+  if (required) rules.push('required');
+  if (node.nullable === true || types.includes('null')) rules.push('nullable');
+  if (type === 'integer') rules.push('integer');
+  else if (type === 'number') rules.push('numeric');
+  else if (type === 'boolean') rules.push('boolean');
+  else if (type === 'array') rules.push('array');
+  else if (type === 'object') rules.push('object');
+  else if (type === 'string') rules.push('string');
+  if (node.uniqueItems === true) rules.push('unique');
+  const format = str(node.format).toLowerCase();
+  if (format === 'email') rules.push('email');
+  else if (format === 'uri' || format === 'url') rules.push('url');
+
+  const rule = {
+    rules,
+    minLength: Number.isFinite(Number(node.minLength)) ? Number(node.minLength) : null,
+    maxLength: Number.isFinite(Number(node.maxLength)) ? Number(node.maxLength) : null,
+    minimum: Number.isFinite(Number(node.minimum)) ? Number(node.minimum) : null,
+    maximum: Number.isFinite(Number(node.maximum)) ? Number(node.maximum) : null,
+    minItems: Number.isFinite(Number(node.minItems)) ? Number(node.minItems) : null,
+    maxItems: Number.isFinite(Number(node.maxItems)) ? Number(node.maxItems) : null,
+    pattern: str(node.pattern),
+    format: format && format !== 'email' && format !== 'uri' && format !== 'url' ? format : '',
+    enum: Array.isArray(node.enum) ? node.enum.map((value) => String(value)) : [],
+    example: node.example !== undefined ? String(node.example) : '',
+    default: node.default !== undefined ? String(node.default) : '',
+    description: str(node.description),
+  };
+  return hasValidation(rule) ? rule : null;
+}
+
+function collectSchemaValidations(schema, resolveRef, prefix = '', out = {}) {
+  if (!schema || typeof schema !== 'object') return out;
+  const node = typeof schema.$ref === 'string' ? resolveRef(schema.$ref) : schema;
+  if (!node || typeof node !== 'object') return out;
+  const properties = node.properties && typeof node.properties === 'object' ? node.properties : null;
+  if (!properties) return out;
+  const required = new Set(Array.isArray(node.required) ? node.required : []);
+  for (const [key, child] of Object.entries(properties)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const childNode = child && typeof child === 'object' && typeof child.$ref === 'string'
+      ? resolveRef(child.$ref)
+      : child;
+    const isArray =
+      childNode &&
+      typeof childNode === 'object' &&
+      (String(childNode.type || '').toLowerCase() === 'array' || childNode.items);
+    const rulePath = isArray ? `${path}[]` : path;
+    const rule = schemaRule(child, required.has(key), resolveRef);
+    if (rule) out[rulePath] = rule;
+    if (childNode && typeof childNode === 'object' && childNode.properties) {
+      collectSchemaValidations(childNode, resolveRef, rulePath, out);
+    }
+    if (childNode && typeof childNode === 'object' && childNode.items) {
+      collectSchemaValidations(childNode.items, resolveRef, rulePath, out);
+    }
+  }
+  return out;
+}
+
+function parameterSchema(param) {
+  if (param?.schema && typeof param.schema === 'object') return param.schema;
+  return param && typeof param === 'object' ? param : null;
+}
+
+function addParameterValidation(validations, section, param, resolveRef) {
+  const name = String(param?.name || '');
+  if (!name) return;
+  const schema = parameterSchema(param);
+  const rule = schemaRule(schema, param?.required === true, resolveRef);
+  if (rule) validations[section][name] = rule;
+}
+
 function buildOpenApiBody(operation, resolveRef) {
   const rawBody = operation?.requestBody;
   if (!rawBody || typeof rawBody !== 'object') return null;
@@ -245,8 +330,19 @@ function buildOpenApiBody(operation, resolveRef) {
 
   const jsonEntry = entries.find(([mediaType]) => isJsonMedia(mediaType));
   const [mediaType, mediaObj] = jsonEntry || entries[0];
-  if (jsonEntry) return { kind: 'json', value: mediaExample(mediaObj, resolveRef) };
-  return { kind: 'raw', value: mediaExample(mediaObj, resolveRef), mediaType };
+  if (jsonEntry) {
+    return {
+      kind: 'json',
+      value: mediaExample(mediaObj, resolveRef),
+      schema: mediaObj?.schema,
+    };
+  }
+  return {
+    kind: 'raw',
+    value: mediaExample(mediaObj, resolveRef),
+    mediaType,
+    schema: mediaObj?.schema,
+  };
 }
 
 function buildSwaggerBody(operation, parameters, resolveRef, consumes) {
@@ -258,8 +354,8 @@ function buildSwaggerBody(operation, parameters, resolveRef, consumes) {
     : [];
   const mediaType = mediaTypes.find((m) => isJsonMedia(m)) || mediaTypes[0] || 'application/json';
   const value = schemaExample(schema, resolveRef);
-  if (isJsonMedia(mediaType)) return { kind: 'json', value };
-  return { kind: 'raw', value, mediaType };
+  if (isJsonMedia(mediaType)) return { kind: 'json', value, schema };
+  return { kind: 'raw', value, mediaType, schema };
 }
 
 function buildRequest({ doc, path, pathItem, method, operation, isSwagger, resolveRef }) {
@@ -299,6 +395,43 @@ function buildRequest({ doc, path, pathItem, method, operation, isSwagger, resol
     const override = authFromSecurity(operation.security, schemes);
     if (override) request.auth = mergeAuth(newAuth(), override);
   }
+
+  const validations = { path: {}, params: {}, headers: {}, body: {} };
+  for (const param of parameters) {
+    const where = String(param.in || '').toLowerCase();
+    if (where === 'path') addParameterValidation(validations, 'path', param, resolveRef);
+    else if (where === 'query') addParameterValidation(validations, 'params', param, resolveRef);
+    else if (where === 'header') addParameterValidation(validations, 'headers', param, resolveRef);
+  }
+  if (body?.schema) {
+    collectSchemaValidations(body.schema, resolveRef, '', validations.body);
+  }
+  request.fieldValidations = normalizeFieldValidations(validations);
+
+  const responseValidations = { body: {}, headers: {} };
+  const responseEntries = Object.entries(
+    operation.responses && typeof operation.responses === 'object' ? operation.responses : {}
+  );
+  const success = responseEntries.find(([status]) => /^2\d\d$/.test(String(status))) || responseEntries[0];
+  if (success) {
+    const response = typeof success[1]?.$ref === 'string'
+      ? resolveRef(success[1].$ref)
+      : success[1];
+    if (response && typeof response === 'object') {
+      const content = response.content && typeof response.content === 'object' ? response.content : null;
+      const media = content
+        ? Object.entries(content).find(([type]) => isJsonMedia(type))?.[1] || Object.values(content)[0]
+        : null;
+      const schema = media?.schema || response.schema;
+      if (schema) collectSchemaValidations(schema, resolveRef, '', responseValidations.body);
+      for (const [name, header] of Object.entries(response.headers || {})) {
+        const headerNode = typeof header?.$ref === 'string' ? resolveRef(header.$ref) : header;
+        const rule = schemaRule(headerNode?.schema || headerNode, false, resolveRef);
+        if (rule) responseValidations.headers[name] = rule;
+      }
+    }
+  }
+  request.responseValidations = normalizeResponseValidations(responseValidations);
 
   return request;
 }

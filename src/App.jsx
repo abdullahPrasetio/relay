@@ -15,6 +15,7 @@ import SaveRequestModal from './components/SaveRequestModal.jsx';
 import VariablesModal from './components/VariablesModal.jsx';
 import EnvironmentModal from './components/EnvironmentModal.jsx';
 import CollectionEditorModal from './components/CollectionEditorModal.jsx';
+import ValidationRulesModal from './components/ValidationRulesModal.jsx';
 import ConfluenceSyncModal from './components/ConfluenceSyncModal.jsx';
 import CodeModal from './components/CodeModal.jsx';
 import RunnerModal from './components/RunnerModal.jsx';
@@ -71,6 +72,7 @@ import {
   findNodePath,
   flattenRequests,
   findFolder,
+  updateNodeValidations,
 } from './lib/collectionTree.js';
 import {
   SESSION_KEY,
@@ -333,6 +335,7 @@ export default function App() {
   const [saveModal, setSaveModal] = useState(null); // {request}
   const [varsModalCollectionId, setVarsModalCollectionId] = useState(null);
   const [collectionEditorId, setCollectionEditorId] = useState(null);
+  const [validationEditor, setValidationEditor] = useState(null); // { collectionId, nodeId }
   const [envModalId, setEnvModalId] = useState(null);
   const [codeModal, setCodeModal] = useState(null); // {request}
   const [runner, setRunner] = useState(null); // {title, requests, collection}
@@ -2514,7 +2517,7 @@ export default function App() {
     if (rawSession && untouched) {
       const restored = restoreSession(rawSession, {
         collections: store.collections,
-        makeTab: (request) => newTab(request),
+        makeTab: (request, options) => newTab(request, options),
       });
       if (restored) {
         setTabs(restored.tabs);
@@ -2631,6 +2634,11 @@ export default function App() {
 
   const varsModalEnvironment = store.environments.find((e) => e.id === envModalId);
   const editorCollection = store.collections.find((c) => c.id === collectionEditorId);
+  const validationNode = (() => {
+    if (!validationEditor) return null;
+    const collection = store.collections.find((c) => c.id === validationEditor.collectionId);
+    return collection ? findFolder(collection, validationEditor.nodeId) : null;
+  })();
 
   return (
     <VarContext.Provider
@@ -2740,6 +2748,7 @@ export default function App() {
           onOpenRequest={openRequest}
           onEditCollectionVars={setVarsModalCollectionId}
           onOpenCollection={setCollectionEditorId}
+          onOpenValidation={setValidationEditor}
           onEditEnvironment={setEnvModalId}
           onRun={openRunner}
           onSyncConfluence={setConfluenceSyncCollectionId}
@@ -2789,6 +2798,7 @@ export default function App() {
             <RequestPanel
               key={activeTab.tabId}
               request={activeTab.request}
+              ancestors={findNodePath(store.collections, activeTab.request.id) || []}
               view={activeTab.view}
               onChange={setActiveRequest}
               onSend={send}
@@ -2913,6 +2923,23 @@ export default function App() {
           onChange={(updated) =>
             store.setCollections(
               store.collections.map((c) => (c.id === updated.id ? updated : c))
+            )
+          }
+        />
+      )}
+
+      {validationNode && validationEditor && (
+        <ValidationRulesModal
+          node={validationNode}
+          onClose={() => setValidationEditor(null)}
+          onChange={(patch) =>
+            store.setCollections(
+              updateNodeValidations(
+                store.collections,
+                validationEditor.collectionId,
+                validationEditor.nodeId,
+                patch
+              )
             )
           }
         />

@@ -111,6 +111,36 @@ describe('collectionToConfluenceStorage', () => {
     expect(out).toContain('<td>REQUIRED EMAIL</td><td>Primary email</td>');
   });
 
+  it('applies collection and folder validation rules to nested requests', () => {
+    const out = collectionToConfluenceStorage({
+      name: 'Inherited',
+      fieldValidations: {
+        headers: { 'X-Key': { rules: ['required'], description: 'Tenant key' } },
+      },
+      items: [
+        {
+          type: 'folder',
+          name: 'Folder',
+          fieldValidations: {
+            headers: { 'X-Key': { description: 'Folder key' } },
+          },
+          items: [
+            {
+              type: 'request',
+              name: 'Get item',
+              method: 'GET',
+              url: '/items',
+              headers: [{ key: 'X-Key', value: 'abc' }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(out).toContain('X-Key');
+    expect(out).toContain('REQUIRED');
+    expect(out).toContain('Folder key');
+  });
+
   it('never emits plaintext secrets or request auth credentials', () => {
     const out = collectionToConfluenceStorage(fixture());
     expect(out).toContain('(secret)');

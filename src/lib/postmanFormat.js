@@ -12,7 +12,12 @@
 import { newRequest, newCollection, newAuth, uid } from './factory.js';
 import { newFolder } from './collectionTree.js';
 import { normalizeMockConfig } from '../../shared/mockScenarios.js';
-import { hasFieldValidations, normalizeFieldValidations } from './fieldValidations.js';
+import {
+  hasFieldValidations,
+  hasResponseValidations,
+  normalizeFieldValidations,
+  normalizeResponseValidations,
+} from './fieldValidations.js';
 import { toPostmanEnvironment, fromPostmanEnvironment } from './environmentFormat.js';
 
 const COLLECTION_SCHEMA =
@@ -69,6 +74,12 @@ function nodeToPostman(node) {
     if (auth) item.auth = auth;
     const events = scriptsToEvents(node);
     if (events.length) item.event = events;
+    if (hasFieldValidations(node.fieldValidations)) {
+      item._relayFieldValidations = normalizeFieldValidations(node.fieldValidations);
+    }
+    if (hasResponseValidations(node.responseValidations)) {
+      item._relayResponseValidations = normalizeResponseValidations(node.responseValidations);
+    }
     item.item = (node.items || []).map(nodeToPostman);
     return item;
   }
@@ -420,6 +431,12 @@ export function fromPostmanCollection(json) {
   const colScripts = eventsToScripts(json?.event);
   collection.preRequest = colScripts.preRequest;
   collection.tests = colScripts.tests;
+  collection.fieldValidations = normalizeFieldValidations(
+    json?._relayFieldValidations ?? json?.field_validations
+  );
+  collection.responseValidations = normalizeResponseValidations(
+    json?._relayResponseValidations ?? json?.response_validations
+  );
   collection.items = (json?.item || []).map(itemToNode);
   // Imported code is untrusted until the user explicitly allows it, so the
   // UI can ask once before running any collection/folder/request script.
@@ -456,6 +473,12 @@ function itemToNode(item) {
     const scripts = eventsToScripts(item.event);
     folder.preRequest = scripts.preRequest;
     folder.tests = scripts.tests;
+    folder.fieldValidations = normalizeFieldValidations(
+      item._relayFieldValidations ?? item.field_validations
+    );
+    folder.responseValidations = normalizeResponseValidations(
+      item._relayResponseValidations ?? item.response_validations
+    );
     folder.items = item.item.map(itemToNode);
     return folder;
   }
@@ -506,6 +529,12 @@ function itemToRequest(item) {
     r.field_validations ??
     r.fieldValidations;
   req.fieldValidations = normalizeFieldValidations(rawValidations);
+  req.responseValidations = normalizeResponseValidations(
+    item._relayResponseValidations ??
+      item.response_validations ??
+      r.response_validations ??
+      r.responseValidations
+  );
 
   // Relay-only backup metadata (mock scenarios). Normal Postman imports do
   // not carry this field, so the default empty mock config stays in place.
@@ -897,11 +926,21 @@ function attachValidationMetadata(postmanItems, sourceItems) {
     const node = source[index];
     if (!item || !node) return;
     if (node.type === 'folder') {
+      if (hasFieldValidations(node.fieldValidations)) {
+        item._relayFieldValidations = normalizeFieldValidations(node.fieldValidations);
+      }
+      if (hasResponseValidations(node.responseValidations)) {
+        item._relayResponseValidations = normalizeResponseValidations(node.responseValidations);
+      }
       attachValidationMetadata(item.item, node.items);
       return;
     }
-    if (!hasFieldValidations(node.fieldValidations)) return;
-    item._relayFieldValidations = normalizeFieldValidations(node.fieldValidations);
+    if (hasFieldValidations(node.fieldValidations)) {
+      item._relayFieldValidations = normalizeFieldValidations(node.fieldValidations);
+    }
+    if (hasResponseValidations(node.responseValidations)) {
+      item._relayResponseValidations = normalizeResponseValidations(node.responseValidations);
+    }
   });
 }
 
@@ -936,6 +975,12 @@ export function toWorkspaceBackup(workspace) {
       const out = toPostmanCollection(collection);
       const meta = confluenceBackupMeta(collection);
       if (meta) out._relayConfluence = meta;
+      if (hasFieldValidations(collection.fieldValidations)) {
+        out._relayFieldValidations = normalizeFieldValidations(collection.fieldValidations);
+      }
+      if (hasResponseValidations(collection.responseValidations)) {
+        out._relayResponseValidations = normalizeResponseValidations(collection.responseValidations);
+      }
       attachMockMetadata(out.item, collection.items);
       attachValidationMetadata(out.item, collection.items);
       return out;

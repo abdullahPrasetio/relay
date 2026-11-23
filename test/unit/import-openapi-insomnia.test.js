@@ -79,6 +79,190 @@ describe('fromOpenApi (OpenAPI 3)', () => {
   });
 });
 
+describe('fromOpenApi validation metadata', () => {
+  it('maps parameter and body schema constraints into fieldValidations', () => {
+    const { collection } = fromOpenApi({
+      openapi: '3.0.3',
+      info: { title: 'Validated API', version: '1.0.0' },
+      paths: {
+        '/pets/{petId}': {
+          post: {
+            operationId: 'updatePet',
+            parameters: [
+              {
+                name: 'petId',
+                in: 'path',
+                required: true,
+                schema: { type: 'integer', minimum: 1, maximum: 10 },
+              },
+              {
+                name: 'limit',
+                in: 'query',
+                required: true,
+                schema: { type: 'integer', minimum: 1, maximum: 50, default: 20 },
+              },
+              {
+                name: 'X-Tenant',
+                in: 'header',
+                schema: { type: 'string', minLength: 2, pattern: '^[a-z]+$' },
+              },
+            ],
+            requestBody: {
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    required: ['name', 'age'],
+                    properties: {
+                      name: { type: 'string', minLength: 2, description: 'Pet name' },
+                      age: { type: 'integer', minimum: 0 },
+                      status: { type: 'string', enum: ['NEW', 'ACTIVE'] },
+                      email: { type: 'string', format: 'email' },
+                      owner: {
+                        type: 'object',
+                        required: ['id'],
+                        properties: { id: { type: 'integer', minimum: 1 } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+      },
+    });
+    const request = requestNamed(collection, 'updatePet');
+    expect(request.fieldValidations.path.petId).toMatchObject({
+      rules: ['required', 'integer'],
+      minimum: 1,
+      maximum: 10,
+    });
+    expect(request.fieldValidations.params.limit).toMatchObject({
+      rules: ['required', 'integer'],
+      minimum: 1,
+      maximum: 50,
+      default: '20',
+    });
+    expect(request.fieldValidations.headers['X-Tenant']).toMatchObject({
+      rules: ['string'],
+      minLength: 2,
+      pattern: '^[a-z]+$',
+    });
+    expect(request.fieldValidations.body.name).toMatchObject({
+      rules: ['required', 'string'],
+      minLength: 2,
+      description: 'Pet name',
+    });
+    expect(request.fieldValidations.body.age).toMatchObject({
+      rules: ['required', 'integer'],
+      minimum: 0,
+    });
+    expect(request.fieldValidations.body.status.enum).toEqual(['NEW', 'ACTIVE']);
+    expect(request.fieldValidations.body.email.rules).toContain('email');
+    expect(request.fieldValidations.body['owner.id']).toMatchObject({
+      rules: ['required', 'integer'],
+      minimum: 1,
+    });
+  });
+
+  it('maps response schemas and headers into responseValidations', () => {
+    const { collection } = fromOpenApi({
+      openapi: '3.0.3',
+      info: { title: 'Responses', version: '1' },
+      paths: {
+        '/items/{id}': {
+          get: {
+            operationId: 'getItem',
+            parameters: [
+              { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+            ],
+            responses: {
+              200: {
+                description: 'OK',
+                content: {
+                  'application/json': {
+                    schema: {
+                      type: 'object',
+                      required: ['id'],
+                      properties: { id: { type: 'integer', minimum: 1 } },
+                    },
+                  },
+                },
+                headers: {
+                  'X-Trace': { schema: { type: 'string', minLength: 3 } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const request = requestNamed(collection, 'getItem');
+    expect(request.responseValidations.body.id).toMatchObject({
+      rules: ['required', 'integer'],
+      minimum: 1,
+    });
+    expect(request.responseValidations.headers['X-Trace']).toMatchObject({
+      rules: ['string'],
+      minLength: 3,
+    });
+  });
+
+  it('maps nested array item schemas into bracketed field paths', () => {
+    const { collection } = fromOpenApi({
+      openapi: '3.0.3',
+      info: { title: 'Arrays', version: '1' },
+      paths: {
+        '/items': {
+          post: {
+            operationId: 'createItems',
+            requestBody: {
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    required: ['items'],
+                    properties: {
+                      items: {
+                        type: 'array',
+                        minItems: 1,
+                        items: {
+                          type: 'object',
+                          required: ['id'],
+                          properties: {
+                            id: { type: 'integer', minimum: 1 },
+                            name: { type: 'string', minLength: 2 },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            responses: { 200: { description: 'OK' } },
+          },
+        },
+      },
+    });
+    const request = requestNamed(collection, 'createItems');
+    expect(request.fieldValidations.body['items[]']).toMatchObject({
+      rules: ['required', 'array'],
+      minItems: 1,
+    });
+    expect(request.fieldValidations.body['items[].id']).toMatchObject({
+      rules: ['required', 'integer'],
+      minimum: 1,
+    });
+    expect(request.fieldValidations.body['items[].name']).toMatchObject({
+      rules: ['string'],
+      minLength: 2,
+    });
+  });
+});
+
 describe('fromOpenApi (Swagger 2.0)', () => {
   const { collection } = fromOpenApi(fixture('import/petstore-swagger2.json'));
 

@@ -7,8 +7,10 @@
 import {
   bodyValidationFields,
   hasFieldValidations,
-  normalizeFieldValidations,
+  normalizeResponseValidations,
   pathValidationFields,
+  resolveRequestValidations,
+  responseValidationFields,
   validationTokens,
 } from './fieldValidations.js';
 import { collectionToOpenApi } from './openapiDocs.js';
@@ -200,12 +202,28 @@ function variablesSection(variables) {
   ].join('');
 }
 
-function requestSection(request, depth, includeExamples) {
+function responseSection(request, responseValidations = null) {
+  const fields = responseValidationFields(request);
+  const validations = responseValidations || normalizeResponseValidations(request?.responseValidations);
+  if (fields.body.length === 0 && fields.headers.length === 0) return '';
+  return [
+    '<h3>Response fields</h3>',
+    fields.body.length
+      ? `<h4>Response body fields</h4>${fieldTable(fields.body, { validations: validations.body })}`
+      : '',
+    fields.headers.length
+      ? `<h4>Response headers</h4>${fieldTable(fields.headers, { validations: validations.headers })}`
+      : '',
+  ].join('');
+}
+
+function requestSection(request, depth, includeExamples, ancestors = []) {
+  const effective = resolveRequestValidations(request, ancestors);
   const method = String(request?.method || 'GET').toUpperCase();
   const level = Math.min(6, 2 + depth);
   const h = `h${level}`;
   const url = String(request?.url || '');
-  const validations = normalizeFieldValidations(request?.fieldValidations);
+  const validations = effective.fieldValidations;
   const pathFields = pathValidationFields(request);
   return [
     `<${h}><span style="color:${methodColor(method)};">${escapeXml(method)}</span> ${escapeXml(
@@ -233,10 +251,11 @@ function requestSection(request, depth, includeExamples) {
       : '',
     bodySection(request?.body, validations),
     includeExamples ? examplesSection(request?.examples) : '',
+    responseSection(request, effective.responseValidations),
   ].join('');
 }
 
-function renderItems(items, depth, includeExamples, counters) {
+function renderItems(items, depth, includeExamples, counters, ancestors = []) {
   const out = [];
   for (const node of Array.isArray(items) ? items : []) {
     if (!node) continue;
@@ -246,12 +265,12 @@ function renderItems(items, depth, includeExamples, counters) {
       out.push(
         `<h${level}>${escapeXml(node.name || 'Folder')}</h${level}>${
           node.description ? `<p>${escapeXml(node.description)}</p>` : ''
-        }${renderItems(node.items, depth + 1, includeExamples, counters)}`
+        }${renderItems(node.items, depth + 1, includeExamples, counters, [...ancestors, node])}`
       );
       continue;
     }
     counters.requests += 1;
-    out.push(requestSection(node, depth, includeExamples));
+    out.push(requestSection(node, depth, includeExamples, ancestors));
   }
   return out.join('');
 }
@@ -259,6 +278,7 @@ function renderItems(items, depth, includeExamples, counters) {
 function collectionHasValidations(items) {
   for (const node of Array.isArray(items) ? items : []) {
     if (!node) continue;
+    if (hasFieldValidations(node.fieldValidations)) return true;
     if (node.type === 'folder') {
       if (collectionHasValidations(node.items)) return true;
     } else if (hasFieldValidations(node.fieldValidations)) {
@@ -287,7 +307,7 @@ function validationLegend() {
 
 function documentationSection(coll, { workspaceName, includeExamples, generatedAt }) {
   const counters = { requests: 0, folders: 0 };
-  const items = renderItems(coll.items, 0, includeExamples, counters);
+  const items = renderItems(coll.items, 0, includeExamples, counters, [coll]);
   const title = coll.name || 'Collection';
   const meta = [];
   if (workspaceName) meta.push(`Workspace: ${escapeXml(workspaceName)}`);

@@ -10,8 +10,10 @@ import { toCurl } from './codegen.js';
 import {
   bodyValidationFields,
   hasFieldValidations,
-  normalizeFieldValidations,
+  normalizeResponseValidations,
   pathValidationFields,
+  resolveRequestValidations,
+  responseValidationFields,
   validationTokens,
 } from './fieldValidations.js';
 
@@ -217,14 +219,32 @@ function renderExamples(examples) {
   return `<section class="examples"><h3>Saved examples</h3>${items.join('')}</section>`;
 }
 
-function renderRequestCard(request, id, includeExamples, resolve = (value) => value) {
+function renderResponseDocs(request, responseValidations = null) {
+  const fields = responseValidationFields(request);
+  const validations = responseValidations || normalizeResponseValidations(request?.responseValidations);
+  if (fields.body.length === 0 && fields.headers.length === 0) return '';
+  return [
+    '<section class="response-docs">',
+    '<h3>Response fields</h3>',
+    fields.body.length
+      ? `<h4>Response body fields</h4>${fieldTable(fields.body, validations.body)}`
+      : '',
+    fields.headers.length
+      ? `<h4>Response headers</h4>${kvTable(fields.headers, { validations: validations.headers })}`
+      : '',
+    '</section>',
+  ].join('');
+}
+
+function renderRequestCard(request, id, includeExamples, resolve = (value) => value, ancestors = []) {
   request = resolvedRequest(request, resolve);
+  const effective = resolveRequestValidations(request, ancestors);
   const authType = request?.auth?.type || 'none';
   const params = Array.isArray(request?.params) ? request.params : [];
   const headers = Array.isArray(request?.headers) ? request.headers : [];
   const method = String(request?.method || 'GET').toUpperCase();
   const url = request?.url || '';
-  const validations = normalizeFieldValidations(request?.fieldValidations);
+  const validations = effective.fieldValidations;
   const pathFields = pathValidationFields(request);
 
   return [
@@ -258,6 +278,7 @@ function renderRequestCard(request, id, includeExamples, resolve = (value) => va
       : '',
     renderBody(request?.body, validations),
     includeExamples ? renderExamples(request?.examples) : '',
+    renderResponseDocs(request, effective.responseValidations),
     '</article>',
   ].join('');
 }
@@ -645,6 +666,7 @@ const STYLE = `
 
 function collectionHasValidations(items) {
   for (const node of Array.isArray(items) ? items : []) {
+    if (hasFieldValidations(node.fieldValidations)) return true;
     if (!node) continue;
     if (node.type === 'folder') {
       if (collectionHasValidations(node.items)) return true;
@@ -724,7 +746,7 @@ export function collectionToHtml(
   let requestCount = 0;
   let folderCount = 0;
 
-  function renderItems(items, depth) {
+  function renderItems(items, depth, ancestors) {
     const out = [];
     for (const node of Array.isArray(items) ? items : []) {
       if (!node) continue;
@@ -736,7 +758,7 @@ export function collectionToHtml(
             node.name || 'Folder'
           )}</a></li>`
         );
-        const children = renderItems(node.items, depth + 1);
+        const children = renderItems(node.items, depth + 1, [...ancestors, node]);
         out.push(
           `<section class="folder" id="${escapeHtml(id)}"><h2>${escapeHtml(
             node.name || 'Folder'
@@ -758,12 +780,12 @@ export function collectionToHtml(
           method
         )} ${escapeHtml(node.name || 'Untitled Request')}</a></li>`
       );
-      out.push(renderRequestCard(node, id, includeExamples, resolve));
+      out.push(renderRequestCard(node, id, includeExamples, resolve, ancestors));
     }
     return out.join('\n');
   }
 
-  const requestSections = renderItems(coll.items, 0);
+  const requestSections = renderItems(coll.items, 0, [coll]);
   if (Array.isArray(coll.variables) && coll.variables.length > 0) {
     toc.unshift(
       '<li class="toc-variables"><a href="#collection-variables">Collection variables</a></li>'

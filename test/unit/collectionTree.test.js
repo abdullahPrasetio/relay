@@ -58,6 +58,42 @@ describe('collection normalization', () => {
     expect(normalizeCollection({ name: 'Bad', confluenceVersion: -1 }).confluenceVersion).toBeNull();
   });
 
+  it('normalizes collection and folder validation metadata', () => {
+    const collection = normalizeCollection({
+      name: 'Validated',
+      fieldValidations: {
+        headers: { 'X-Key': { rules: ['required'], description: 'Collection key' } },
+      },
+      responseValidations: {
+        body: { id: { rules: ['integer'], minimum: 1 } },
+      },
+      items: [
+        {
+          type: 'folder',
+          name: 'Users',
+          fieldValidations: {
+            body: { email: { rules: ['required', 'email'] } },
+          },
+          responseValidations: {
+            headers: { 'X-Trace': { rules: ['string'] } },
+          },
+          items: [],
+        },
+      ],
+    });
+    expect(collection.fieldValidations.headers['X-Key']).toMatchObject({
+      rules: ['required'],
+      description: 'Collection key',
+    });
+    expect(collection.responseValidations.body.id).toMatchObject({ minimum: 1 });
+    expect(collection.items[0].fieldValidations.body.email).toMatchObject({
+      rules: ['required', 'email'],
+    });
+    expect(collection.items[0].responseValidations.headers['X-Trace']).toMatchObject({
+      rules: ['string'],
+    });
+  });
+
   it('still migrates legacy flat requests[] into request nodes', () => {
     const collection = normalizeCollection({
       name: 'Legacy',

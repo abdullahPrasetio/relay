@@ -157,6 +157,17 @@ export const MCP_TOOLS = {
         collectionId: strReq('Collection id.'),
         nodeId: strReq('Folder or request id.'),
       }),
+      set_validation: action(
+        'write',
+        'Set validation metadata on a collection or folder; requests below inherit it.',
+        {
+          collectionId: strReq('Collection id.'),
+          folderId: str('Folder id; omit to set collection-level rules.'),
+          fieldValidations: obj('Optional request validation map: {path, params, headers, body}.'),
+          responseValidations: obj('Optional response validation map: {body, headers}.'),
+          workspaceId: str('Workspace id; defaults to the active workspace.'),
+        }
+      ),
       import_postman: action('write', 'Import a Postman collection (v2 object or JSON string).', {
         workspaceId: str('Workspace id; defaults to the active workspace.'),
         collection: jsonReq('Postman collection object or its JSON string.'),
@@ -202,8 +213,11 @@ export const MCP_TOOLS = {
         'Replace one request\'s field validation metadata.',
         {
           requestId: strReq('Request id.'),
-          fieldValidations: objReq(
-            'Validation map: {path, params, headers, body}, each keyed by field name.'
+          fieldValidations: obj(
+            'Optional request validation map: {path, params, headers, body}.'
+          ),
+          responseValidations: obj(
+            'Optional response validation map: {body, headers}.'
           ),
           workspaceId: str('Workspace id; defaults to the active workspace.'),
           collectionId: str('Collection id, when the id is ambiguous.'),

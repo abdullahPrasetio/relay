@@ -322,10 +322,26 @@ Set metadata validasi request:
 }
 ```
 
+Validasi juga bisa dipasang di level collection atau folder:
+
+```json
+{"tool":"relay_collections","action":"set_validation","params":{
+  "collectionId":"col_1",
+  "folderId":"fld_1",
+  "fieldValidations":{"headers":{"X-Api-Key":{"rules":["required"]}}},
+  "responseValidations":{"body":{"id":{"rules":["integer"],"minimum":1}}}
+}}
+```
+
+Tanpa `folderId`, aturan dipasang di collection. Request di bawahnya mewarisi
+aturan tersebut; aturan request untuk field yang sama menang. `relay_collections.get`
+mengembalikan metadata collection dan folder.
+
 `fieldValidations` memakai struktur `{path, params, headers, body}` dan
-menggantikan seluruh map validasi request tersebut. Nilai dinormalisasi dengan
-aturan yang sama seperti UI. `relay_requests.get` mengembalikan metadata ini;
-`create` dan `update` juga menerima `fieldValidations`.
+`responseValidations` memakai `{body, headers}`. Keduanya menggantikan map
+masing-masing untuk request tersebut. Nilai dinormalisasi dengan aturan yang
+sama seperti UI. `relay_requests.get` mengembalikan metadata ini; `create` dan
+`update` juga menerima keduanya.
 
 Jalankan collection (scope `request`):
 

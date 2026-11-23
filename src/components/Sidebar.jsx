@@ -82,6 +82,7 @@ export default function Sidebar({
   onTogglePin,
   onEditCollectionVars,
   onOpenCollection,
+  onOpenValidation,
   onEditEnvironment,
   onRun,
   onSyncConfluence,
@@ -335,6 +336,9 @@ export default function Sidebar({
     },
     togglePin(nodeId) {
       onTogglePin?.(nodeId);
+    },
+    editValidation(collectionId, nodeId) {
+      onOpenValidation?.({ collectionId, nodeId });
     },
   };
 

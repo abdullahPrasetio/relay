@@ -184,6 +184,156 @@ describe('collectionToOpenApi', () => {
     expect(schema.properties.email).toMatchObject({ type: 'string', format: 'email' });
   });
 
+  it('maps nested array body validations into item schemas', () => {
+    const spec = collectionToOpenApi({
+      name: 'Arrays',
+      items: [
+        {
+          id: 'req_arr',
+          type: 'request',
+          name: 'Create list',
+          method: 'POST',
+          url: '/items',
+          body: { mode: 'json', raw: '{"items":[{"id":1,"name":"A"}]}' },
+          fieldValidations: {
+            body: {
+              'items[]': { rules: ['array'], minItems: 1 },
+              'items[].id': { rules: ['required', 'integer'], minimum: 1 },
+              'items[].name': { rules: ['string'], minLength: 1 },
+            },
+          },
+        },
+      ],
+    });
+    const schema = spec.paths['/items'].post.requestBody.content['application/json'].schema;
+    expect(schema.properties.items).toMatchObject({ type: 'array', minItems: 1 });
+    expect(schema.properties.items.items.required).toEqual(['id']);
+    expect(schema.properties.items.items.properties.id).toMatchObject({
+      type: 'integer',
+      minimum: 1,
+    });
+    expect(schema.properties.items.items.properties.name).toMatchObject({
+      type: 'string',
+      minLength: 1,
+    });
+  });
+
+  it('emits valid regex patterns and omits malformed ones', () => {
+    const spec = collectionToOpenApi({
+      name: 'Patterns',
+      items: [
+        {
+          type: 'request',
+          name: 'Create code',
+          method: 'POST',
+          url: '/codes',
+          body: {
+            mode: 'raw',
+            raw: '{"code":"AB-1","bad":"x"}',
+            contentType: 'application/json',
+          },
+          fieldValidations: {
+            body: {
+              code: { rules: ['string'], pattern: '^[A-Z]{2}-\\d+$' },
+              bad: { rules: ['string'], pattern: '[' },
+            },
+          },
+        },
+      ],
+    });
+    const schema = spec.paths['/codes'].post.requestBody.content['application/json'].schema;
+    expect(schema.properties.code.pattern).toBe('^[A-Z]{2}-\\d+$');
+    expect(schema.properties.bad.pattern).toBeUndefined();
+  });
+
+  it('inherits collection and folder validations into operations', () => {
+    const spec = collectionToOpenApi({
+      name: 'Inherited',
+      fieldValidations: {
+        body: { email: { rules: ['required', 'email'] } },
+      },
+      items: [
+        {
+          type: 'folder',
+          name: 'Users',
+          fieldValidations: {
+            headers: { 'X-Key': { rules: ['required'], description: 'Tenant key' } },
+          },
+          items: [
+            {
+              id: 'req_inherited',
+              type: 'request',
+              name: 'Create user',
+              method: 'POST',
+              url: '/users',
+              headers: [{ key: 'X-Key', value: 'abc' }],
+              body: {
+                mode: 'raw',
+                raw: '{"email":"a@example.com"}',
+                contentType: 'application/json',
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const operation = spec.paths['/users'].post;
+    expect(operation.requestBody.content['application/json'].schema).toMatchObject({
+      required: ['email'],
+      properties: { email: { type: 'string', format: 'email' } },
+    });
+    expect(operation.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'X-Key',
+          in: 'header',
+          required: true,
+          description: 'Tenant key',
+        }),
+      ])
+    );
+  });
+
+  it('maps response validation metadata into response schemas and headers', () => {
+    const spec = collectionToOpenApi({
+      name: 'Responses',
+      items: [
+        {
+          id: 'req_resp',
+          type: 'request',
+          name: 'Get item',
+          method: 'GET',
+          url: '/items/1',
+          examples: [
+            {
+              name: 'OK',
+              response: {
+                status: 200,
+                contentType: 'application/json',
+                headers: [{ key: 'X-Trace', value: 'abc' }],
+                body: '{"id":1}',
+              },
+            },
+          ],
+          responseValidations: {
+            body: { id: { rules: ['required', 'integer'], minimum: 1 } },
+            headers: { 'X-Trace': { rules: ['string'], minLength: 3 } },
+          },
+        },
+      ],
+    });
+    const response = spec.paths['/items/1'].get.responses['200'];
+    expect(response.content['application/json'].schema).toMatchObject({
+      type: 'object',
+      required: ['id'],
+      properties: { id: { type: 'integer', minimum: 1 } },
+    });
+    expect(response.headers['X-Trace'].schema).toMatchObject({
+      type: 'string',
+      minLength: 3,
+    });
+  });
+
   it('never emits authorization headers or disabled fields', () => {
     const spec = collectionToOpenApi(fixture());
     const params = spec.paths['/orders/{id}'].post.parameters;

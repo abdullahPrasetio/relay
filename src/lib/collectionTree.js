@@ -10,6 +10,10 @@
 
 import { newRequest, newCollection, normalizeRequest, uid } from './factory.js';
 import {
+  normalizeFieldValidations,
+  normalizeResponseValidations,
+} from './fieldValidations.js';
+import {
   normalizeConfluenceContentMode,
   normalizeConfluenceContentOrder,
 } from './confluenceDocs.js';
@@ -24,6 +28,8 @@ export function newFolder(name = 'New Folder') {
     preRequest: '',
     tests: '',
     items: [],
+    fieldValidations: normalizeFieldValidations({}),
+    responseValidations: normalizeResponseValidations({}),
   };
 }
 
@@ -91,6 +97,8 @@ export function normalizeCollection(collection) {
         : null,
     confluenceContentMode: normalizeConfluenceContentMode(collection.confluenceContentMode),
     confluenceContentOrder: normalizeConfluenceContentOrder(collection.confluenceContentOrder),
+    fieldValidations: normalizeFieldValidations(collection.fieldValidations),
+    responseValidations: normalizeResponseValidations(collection.responseValidations),
     items: [],
   };
   if (Array.isArray(collection.items)) {
@@ -115,6 +123,8 @@ function normalizeNode(node) {
       auth: node.auth || null,
       preRequest: node.preRequest || '',
       tests: node.tests || '',
+      fieldValidations: normalizeFieldValidations(node.fieldValidations),
+      responseValidations: normalizeResponseValidations(node.responseValidations),
       items: (node.items || []).map(normalizeNode),
     };
   }
@@ -211,6 +221,25 @@ export function addRequest(collections, collectionId, parentFolderId, request) {
     ),
     node,
   };
+}
+
+export function updateNodeValidations(collections, collectionId, nodeId, patch) {
+  return collections.map((c) =>
+    c.id === collectionId
+      ? {
+          ...c,
+          items: mapItems(c.items, nodeId, (node) => ({
+            ...node,
+            fieldValidations: normalizeFieldValidations(
+              patch.fieldValidations ?? node.fieldValidations
+            ),
+            responseValidations: normalizeResponseValidations(
+              patch.responseValidations ?? node.responseValidations
+            ),
+          })),
+        }
+      : c
+  );
 }
 
 export function updateRequestNode(collections, collectionId, request) {

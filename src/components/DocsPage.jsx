@@ -1,14 +1,17 @@
 import React, { useMemo } from 'react';
 import Icon from './Icon.jsx';
 import { flattenRequests } from '../lib/collectionTree.js';
-import { countValidatedFields } from '../lib/fieldValidations.js';
+import {
+  countValidatedFields,
+  resolveRequestValidations,
+} from '../lib/fieldValidations.js';
 
-function collectRequests(items, path = [], out = []) {
+function collectRequests(items, path = [], out = [], ancestors = []) {
   for (const node of items || []) {
     if (node.type === 'folder') {
-      collectRequests(node.items, [...path, node.name], out);
+      collectRequests(node.items, [...path, node.name], out, [...ancestors, node]);
     } else {
-      out.push({ request: node, path });
+      out.push({ request: node, path, ancestors });
     }
   }
   return out;
@@ -34,7 +37,9 @@ function RequestDocCard({ entry, onOpenRequest }) {
   const { request, path } = entry;
   const params = (request.params || []).filter((row) => row.enabled !== false && row.key);
   const headers = (request.headers || []).filter((row) => row.enabled !== false && row.key);
-  const validations = countValidatedFields(request.fieldValidations);
+  const validations = countValidatedFields(
+    resolveRequestValidations(request, entry.ancestors).fieldValidations
+  );
   const examples = Array.isArray(request.examples) ? request.examples.length : 0;
   const bodyMode = request.body?.mode || 'none';
   return (
@@ -135,7 +140,7 @@ export default function DocsPage({
     );
   }
 
-  const entries = collectRequests(selectedCollection.items);
+  const entries = collectRequests(selectedCollection.items, [], [], [selectedCollection]);
   const variables = variableRows(selectedCollection.variables);
 
   return (

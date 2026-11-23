@@ -4,7 +4,12 @@
 // spec as raw JSON or embeds it in the Swagger UI macro. Only enabled fields
 // are emitted; credentials (Authorization/Cookie headers) are never included.
 
-import { normalizeFieldValidations } from './fieldValidations.js';
+import {
+  normalizeFieldValidations,
+  isValidPattern,
+  normalizeResponseValidations,
+  resolveRequestValidations,
+} from './fieldValidations.js';
 
 const BODY_METHODS = new Set(['post', 'put', 'patch', 'delete']);
 
@@ -80,7 +85,7 @@ function schemaForRule(rule, fallback = 'string') {
   const schema = { type };
   if (rules.includes('nullable')) schema.nullable = true;
   if (rules.includes('unique') && type === 'array') schema.uniqueItems = true;
-  if (rule.pattern) schema.pattern = rule.pattern;
+  if (rule.pattern && isValidPattern(rule.pattern)) schema.pattern = rule.pattern;
   if (rule.format) schema.format = rule.format;
   else if (rules.includes('email')) schema.format = 'email';
   else if (rules.includes('url')) schema.format = 'uri';
@@ -128,23 +133,53 @@ function schemaFromExample(value) {
 function applyBodyValidations(schema, validations) {
   const entries = Object.entries(validations || {});
   if (entries.length === 0 || schema.type !== 'object') return schema;
-  schema.properties = schema.properties || {};
-  schema.required = schema.required || [];
+
+  function ensureObject(node) {
+    if (!node.properties) node.properties = {};
+    return node;
+  }
+
   for (const [path, rule] of entries) {
     const parts = String(path).split('.').filter(Boolean);
     if (!parts.length) continue;
-    let cursor = schema;
-    for (let i = 0; i < parts.length - 1; i += 1) {
-      cursor.properties = cursor.properties || {};
-      cursor.properties[parts[i]] = cursor.properties[parts[i]] || { type: 'object', properties: {} };
-      cursor = cursor.properties[parts[i]];
+    let parent = schema;
+    let target = null;
+
+    for (let i = 0; i < parts.length; i += 1) {
+      const raw = parts[i];
+      const isArray = raw.endsWith('[]');
+      const name = isArray ? raw.slice(0, -2) : raw;
+      if (!name) continue;
+      ensureObject(parent);
+      if (isArray) {
+        parent.properties[name] = parent.properties[name] || {
+          type: 'array',
+          items: { type: 'object', properties: {} },
+        };
+        const arraySchema = parent.properties[name];
+        if (i === parts.length - 1) {
+          target = arraySchema;
+          break;
+        }
+        arraySchema.items = arraySchema.items || { type: 'object', properties: {} };
+        parent = ensureObject(arraySchema.items);
+      } else {
+        parent.properties[name] = parent.properties[name] || { type: 'object', properties: {} };
+        if (i === parts.length - 1) {
+          target = parent.properties[name];
+          break;
+        }
+        parent = ensureObject(parent.properties[name]);
+      }
     }
-    const leaf = parts[parts.length - 1];
-    const existing = cursor.properties[leaf] || {};
-    cursor.properties[leaf] = { ...existing, ...schemaForRule(rule, existing.type || 'string') };
+
+    if (!target) continue;
+    const existingType = target.type || 'string';
+    Object.assign(target, schemaForRule(rule, existingType));
     if ((rule.rules || []).includes('required')) {
-      cursor.required = cursor.required || [];
-      if (!cursor.required.includes(leaf)) cursor.required.push(leaf);
+      parent.required = parent.required || [];
+      const leaf = parts[parts.length - 1].replace(/\[\]$/, '');
+      if (!parent.required.includes(leaf)) parent.required.push(leaf);
     }
   }
   return schema;
@@ -228,9 +263,9 @@ function bodyContent(body, validations = {}) {
   return null;
 }
 
-function requestParameters(request, path) {
+function requestParameters(request, path, fieldValidations = null) {
   const params = [];
-  const validations = normalizeFieldValidations(request?.fieldValidations);
+  const validations = fieldValidations || normalizeFieldValidations(request?.fieldValidations);
   const pathVars = new Map(
     rows(request.pathVars)
       .filter((row) => row.key)
@@ -281,7 +316,7 @@ function requestParameters(request, path) {
   return params;
 }
 
-function exampleResponse(example, index) {
+function exampleResponse(example, index, responseValidations = {}) {
   const response = example?.response || {};
   const status = Number(response.status) || 200;
   const statusKey = String(status);
@@ -297,7 +332,12 @@ function exampleResponse(example, index) {
   if (body) {
     result.content = {
       [mediaType]: {
-        schema: { type: isJson && parsed !== undefined ? typeOf(parsed) : 'string' },
+        schema: isJson && parsed !== undefined
+          ? applyBodyValidations(
+              { ...schemaFromExample(parsed), example: parsed },
+              responseValidations.body || {}
+            )
+          : { type: 'string' },
         examples: {
           [example?.name || `example_${index + 1}`]: {
             value: isJson && parsed !== undefined ? parsed : body,
@@ -309,23 +349,47 @@ function exampleResponse(example, index) {
   const headers = {};
   for (const row of rows(response.headers)) {
     if (!row.key) continue;
+    const rule = responseValidations.headers?.[row.key];
     headers[row.key] = {
-      schema: { type: 'string' },
-      ...(row.value !== undefined ? { example: row.value } : {}),
+      schema: schemaForRule(rule, 'string'),
+      ...(row.value !== undefined ? { example: rule?.example || row.value } : {}),
     };
   }
   if (Object.keys(headers).length > 0) result.headers = headers;
   return { statusKey, result };
 }
 
-function responsesFor(request) {
+function responsesFor(request, resolvedResponseValidations = null) {
   const examples = Array.isArray(request.examples) ? request.examples.filter(Boolean) : [];
+  const responseValidations = resolvedResponseValidations || normalizeResponseValidations(request.responseValidations);
   if (examples.length === 0) {
-    return { 200: { description: 'Success' } };
+    if (Object.keys(responseValidations.body).length === 0 && Object.keys(responseValidations.headers).length === 0) {
+      return { 200: { description: 'Success' } };
+    }
+    const result = { description: 'Success' };
+    if (Object.keys(responseValidations.body).length > 0) {
+      result.content = {
+        'application/json': {
+          schema: applyBodyValidations(
+            { type: 'object', properties: {} },
+            responseValidations.body
+          ),
+        },
+      };
+    }
+    if (Object.keys(responseValidations.headers).length > 0) {
+      result.headers = Object.fromEntries(
+        Object.entries(responseValidations.headers).map(([name, rule]) => [
+          name,
+          { schema: schemaForRule(rule, 'string') },
+        ])
+      );
+    }
+    return { 200: result };
   }
   const responses = {};
   examples.forEach((example, index) => {
-    const { statusKey, result } = exampleResponse(example, index);
+    const { statusKey, result } = exampleResponse(example, index, responseValidations);
     const existing = responses[statusKey];
     if (!existing) {
       responses[statusKey] = result;
@@ -346,14 +410,14 @@ function responsesFor(request) {
   return responses;
 }
 
-function walk(items, tag, visit) {
+function walk(items, tag, visit, ancestors = []) {
   for (const node of Array.isArray(items) ? items : []) {
     if (!node) continue;
     if (node.type === 'folder') {
-      walk(node.items, node.name || tag, visit);
+      walk(node.items, node.name || tag, visit, [...ancestors, node]);
       continue;
     }
-    visit(node, tag);
+    visit(node, tag, ancestors);
   }
 }
 
@@ -370,13 +434,14 @@ export function collectionToOpenApi(collection, { version = '1.0.0' } = {}) {
   const tags = new Set();
   let operationIndex = 0;
 
-  walk(coll.items, null, (request, tag) => {
+  walk(coll.items, null, (request, tag, ancestors) => {
+    const effective = resolveRequestValidations(request, [coll, ...ancestors]);
     const method = String(request.method || 'GET').toLowerCase();
     const path = requestPath(request.url);
     const operation = {
       operationId: `${method}_${slug(request.name) || 'request'}_${operationIndex += 1}`,
       summary: request.name || `${method.toUpperCase()} ${path}`,
-      responses: responsesFor(request),
+      responses: responsesFor(request, effective.responseValidations),
     };
     if (request.description) operation.description = String(request.description);
     if (tag) {
@@ -384,11 +449,11 @@ export function collectionToOpenApi(collection, { version = '1.0.0' } = {}) {
       operation.tags = [tag];
     }
 
-    const parameters = requestParameters(request, path);
+    const parameters = requestParameters(request, path, effective.fieldValidations);
     if (parameters.length > 0) operation.parameters = parameters;
 
     if (BODY_METHODS.has(method)) {
-      const validations = normalizeFieldValidations(request.fieldValidations);
+      const validations = effective.fieldValidations;
       const body = bodyContent(request.body, validations.body);
       if (body) {
         operation.requestBody = {

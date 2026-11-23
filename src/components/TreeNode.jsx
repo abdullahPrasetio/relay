@@ -47,6 +47,7 @@ export default function TreeNode({
       { label: 'Run Folder', onClick: () => actions.run(collectionId, node.id) },
       { label: 'Add Request', onClick: () => actions.addRequest(collectionId, node.id) },
       { label: 'Add Folder', onClick: () => actions.addFolder(collectionId, node.id) },
+      { label: 'Edit Validation', onClick: () => actions.editValidation(collectionId, node.id) },
       { label: 'Rename', onClick: () => actions.rename(collectionId, node.id, node.name) },
       { label: 'Duplicate', onClick: () => actions.duplicate(collectionId, node.id) },
       { label: 'Move Up', onClick: () => actions.move(collectionId, node.id, -1) },

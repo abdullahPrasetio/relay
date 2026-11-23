@@ -16,6 +16,11 @@ function seed() {
             id: 'col_docs',
             name: 'Orders API',
             description: 'Order lifecycle endpoints.',
+            fieldValidations: {
+              headers: {
+                'X-Key': { rules: ['required'], description: 'Tenant key' },
+              },
+            },
             variables: [
               { key: 'API_KEY', value: 'secret-value', type: 'secret', enabled: true },
               { key: 'BASE_URL', value: 'https://api.test', type: 'default', enabled: true },
@@ -28,7 +33,10 @@ function seed() {
                 description: 'Creates an order for the current tenant.',
                 method: 'POST',
                 url: 'https://api.test/orders',
-                headers: [{ key: 'Authorization', value: 'Bearer {{API_KEY}}', enabled: true }],
+                headers: [
+                  { key: 'Authorization', value: 'Bearer {{API_KEY}}', enabled: true },
+                  { key: 'X-Key', value: 'acme', enabled: true },
+                ],
                 params: [{ key: 'tenant', value: 'acme', enabled: true }],
                 body: { mode: 'json', raw: '{"item":"sku-1"}' },
                 fieldValidations: {
@@ -73,10 +81,24 @@ test('renders workspace and collection documentation', async () => {
     await expect(docs).toContainText('Creates an order for the current tenant.');
     await expect(docs).toContainText('••••');
     await expect(docs).toContainText('1 params');
-    await expect(docs).toContainText('1 documented fields');
+    await expect(docs).toContainText('2 documented fields');
 
     await docs.getByRole('button', { name: 'Open request' }).click();
     await expect(page.locator('.request-panel .tabs .tab.active')).toContainText('Docs');
+    const requestDocs = page.locator('.request-panel');
+    const keyField = requestDocs.getByTestId('validation-field-headers-X-Key');
+    await expect(keyField).toContainText('inherited');
+    await expect(
+      keyField.locator('input[placeholder="Optional description or custom error message"]')
+    ).toHaveValue('Tenant key');
+
+    await keyField.locator('summary').click();
+    await keyField.getByTestId('validation-minlength-headers-X-Key').fill('3');
+    const pattern = keyField.getByTestId('validation-pattern-headers-X-Key');
+    await pattern.fill('[');
+    await expect(keyField).toContainText('Invalid regular expression');
+    await pattern.fill('^[a-z]+$');
+    await expect(keyField).not.toContainText('Invalid regular expression');
   } finally {
     await closeApp(session);
   }

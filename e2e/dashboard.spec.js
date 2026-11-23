@@ -21,6 +21,9 @@ function seed() {
                 id: 'fld_auth',
                 type: 'folder',
                 name: 'Auth',
+                fieldValidations: {
+                  headers: { 'X-Key': { rules: ['required'] } },
+                },
                 items: [
                   {
                     id: 'req_login',
@@ -44,6 +47,7 @@ function seed() {
                 name: 'Health Check',
                 method: 'GET',
                 url: 'https://api.example.com/health',
+                headers: [{ key: 'X-Key', value: 'abc', enabled: true }],
               },
             ],
           },
@@ -221,6 +225,51 @@ test('MCP sensitive-data settings persist', async () => {
     await page.waitForSelector('.collection-name');
     await page.locator('.collection-name').click();
     await expect(page.getByTestId('collection-mcp-access')).toHaveValue('allow');
+  } finally {
+    await closeApp(session);
+  }
+});
+
+test('collection validation editor persists inherited rules', async () => {
+  const userData = makeUserData();
+  fs.writeFileSync(path.join(userData, 'rest-tamer-data.json'), JSON.stringify(seed(), null, 2));
+  const session = await launchAppAt(userData, {}, { keepDashboard: true });
+  const { page } = session;
+
+  try {
+    await page.locator('.collection-name').click();
+    await page.getByRole('button', { name: 'Validation' }).click();
+    const field = page.getByTestId('validation-field-headers-X-Key');
+    await expect(field).toBeVisible();
+    await field.getByRole('button', { name: 'required' }).click();
+    await page.waitForTimeout(400);
+    await page.locator('.modal-head .icon-btn').click();
+
+    await page.reload();
+    await page.waitForSelector('.collection-name');
+    await page.locator('.collection-name').click();
+    await page.getByRole('button', { name: 'Validation' }).click();
+    await expect(page.getByTestId('validation-field-headers-X-Key')).toHaveClass(
+      /documented/
+    );
+  } finally {
+    await closeApp(session);
+  }
+});
+
+test('folder validation editor opens from the folder menu', async () => {
+  const userData = makeUserData();
+  fs.writeFileSync(path.join(userData, 'rest-tamer-data.json'), JSON.stringify(seed(), null, 2));
+  const session = await launchAppAt(userData, {}, { keepDashboard: true });
+  const { page } = session;
+
+  try {
+    await page.getByTestId('collections-expand-all').click();
+    await page.locator('.folder-row', { hasText: 'Auth' }).click({ button: 'right' });
+    await page.getByText('Edit Validation', { exact: true }).click();
+    await expect(page.locator('.modal-head')).toContainText('Validation · Auth');
+    await expect(page.getByTestId('validation-field-headers-X-Key')).toBeVisible();
+    await page.locator('.modal-head .icon-btn').click();
   } finally {
     await closeApp(session);
   }

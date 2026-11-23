@@ -6,8 +6,12 @@ import {
   hasFieldValidations,
   hasValidation,
   minMaxLabels,
+  isValidPattern,
   normalizeFieldValidations,
+  normalizeResponseValidations,
   normalizeValidationRule,
+  resolveRequestValidations,
+  responseValidationFields,
   validationTokens,
 } from '../../src/lib/fieldValidations.js';
 
@@ -110,6 +114,91 @@ describe('field validation normalization', () => {
   });
 });
 
+describe('pattern validation', () => {
+  it('accepts empty and valid regular expressions, rejects malformed ones', () => {
+    expect(isValidPattern('')).toBe(true);
+    expect(isValidPattern('^[A-Z]{2}-\\d+$')).toBe(true);
+    expect(isValidPattern('[')).toBe(false);
+    expect(isValidPattern('(unclosed')).toBe(false);
+  });
+});
+
+describe('validation inheritance', () => {
+  it('merges collection, folder, and request rules with request precedence', () => {
+    const collection = {
+      fieldValidations: {
+        headers: { 'X-Key': { rules: ['required'], description: 'collection' } },
+        body: { email: { rules: ['required', 'email'], min: 3 } },
+      },
+      responseValidations: {
+        body: { id: { rules: ['integer'], minimum: 1 } },
+      },
+    };
+    const folder = {
+      fieldValidations: {
+        headers: { 'X-Key': { description: 'folder' } },
+        body: { email: { max: 120 } },
+      },
+    };
+    const request = {
+      fieldValidations: {
+        body: { email: { min: 8, description: 'request' } },
+      },
+      responseValidations: {
+        body: { id: { minimum: 10 } },
+      },
+    };
+    const resolved = resolveRequestValidations(request, [collection, folder]);
+    expect(resolved.fieldValidations.headers['X-Key']).toMatchObject({
+      rules: ['required'],
+      description: 'folder',
+    });
+    expect(resolved.fieldValidations.body.email).toMatchObject({
+      rules: ['required', 'email'],
+      min: 8,
+      max: 120,
+      description: 'request',
+    });
+    expect(resolved.responseValidations.body.id).toMatchObject({
+      rules: ['integer'],
+      minimum: 10,
+    });
+  });
+});
+
+describe('response validation', () => {
+  it('discovers response fields from the latest example and stored rules', () => {
+    const request = {
+      examples: [
+        {
+          response: {
+            body: JSON.stringify({ id: 1, owner: { name: 'Ada' } }),
+            headers: [{ key: 'X-Trace', value: 'abc' }],
+          },
+        },
+      ],
+      responseValidations: {
+        body: {
+          id: { rules: ['required', 'integer'] },
+          'owner.name': { rules: ['string'] },
+          missing: { rules: ['string'] },
+        },
+        headers: { 'X-Trace': { rules: ['string'] } },
+      },
+    };
+    const fields = responseValidationFields(request);
+    expect(fields.body).toEqual([
+      { key: 'id', value: '1' },
+      { key: 'owner.name', value: 'Ada' },
+      { key: 'missing', value: '' },
+    ]);
+    expect(fields.headers).toEqual([{ key: 'X-Trace', value: 'abc' }]);
+    expect(normalizeResponseValidations(request.responseValidations).body.id).toMatchObject({
+      rules: ['required', 'integer'],
+    });
+  });
+});
+
 describe('request field discovery', () => {
   it('collects path, query, header and nested JSON body fields', () => {
     const request = {
@@ -127,6 +216,7 @@ describe('request field discovery', () => {
         mode: 'json',
         raw: JSON.stringify({
           user: { email: 'ada@test.dev', tags: ['a', 'b'] },
+          items: [{ id: 1, name: 'A' }],
           empty: {},
           active: true,
         }),
@@ -142,7 +232,10 @@ describe('request field discovery', () => {
     expect(fields.headers).toEqual([{ key: 'X-Tenant', value: 'acme' }]);
     expect(fields.body).toEqual([
       { key: 'user.email', value: 'ada@test.dev' },
-      { key: 'user.tags', value: '["a","b"]' },
+      { key: 'user.tags[]', value: '["a","b"]' },
+      { key: 'items[]', value: '[{"id":1,"name":"A"}]' },
+      { key: 'items[].id', value: '1' },
+      { key: 'items[].name', value: 'A' },
       { key: 'empty', value: '{}' },
       { key: 'active', value: 'true' },
     ]);
@@ -168,6 +261,18 @@ describe('request field discovery', () => {
       ],
     };
     expect(bodyValidationFields(form)).toEqual([{ key: 'name', value: 'Ada' }]);
+    expect(
+      bodyValidationFields({
+        mode: 'form-data',
+        form: [
+          { key: 'avatar', type: 'file', fileName: 'avatar.png', enabled: true },
+          { key: 'name', value: 'Ada', enabled: true },
+        ],
+      })
+    ).toEqual([
+      { key: 'avatar', value: 'avatar.png' },
+      { key: 'name', value: 'Ada' },
+    ]);
 
     expect(
       bodyValidationFields({

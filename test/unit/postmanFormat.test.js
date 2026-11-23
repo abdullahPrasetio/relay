@@ -513,6 +513,10 @@ describe('globals and workspace backup', () => {
                 email: { rules: ['required', 'email'], description: 'Primary email' },
               },
             },
+            response_validations: {
+              body: { id: { rules: ['required', 'integer'], minimum: 1 } },
+              headers: { 'X-Trace': { rules: ['string'], minLength: 3 } },
+            },
           },
         },
       ],
@@ -524,6 +528,10 @@ describe('globals and workspace backup', () => {
       min: 8,
       max: 64,
       description: 'Tenant key',
+    });
+    expect(request.responseValidations.body.id).toMatchObject({
+      rules: ['required', 'integer'],
+      minimum: 1,
     });
 
     const findRequest = (items) => {
@@ -555,6 +563,10 @@ describe('globals and workspace backup', () => {
       min: 8,
       max: 64,
     });
+    expect(exported._relayResponseValidations.body.id).toMatchObject({
+      rules: ['required', 'integer'],
+      minimum: 1,
+    });
 
     const restored = fromWorkspaceBackup(JSON.parse(JSON.stringify(backup)));
     const restoredRequest = findRequest(restored.collections[0].items);
@@ -562,6 +574,63 @@ describe('globals and workspace backup', () => {
     expect(restoredRequest.fieldValidations.body.email).toMatchObject({
       rules: ['required', 'email'],
       description: 'Primary email',
+    });
+    expect(restoredRequest.responseValidations.headers['X-Trace']).toMatchObject({
+      rules: ['string'],
+      minLength: 3,
+    });
+  });
+
+  it('round-trips collection and folder validation metadata in backups', () => {
+    const backup = toWorkspaceBackup({
+      name: 'Team',
+      collections: [
+        {
+          id: 'col_inherit',
+          name: 'Inherited',
+          fieldValidations: {
+            headers: { 'X-Key': { rules: ['required'], description: 'Collection key' } },
+          },
+          responseValidations: {
+            body: { id: { rules: ['integer'], minimum: 1 } },
+          },
+          items: [
+            {
+              id: 'fld_inherit',
+              type: 'folder',
+              name: 'Users',
+              fieldValidations: {
+                body: { email: { rules: ['required', 'email'] } },
+              },
+              items: [
+                {
+                  id: 'req_inherit',
+                  type: 'request',
+                  name: 'Create user',
+                  method: 'POST',
+                  url: '/users',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const exported = backup.collections[0];
+    expect(exported._relayFieldValidations.headers['X-Key']).toMatchObject({
+      rules: ['required'],
+    });
+    expect(exported._relayResponseValidations.body.id).toMatchObject({ minimum: 1 });
+    expect(exported.item[0]._relayFieldValidations.body.email).toMatchObject({
+      rules: ['required', 'email'],
+    });
+
+    const restored = fromWorkspaceBackup(JSON.parse(JSON.stringify(backup)));
+    expect(restored.collections[0].fieldValidations.headers['X-Key']).toMatchObject({
+      rules: ['required'],
+    });
+    expect(restored.collections[0].items[0].fieldValidations.body.email).toMatchObject({
+      rules: ['required', 'email'],
     });
   });
 

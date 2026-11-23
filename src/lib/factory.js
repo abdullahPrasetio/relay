@@ -1,6 +1,9 @@
 // Factory helpers for creating default request / collection / environment shapes.
 import { normalizeMockConfig } from '../../shared/mockScenarios.js';
-import { normalizeFieldValidations } from './fieldValidations.js';
+import {
+  normalizeFieldValidations,
+  normalizeResponseValidations,
+} from './fieldValidations.js';
 
 let idCounter = 0;
 export function uid(prefix = 'id') {
@@ -28,6 +31,7 @@ export function newRequest(overrides = {}) {
     mock: normalizeMockConfig({}),
     // Optional documentation metadata, keyed by section then field name.
     fieldValidations: normalizeFieldValidations({}),
+    responseValidations: normalizeResponseValidations({}),
     ...overrides,
   };
 }
@@ -154,6 +158,9 @@ export function newCollection(name = 'New Collection') {
     confluenceVersion: null,
     confluenceContentMode: 'documentation',
     confluenceContentOrder: 'doc_first',
+    // Validation metadata inherited by every request in this collection.
+    fieldValidations: normalizeFieldValidations({}),
+    responseValidations: normalizeResponseValidations({}),
   };
 }
 
@@ -206,6 +213,9 @@ export function normalizeRequest(req) {
     // Accept Wapbolt's snake_case alias when a request is pasted/imported.
     fieldValidations: normalizeFieldValidations(
       req.fieldValidations ?? req.field_validations
+    ),
+    responseValidations: normalizeResponseValidations(
+      req.responseValidations ?? req.response_validations
     ),
     grpc: {
       ...newGrpcConfig(),

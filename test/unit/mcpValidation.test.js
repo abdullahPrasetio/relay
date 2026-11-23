@@ -145,6 +145,93 @@ describe('MCP request validation metadata', () => {
     expect(fetched.data.request.fieldValidations.params.page.description).toBe('Page number');
   });
 
+  it('sets response validation metadata through MCP', async () => {
+    const workspace = makeWorkspace();
+    const actions = createMcpActions({
+      store: makeStore(workspace),
+      cloud: null,
+      appearance: null,
+      windowApi: {},
+    });
+    const result = await actions.invoke({
+      tool: 'relay_requests',
+      action: 'set_validation',
+      params: {
+        requestId: 'req_validation',
+        responseValidations: {
+          body: { id: { rules: ['required', 'integer'], minimum: 1 } },
+          headers: { 'X-Trace': { rules: ['string'] } },
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.data.responseValidations.body.id).toMatchObject({
+      rules: ['required', 'integer'],
+      minimum: 1,
+    });
+    expect(result.data.responseValidations.headers['X-Trace']).toMatchObject({
+      rules: ['string'],
+    });
+  });
+
+  it('sets collection and folder validation metadata through MCP', async () => {
+    const workspace = makeWorkspace();
+    workspace.collections[0].items = [
+      {
+        id: 'fld_validation',
+        type: 'folder',
+        name: 'Merchants',
+        items: [
+          {
+            id: 'req_folder',
+            type: 'request',
+            name: 'Create merchant',
+            method: 'POST',
+            url: 'https://api.test/merchants',
+          },
+        ],
+      },
+    ];
+    const actions = createMcpActions({
+      store: makeStore(workspace),
+      cloud: null,
+      appearance: null,
+      windowApi: {},
+    });
+
+    await actions.invoke({
+      tool: 'relay_collections',
+      action: 'set_validation',
+      params: {
+        collectionId: 'col_validation',
+        fieldValidations: { headers: { 'X-Key': { rules: ['required'] } } },
+      },
+    });
+    const folder = await actions.invoke({
+      tool: 'relay_collections',
+      action: 'set_validation',
+      params: {
+        collectionId: 'col_validation',
+        folderId: 'fld_validation',
+        responseValidations: { body: { id: { rules: ['integer'], minimum: 1 } } },
+      },
+    });
+    expect(folder.ok).toBe(true);
+    expect(folder.data.responseValidations.body.id).toMatchObject({ minimum: 1 });
+
+    const collection = await actions.invoke({
+      tool: 'relay_collections',
+      action: 'get',
+      params: { collectionId: 'col_validation' },
+    });
+    expect(collection.data.fieldValidations.headers['X-Key']).toMatchObject({
+      rules: ['required'],
+    });
+    expect(collection.data.items[0].responseValidations.body.id).toMatchObject({
+      minimum: 1,
+    });
+  });
+
   it('validates the set_validation MCP parameter shape', () => {
     expect(
       validateAction('relay_requests', 'set_validation', {
@@ -154,6 +241,6 @@ describe('MCP request validation metadata', () => {
     ).toBe(true);
     expect(
       validateAction('relay_requests', 'set_validation', { requestId: 'req_1' }).ok
-    ).toBe(false);
+    ).toBe(true);
   });
 });

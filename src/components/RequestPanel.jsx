@@ -33,6 +33,7 @@ const BODY_METHODS = ['POST', 'PUT', 'PATCH'];
 
 export default function RequestPanel({
   request,
+  ancestors = [],
   view = null,
   onChange,
   onSend,
@@ -257,7 +258,9 @@ export default function RequestPanel({
             onDelete={(id) => patch({ examples: request.examples.filter((e) => e.id !== id) })}
           />
         )}
-        {tab === 'Docs' && <RequestDocsPanel request={request} patch={patch} />}
+        {tab === 'Docs' && (
+          <RequestDocsPanel request={request} ancestors={ancestors} patch={patch} />
+        )}
         {tab === 'Mock' && <MockScenariosPanel request={request} patch={patch} />}
       </div>
     </section>
