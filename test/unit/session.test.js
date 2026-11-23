@@ -11,7 +11,7 @@ import { normalizeRequest } from '../../src/lib/factory.js';
 let tabCounter = 0;
 
 // Mirrors App's newTab: every restore resets transient fields through here.
-function makeTab(request) {
+function makeTab(request, options = {}) {
   tabCounter += 1;
   return {
     tabId: `tab_${tabCounter}`,
@@ -22,6 +22,7 @@ function makeTab(request) {
     sendingId: null,
     dirty: false,
     savedCollectionId: null,
+    dashboardDismissed: options.dashboard !== true,
   };
 }
 
@@ -94,6 +95,7 @@ describe('serializeSession', () => {
         request: savedTab.request,
         dirty: false,
         savedCollectionId: 'col_1',
+        dashboard: false,
       },
       {
         tabId: 'tab_draft',
@@ -101,6 +103,7 @@ describe('serializeSession', () => {
         request: draftTab.request,
         dirty: true,
         savedCollectionId: null,
+        dashboard: false,
       },
     ]);
     expect(payload.tabs[0]).not.toHaveProperty('response');
@@ -120,6 +123,25 @@ describe('serializeSession', () => {
 });
 
 describe('restoreSession', () => {
+  it('restores the workspace dashboard flag', () => {
+    const restored = restoreSession(
+      {
+        version: SESSION_VERSION,
+        tabs: [
+          {
+            tabId: 'tab_dash',
+            requestId: null,
+            request: { id: 'req_dash', name: 'Untitled Request', method: 'GET', url: '' },
+            dashboard: true,
+          },
+        ],
+        activeTabId: 'tab_dash',
+      },
+      { collections: [], makeTab }
+    );
+    expect(restored.tabs[0].dashboardDismissed).toBe(false);
+  });
+
   it('round-trips two tabs: saved from the tree, unsaved from the snapshot', () => {
     const tabs = [
       {

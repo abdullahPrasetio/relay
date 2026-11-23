@@ -57,6 +57,9 @@ export function serializeSession({ tabs, activeTabId, railView } = {}) {
       request: tab.request,
       dirty: !!tab.dirty,
       savedCollectionId: tab.savedCollectionId ?? null,
+      // The pristine launch tab is the workspace dashboard. Persist the flag so
+      // a reload does not turn it into an empty request editor.
+      dashboard: tab.dashboardDismissed === false,
     }));
 
   const active =
@@ -119,7 +122,7 @@ export function restoreSession(raw, { collections, makeTab } = {}) {
     if (seenRequests.has(key)) continue;
     seenRequests.add(key);
 
-    const tab = makeTab(request);
+    const tab = makeTab(request, { dashboard: entry.dashboard === true });
     if (
       typeof entry.tabId === 'string' &&
       entry.tabId &&

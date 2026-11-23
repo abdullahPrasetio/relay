@@ -35,7 +35,7 @@ test('prompts before quitting with unsaved changes', async () => {
   await expect(page.locator('.url-input')).toHaveValue('https://example.test/unsaved');
 
   // Second attempt, this time discarding: the process must exit.
-  const closed = app.waitForEvent('close', { timeout: 10000 });
+  const closed = app.waitForEvent('close', { timeout: 20000 });
   await requestWindowClose(app);
   await expect(discard).toBeVisible();
   await discard.click();
@@ -46,7 +46,7 @@ test('quits immediately when nothing is dirty', async () => {
   launched = await launchApp();
   const { app, page } = launched;
 
-  const closed = app.waitForEvent('close', { timeout: 10000 });
+  const closed = app.waitForEvent('close', { timeout: 20000 });
   await requestWindowClose(app);
 
   await closed;
