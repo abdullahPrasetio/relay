@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import BulkEditModal from './BulkEditModal.jsx';
+import { bulkEditHint, bulkRowsToText, bulkTextToRows } from '../lib/bulkEdit.js';
 import { newKeyValue } from '../lib/factory.js';
 import VarInput from './VarInput.jsx';
 import Icon from './Icon.jsx';
@@ -15,9 +17,15 @@ export default function KeyValueEditor({
   keyPlaceholder,
   valuePlaceholder,
   showType = false,
+  bulkEdit = false,
+  bulkFormat = 'header',
+  bulkTitle = null,
+  bulkTestId = 'kv-bulk-edit',
 }) {
   const display = [...rows, newKeyValue()];
   const [revealed, setRevealed] = useState(() => new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
 
   function update(index, patch) {
     const next = [...rows];
@@ -79,7 +87,30 @@ export default function KeyValueEditor({
     );
   }
 
+  function openBulk() {
+    setBulkText(bulkRowsToText(rows, { format: bulkFormat }));
+    setBulkOpen(true);
+  }
+
+  function applyBulk(text) {
+    onChange(bulkTextToRows(text, { format: bulkFormat }));
+    setBulkOpen(false);
+  }
+
   return (
+    <>
+      {bulkEdit && (
+        <div className="kv-bulk-bar">
+          <button
+            type="button"
+            className="mini-btn"
+            data-testid={bulkTestId}
+            onClick={openBulk}
+          >
+            Bulk Edit
+          </button>
+        </div>
+      )}
     <table className="kv">
       <thead>
         <tr>
@@ -136,5 +167,16 @@ export default function KeyValueEditor({
         })}
       </tbody>
     </table>
+      {bulkOpen && (
+        <BulkEditModal
+          title={bulkTitle || `Bulk edit ${bulkFormat === 'form' ? 'fields' : 'headers'}`}
+          initialText={bulkText}
+          hint={bulkEditHint(bulkFormat)}
+          onClose={() => setBulkOpen(false)}
+          onApply={applyBulk}
+          testId={bulkTestId}
+        />
+      )}
+    </>
   );
 }

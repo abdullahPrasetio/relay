@@ -6863,3 +6863,17 @@ select:not([multiple])::-ms-expand {
   font-size: 10px;
   font-weight: 600;
 }
+
+.kv-bulk-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.kv-bulk-text {
+  min-height: 260px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}

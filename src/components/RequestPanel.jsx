@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import KeyValueEditor from './KeyValueEditor.jsx';
+import BulkEditModal from './BulkEditModal.jsx';
+import { bulkEditHint, bulkRowsToText, bulkTextToRows } from '../lib/bulkEdit.js';
 import AuthPanel from './AuthPanel.jsx';
 import VarInput from './VarInput.jsx';
 import CodeEditor from './CodeEditor.jsx';
@@ -370,6 +372,9 @@ function HeadersEditor({ request, onChange }) {
         rows={request.headers || []}
         onChange={onChange}
         keyPlaceholder="Header"
+        bulkEdit
+        bulkFormat="header"
+        bulkTitle="Bulk edit headers"
       />
       <div className="auto-headers">
         <button className="auto-headers-toggle" onClick={() => setShowAuto((v) => !v)}>
@@ -466,6 +471,9 @@ function BodyEditor({ body, onChange, schemaState, onFetchSchema }) {
           rows={b.form || []}
           onChange={(form) => onChange({ ...b, form })}
           keyPlaceholder="Field"
+          bulkEdit
+          bulkFormat="form"
+          bulkTitle="Bulk edit form fields"
         />
       )}
       {b.mode === 'form-data' && (
@@ -661,6 +669,8 @@ function GraphQLEditor({ graphql, onChange, schemaState, onFetchSchema }) {
 function FormDataEditor({ rows, onChange }) {
   const display = [...rows, { key: '', value: '', type: 'text', enabled: true }];
   const hasBridge = typeof window !== 'undefined' && !!window.api?.pickFile;
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState('');
 
   function update(index, patch) {
     const next = [...rows];
@@ -677,7 +687,29 @@ function FormDataEditor({ rows, onChange }) {
     if (picked) update(index, { type: 'file', filePath: picked.filePath, fileName: picked.fileName, size: picked.size });
   }
 
+  function openBulk() {
+    setBulkText(bulkRowsToText(rows, { format: 'form' }));
+    setBulkOpen(true);
+  }
+
+  function applyBulk(text) {
+    const fileRows = rows.filter((row) => row?.type === 'file');
+    onChange(bulkTextToRows(text, { format: 'form', keepRows: fileRows }));
+    setBulkOpen(false);
+  }
+
   return (
+    <>
+    <div className="kv-bulk-bar">
+      <button
+        type="button"
+        className="mini-btn"
+        data-testid="formdata-bulk-edit"
+        onClick={openBulk}
+      >
+        Bulk Edit
+      </button>
+    </div>
     <table className="kv">
       <thead>
         <tr>
@@ -739,6 +771,17 @@ function FormDataEditor({ rows, onChange }) {
         })}
       </tbody>
     </table>
+    {bulkOpen && (
+      <BulkEditModal
+        title="Bulk edit form fields"
+        initialText={bulkText}
+        hint={`${bulkEditHint('form')} File fields are kept unchanged.`}
+        onClose={() => setBulkOpen(false)}
+        onApply={applyBulk}
+        testId="formdata-bulk-edit"
+      />
+    )}
+    </>
   );
 }
 

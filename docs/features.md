@@ -201,6 +201,8 @@ request; aturan parent muncul kembali.
 ### 5.2 Header
 
 - Header tabel dengan enable/disable.
+- **Bulk Edit** untuk menempel/mengganti banyak header sekaligus; format
+  `Key: Value` dan awalan `# ` untuk baris disabled.
 - Auto-header `Content-Type`, `Accept`, auth, dan cookie dapat dihitung engine.
 - Header sensitif diredaksi di export dan MCP.
 - Header response ditampilkan terpisah.
@@ -212,8 +214,8 @@ request; aturan parent muncul kembali.
 | `none` | Tanpa body |
 | `raw` | Teks bebas; content type diatur header |
 | `json` | Editor JSON; pretty/error feedback |
-| `form-urlencoded` | Key/value form |
-| `form-data` | Key/value + file field (`type: "file"`) |
+| `form-urlencoded` | Key/value form + Bulk Edit (`key=value`) |
+| `form-data` | Key/value + file field (`type: "file"`) + Bulk Edit untuk field teks; file dipertahankan |
 | `graphql` | Query + variables JSON; dikirim sebagai JSON GraphQL |
 
 File form-data menyimpan path/nama file; export Postman memakai `type: "file"`
