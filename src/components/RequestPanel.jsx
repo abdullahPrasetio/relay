@@ -570,33 +570,53 @@ function BodyEditor({ body, onChange, schemaState, onFetchSchema }) {
             {mode.label}
           </label>
         ))}
-      </div>
-      {isRaw && (
-        <>
-          <div className="body-toolbar raw-body-toolbar">
-            <label className="raw-format-picker">
-              <span>Format</span>
-              <select
-                value={rawFormat}
-                data-testid="raw-format"
-                onChange={(event) => {
-                  const format = event.target.value;
-                  onChange({
-                    ...b,
-                    mode: format === 'json' ? 'json' : 'raw',
-                    rawFormat: format,
-                  });
-                }}
-              >
-                <option value="text">Text</option>
-                <option value="json">JSON</option>
-                <option value="javascript">JavaScript</option>
-                <option value="html">HTML</option>
-                <option value="xml">XML</option>
-              </select>
-            </label>
+        {isRaw && (
+          <div className="raw-body-actions">
+            <select
+              value={rawFormat}
+              aria-label="Raw body format"
+              data-testid="raw-format"
+              onChange={(event) => {
+                const format = event.target.value;
+                onChange({
+                  ...b,
+                  mode: format === 'json' ? 'json' : 'raw',
+                  rawFormat: format,
+                });
+              }}
+            >
+              <option value="text">Text</option>
+              <option value="json">JSON</option>
+              <option value="javascript">JavaScript</option>
+              <option value="html">HTML</option>
+              <option value="xml">XML</option>
+            </select>
             {rawFormat === 'json' && (
               <button
+                type="button"
+                className={`mini-btn${schemaOpen ? ' active' : ''}`}
+                data-testid="body-schema-toggle"
+                aria-pressed={schemaOpen}
+                title="Core schema meta-schema: define and validate the JSON body shape"
+                onClick={() => setSchemaOpen((value) => !value)}
+              >
+                Schema
+                {b.schema?.trim() ? <span className="schema-dot" /> : null}
+              </button>
+            )}
+            {schemaOpen && rawFormat === 'json' && (
+              <button
+                type="button"
+                className="mini-btn"
+                data-testid="body-schema-generate"
+                onClick={generateFromBody}
+              >
+                Generate from Body
+              </button>
+            )}
+            {rawFormat === 'json' && (
+              <button
+                type="button"
                 className="mini-btn"
                 title="Format JSON"
                 onClick={() => {
@@ -610,51 +630,30 @@ function BodyEditor({ body, onChange, schemaState, onFetchSchema }) {
                 Beautify
               </button>
             )}
-            {rawFormat === 'json' && (
-              <button
-                type="button"
-                className={`mini-btn${schemaOpen ? ' active' : ''}`}
-                data-testid="body-schema-toggle"
-                aria-pressed={schemaOpen}
-                onClick={() => setSchemaOpen((value) => !value)}
-              >
-                Schema
-                {b.schema?.trim() ? <span className="schema-dot" /> : null}
-              </button>
-            )}
           </div>
-          <div className={`raw-body-layout${schemaOpen && rawFormat === 'json' ? ' with-schema' : ''}`}>
-            <div className="editor-box">
-              <CodeEditor
-                language={rawLanguage}
-                value={b.raw || ''}
-                onChange={(v) => onChange({ ...b, raw: v })}
-              />
-            </div>
-            {schemaOpen && rawFormat === 'json' && (
-              <div className="body-schema-pane" data-testid="body-schema-pane">
-                <div className="body-schema-head">
-                  <strong>JSON Schema</strong>
-                  <button
-                    type="button"
-                    className="mini-btn"
-                    data-testid="body-schema-generate"
-                    onClick={generateFromBody}
-                  >
-                    Generate from Body
-                  </button>
-                </div>
-                <div className="editor-box body-schema-editor">
-                  <CodeEditor
-                    language="json"
-                    value={b.schema || ''}
-                    onChange={(value) => onChange({ ...b, schema: value })}
-                  />
-                </div>
+        )}
+      </div>
+      {isRaw && (
+        <div className={`raw-body-layout${schemaOpen && rawFormat === 'json' ? ' with-schema' : ''}`}>
+          <div className="editor-box body-raw-editor">
+            <CodeEditor
+              language={rawLanguage}
+              value={b.raw || ''}
+              onChange={(v) => onChange({ ...b, raw: v })}
+            />
+          </div>
+          {schemaOpen && rawFormat === 'json' && (
+            <div className="body-schema-pane" data-testid="body-schema-pane">
+              <div className="editor-box body-schema-editor">
+                <CodeEditor
+                  language="json"
+                  value={b.schema || ''}
+                  onChange={(value) => onChange({ ...b, schema: value })}
+                />
               </div>
-            )}
-          </div>
-        </>
+            </div>
+          )}
+        </div>
       )}
       {b.mode === 'form-urlencoded' && (
         <KeyValueEditor
