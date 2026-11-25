@@ -178,11 +178,14 @@ function tokenOf(key, value) {
 function bodyToPostman(body) {
   if (!body || body.mode === 'none') return null;
   if (body.mode === 'json' || body.mode === 'raw') {
-    return {
+    const language = body.mode === 'json' ? 'json' : body.rawFormat || 'text';
+    const out = {
       mode: 'raw',
       raw: body.raw || '',
-      options: body.mode === 'json' ? { raw: { language: 'json' } } : undefined,
+      options: { raw: { language } },
     };
+    if (body.schema) out._relaySchema = body.schema;
+    return out;
   }
   if (body.mode === 'form-urlencoded') {
     return {
@@ -622,8 +625,14 @@ function parsePostmanBody(body) {
   const base = { mode: 'none', raw: '', form: [] };
   if (!body) return base;
   if (body.mode === 'raw') {
-    const isJson = body.options?.raw?.language === 'json';
-    return { ...base, mode: isJson ? 'json' : 'raw', raw: body.raw || '' };
+    const rawFormat = body.options?.raw?.language || 'text';
+    return {
+      ...base,
+      mode: rawFormat === 'json' ? 'json' : 'raw',
+      raw: body.raw || '',
+      rawFormat,
+      schema: typeof body._relaySchema === 'string' ? body._relaySchema : '',
+    };
   }
   if (body.mode === 'urlencoded') {
     return {

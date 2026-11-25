@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import KeyValueEditor from './KeyValueEditor.jsx';
+import { useDialogs } from './Dialogs.jsx';
 import BulkEditModal from './BulkEditModal.jsx';
 import { bulkEditHint, bulkRowsToText, bulkTextToRows } from '../lib/bulkEdit.js';
 import AuthPanel from './AuthPanel.jsx';
@@ -11,9 +12,17 @@ import MockScenariosPanel from './MockScenariosPanel.jsx';
 import RequestDocsPanel from './RequestDocsPanel.jsx';
 import { countValidatedFields } from '../lib/fieldValidations.js';
 import { computeAutoHeaders } from '../../packages/core/src/autoHeaders.js';
+import { generateJsonSchemaText } from '../lib/jsonSchema.js';
 import { extractPathVars } from '../../packages/core/src/variables.js';
 import { buildIntrospectionRequest, parseIntrospection } from '../lib/graphql.js';
 import { fromCurl } from '../lib/import/curl.js';
+import {
+  mergeHeaderPreset,
+  presetFromHeaders,
+  readHeaderPresets,
+  upsertHeaderPreset,
+  writeHeaderPresets,
+} from '../lib/headerPresets.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
 const TABS = [
@@ -366,8 +375,96 @@ function RequestNameBar({ request, onRename }) {
 function HeadersEditor({ request, onChange }) {
   const [showAuto, setShowAuto] = useState(true);
   const auto = computeAutoHeaders(request);
+  const dialogs = useDialogs();
+  const [presets, setPresets] = useState(() => readHeaderPresets());
+  const [selectedPreset, setSelectedPreset] = useState('');
+
+  useEffect(() => {
+    if (!presets.some((preset) => preset.id === selectedPreset)) {
+      setSelectedPreset(presets[0]?.id || '');
+    }
+  }, [presets, selectedPreset]);
+
+  function persistPresets(next) {
+    setPresets(next);
+    writeHeaderPresets(next);
+  }
+
+  function applyPreset() {
+    const preset = presets.find((entry) => entry.id === selectedPreset);
+    if (preset) onChange(mergeHeaderPreset(request.headers || [], preset.headers));
+  }
+
+  async function savePreset() {
+    const name = await dialogs.prompt('Preset name', '', {
+      title: 'Save header preset',
+      okLabel: 'Save',
+    });
+    if (name == null) return;
+    const preset = presetFromHeaders(name, request.headers || []);
+    if (!preset) {
+      await dialogs.alert('Add at least one header before saving a preset.', {
+        title: 'Header preset',
+      });
+      return;
+    }
+    const next = upsertHeaderPreset(presets, preset);
+    persistPresets(next);
+    const saved = next.find((entry) => entry.name.toLowerCase() === name.trim().toLowerCase());
+    setSelectedPreset(saved?.id || '');
+  }
+
+  async function deletePreset() {
+    const preset = presets.find((entry) => entry.id === selectedPreset);
+    if (!preset) return;
+    const ok = await dialogs.confirm(`Delete preset "${preset.name}"?`, {
+      title: 'Delete header preset',
+      okLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    persistPresets(presets.filter((entry) => entry.id !== preset.id));
+  }
+
   return (
     <div>
+      <div className="header-presets">
+        <select
+          value={selectedPreset}
+          onChange={(event) => setSelectedPreset(event.target.value)}
+          disabled={presets.length === 0}
+          title="Saved header presets"
+        >
+          {presets.length === 0 ? (
+            <option value="">No presets</option>
+          ) : (
+            presets.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.name}
+              </option>
+            ))
+          )}
+        </select>
+        <button
+          type="button"
+          className="mini-btn"
+          onClick={applyPreset}
+          disabled={!selectedPreset}
+        >
+          Apply
+        </button>
+        <button type="button" className="mini-btn" onClick={savePreset}>
+          Save current
+        </button>
+        <button
+          type="button"
+          className="mini-btn"
+          onClick={deletePreset}
+          disabled={!selectedPreset}
+        >
+          Delete
+        </button>
+      </div>
       <KeyValueEditor
         rows={request.headers || []}
         onChange={onChange}
@@ -422,7 +519,43 @@ function newGraphqlRequestId() {
 
 function BodyEditor({ body, onChange, schemaState, onFetchSchema }) {
   const b = body || { mode: 'none', raw: '', form: [] };
+  const dialogs = useDialogs();
   const isForm = b.mode === 'form-urlencoded' || b.mode === 'form-data';
+  const isRaw = b.mode === 'raw' || b.mode === 'json';
+  const rawFormat = b.mode === 'json' ? 'json' : b.rawFormat || 'text';
+  const rawLanguage =
+    rawFormat === 'json'
+      ? 'json'
+      : rawFormat === 'javascript'
+        ? 'javascript'
+        : rawFormat === 'html'
+          ? 'html'
+          : rawFormat === 'xml'
+            ? 'xml'
+            : 'plaintext';
+  const [schemaOpen, setSchemaOpen] = useState(Boolean(b.schema));
+
+  async function generateFromBody() {
+    let next;
+    try {
+      next = generateJsonSchemaText(b.raw || '');
+    } catch {
+      await dialogs.alert('Body is not valid JSON. Fix it before generating a schema.', {
+        title: 'Generate schema',
+      });
+      return;
+    }
+    if ((b.schema || '').trim()) {
+      const ok = await dialogs.confirm(
+        'You have content in the schema section. Generating from body will replace it.',
+        { title: 'Replace content?', okLabel: 'Continue' }
+      );
+      if (!ok) return;
+    }
+    onChange({ ...b, schema: next });
+    setSchemaOpen(true);
+  }
+
   return (
     <div className={`body-editor${b.mode === 'raw' || b.mode === 'json' ? ' body-editor-json' : ''}`}>
       <div className="body-modes">
@@ -438,10 +571,31 @@ function BodyEditor({ body, onChange, schemaState, onFetchSchema }) {
           </label>
         ))}
       </div>
-      {(b.mode === 'raw' || b.mode === 'json') && (
+      {isRaw && (
         <>
-          {b.mode === 'json' && (
-            <div className="body-toolbar">
+          <div className="body-toolbar raw-body-toolbar">
+            <label className="raw-format-picker">
+              <span>Format</span>
+              <select
+                value={rawFormat}
+                data-testid="raw-format"
+                onChange={(event) => {
+                  const format = event.target.value;
+                  onChange({
+                    ...b,
+                    mode: format === 'json' ? 'json' : 'raw',
+                    rawFormat: format,
+                  });
+                }}
+              >
+                <option value="text">Text</option>
+                <option value="json">JSON</option>
+                <option value="javascript">JavaScript</option>
+                <option value="html">HTML</option>
+                <option value="xml">XML</option>
+              </select>
+            </label>
+            {rawFormat === 'json' && (
               <button
                 className="mini-btn"
                 title="Format JSON"
@@ -455,14 +609,50 @@ function BodyEditor({ body, onChange, schemaState, onFetchSchema }) {
               >
                 Beautify
               </button>
+            )}
+            {rawFormat === 'json' && (
+              <button
+                type="button"
+                className={`mini-btn${schemaOpen ? ' active' : ''}`}
+                data-testid="body-schema-toggle"
+                aria-pressed={schemaOpen}
+                onClick={() => setSchemaOpen((value) => !value)}
+              >
+                Schema
+                {b.schema?.trim() ? <span className="schema-dot" /> : null}
+              </button>
+            )}
+          </div>
+          <div className={`raw-body-layout${schemaOpen && rawFormat === 'json' ? ' with-schema' : ''}`}>
+            <div className="editor-box">
+              <CodeEditor
+                language={rawLanguage}
+                value={b.raw || ''}
+                onChange={(v) => onChange({ ...b, raw: v })}
+              />
             </div>
-          )}
-          <div className="editor-box">
-            <CodeEditor
-              language={b.mode === 'json' ? 'json' : 'plaintext'}
-              value={b.raw || ''}
-              onChange={(v) => onChange({ ...b, raw: v })}
-            />
+            {schemaOpen && rawFormat === 'json' && (
+              <div className="body-schema-pane" data-testid="body-schema-pane">
+                <div className="body-schema-head">
+                  <strong>JSON Schema</strong>
+                  <button
+                    type="button"
+                    className="mini-btn"
+                    data-testid="body-schema-generate"
+                    onClick={generateFromBody}
+                  >
+                    Generate from Body
+                  </button>
+                </div>
+                <div className="editor-box body-schema-editor">
+                  <CodeEditor
+                    language="json"
+                    value={b.schema || ''}
+                    onChange={(value) => onChange({ ...b, schema: value })}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}

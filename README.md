@@ -6,7 +6,7 @@ Relay Cloud, mock server, dokumentasi otomatis, dan MCP server untuk klien AI.
 
 ## Fitur utama
 
-- HTTP request lengkap: query/path variable, header (termasuk bulk edit), body raw/JSON/form/GraphQL,
+- HTTP request lengkap: query/path variable, header (bulk edit + preset), body raw/JSON/form/GraphQL + schema,
   redirect, timeout, abort, cookie jar, proxy, custom CA, mTLS, dan respons binary.
 - Auth: bearer, basic, API key, OAuth 1.0, OAuth 2.0 (authorization code + PKCE,
   client credentials, password, refresh), Digest, NTLM, AWS SigV4, dan JWT.

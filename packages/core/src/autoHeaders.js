@@ -28,7 +28,13 @@ export function computeAutoHeaders(request) {
   // Content-Type for body modes
   const mode = request.body?.mode;
   if (mode === 'json') add('Content-Type', 'application/json');
-  else if (mode === 'form-urlencoded') add('Content-Type', 'application/x-www-form-urlencoded');
+  else if (mode === 'raw') {
+    const format = request.body?.rawFormat || 'text';
+    if (format === 'json') add('Content-Type', 'application/json');
+    else if (format === 'javascript') add('Content-Type', 'application/javascript');
+    else if (format === 'html') add('Content-Type', 'text/html');
+    else if (format === 'xml') add('Content-Type', 'application/xml');
+  } else if (mode === 'form-urlencoded') add('Content-Type', 'application/x-www-form-urlencoded');
   else if (mode === 'form-data') add('Content-Type', 'multipart/form-data');
 
   // Standard headers the HTTP client adds

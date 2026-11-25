@@ -79,6 +79,8 @@ Workspace
   "body": {
     "mode": "none | raw | json | form-urlencoded | form-data | graphql",
     "raw": "",
+    "rawFormat": "text | json | javascript | html | xml",
+    "schema": "",
     "form": [{ "key": "field", "value": "value", "enabled": true }],
     "graphql": { "query": "", "variables": "" }
   },
@@ -203,6 +205,9 @@ request; aturan parent muncul kembali.
 - Header tabel dengan enable/disable.
 - **Bulk Edit** untuk menempel/mengganti banyak header sekaligus; format
   `Key: Value` dan awalan `# ` untuk baris disabled.
+- **Header presets** lokal: simpan header aktif sebagai preset, apply dengan
+  merge case-insensitive, dan hapus preset. Preset disimpan di localStorage
+  aplikasi, bukan di workspace/backup.
 - Auto-header `Content-Type`, `Accept`, auth, dan cookie dapat dihitung engine.
 - Header sensitif diredaksi di export dan MCP.
 - Header response ditampilkan terpisah.
@@ -212,14 +217,24 @@ request; aturan parent muncul kembali.
 | Mode | Perilaku |
 |---|---|
 | `none` | Tanpa body |
-| `raw` | Teks bebas; content type diatur header |
-| `json` | Editor JSON; pretty/error feedback |
+| `raw` | Teks bebas + format Text/JSON/JavaScript/HTML/XML; content type otomatis untuk JSON/JS/HTML/XML |
+| `json` | Editor JSON; pretty/error feedback; schema panel |
 | `form-urlencoded` | Key/value form + Bulk Edit (`key=value`) |
 | `form-data` | Key/value + file field (`type: "file"`) + Bulk Edit untuk field teks; file dipertahankan |
 | `graphql` | Query + variables JSON; dikirim sebagai JSON GraphQL |
 
 File form-data menyimpan path/nama file; export Postman memakai `type: "file"`
 dan `src`, dan dokumentasi menampilkan nama file sebagai value.
+
+Body `raw`/JSON punya tombol **Schema**:
+
+- panel editor JSON Schema di samping body;
+- **Generate from Body** menginfer `type`, `properties`, `required`, dan item
+  array dari body JSON;
+- jika schema sudah berisi, konfirmasi **Replace content?** muncul sebelum
+  menimpa;
+- schema ikut tersimpan di request dan round-trip Postman melalui extension
+  `_relaySchema`.
 
 ### 5.4 Auth
 

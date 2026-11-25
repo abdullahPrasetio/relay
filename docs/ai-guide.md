@@ -138,7 +138,9 @@ UI:
   ],
   "body": {
     "mode": "json",
-    "raw": "{\n  \"name\": \"Toko Contoh\"\n}"
+    "raw": "{\n  \"name\": \"Toko Contoh\"\n}",
+    "rawFormat": "json",
+    "schema": ""
   },
   "auth": { "type": "inherit" },
   "settings": {
@@ -168,7 +170,9 @@ UI:
 
 Gunakan `relay_requests.update` untuk patch kecil, bukan membuat ulang request.
 Body/auth/settings/mock/grpc di-merge dalam; `fieldValidations` dan
-`responseValidations` diganti wholesale.
+`responseValidations` diganti wholesale. Body `raw` memakai `rawFormat`
+(`text|json|javascript|html|xml`); `schema` menyimpan JSON Schema opsional
+untuk body raw/JSON.
 
 ## 7. Validasi dan warisan
 

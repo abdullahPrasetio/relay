@@ -634,6 +634,44 @@ describe('globals and workspace backup', () => {
     });
   });
 
+  it('round-trips raw body format and JSON schema', () => {
+    const collection = fromPostmanCollection({
+      info: {
+        name: 'Raw',
+        schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+      },
+      item: [
+        {
+          name: 'XML',
+          request: {
+            method: 'POST',
+            url: 'https://api.test/x',
+            body: {
+              mode: 'raw',
+              raw: '<a/>',
+              options: { raw: { language: 'xml' } },
+              _relaySchema: '{"type":"object"}',
+            },
+          },
+        },
+      ],
+    });
+    expect(collection.items[0].body).toMatchObject({
+      mode: 'raw',
+      rawFormat: 'xml',
+      schema: '{"type":"object"}',
+      raw: '<a/>',
+    });
+
+    const exported = toPostmanCollection(collection);
+    expect(exported.item[0].request.body).toMatchObject({
+      mode: 'raw',
+      raw: '<a/>',
+      options: { raw: { language: 'xml' } },
+      _relaySchema: '{"type":"object"}',
+    });
+  });
+
   it('rejects JSON that is not a relay backup', () => {
     expect(fromWorkspaceBackup(null)).toBeNull();
     expect(fromWorkspaceBackup({ collections: [] })).toBeNull();

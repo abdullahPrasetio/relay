@@ -71,6 +71,8 @@ export function newBody() {
   return {
     mode: 'none', // none | raw | json | form-urlencoded | form-data | graphql
     raw: '',
+    rawFormat: 'text', // text | json | javascript | html | xml (mode: raw)
+    schema: '', // optional JSON Schema for raw/JSON bodies
     form: [], // [{key,value,enabled}]
     graphql: { query: '', variables: '' }, // GraphQL query + JSON variables
   };
